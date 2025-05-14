@@ -30,6 +30,7 @@ import {
 } from "./helpers";
 
 const defaultStyle: Style = {
+  font: "Calibri",
   titleSize: 32,
   headingSpacing: 240,
   paragraphSpacing: 240,
@@ -245,8 +246,7 @@ export async function convertMarkdownToDocx(
                 continue;
               } catch (error) {
                 console.warn(
-                  `Warning: Failed to process table at line ${
-                    i + 1
+                  `Warning: Failed to process table at line ${i + 1
                   }. Converting to regular text.`
                 );
                 // Fallback to regular text
@@ -256,6 +256,7 @@ export async function convertMarkdownToDocx(
                       new TextRun({
                         text: trimmedLine.replace(/\|/g, "").trim(),
                         color: "000000",
+                        font: style.font,
                       }),
                     ],
                   })
@@ -340,8 +341,7 @@ export async function convertMarkdownToDocx(
             docChildren.push(...imageParagraphs);
           } catch (error) {
             console.error(
-              `Error in image processing: ${
-                error instanceof Error ? error.message : String(error)
+              `Error in image processing: ${error instanceof Error ? error.message : String(error)
               }`
             );
             docChildren.push(
@@ -351,6 +351,7 @@ export async function convertMarkdownToDocx(
                     text: `[Image could not be loaded: ${altText}]`,
                     italics: true,
                     color: "FF0000",
+                    font: style.font,
                   }),
                 ],
                 alignment: AlignmentType.CENTER,
@@ -377,8 +378,7 @@ export async function convertMarkdownToDocx(
           } catch (error) {
             // Fallback to plain text if formatting fails
             console.warn(
-              `Warning: Failed to process text formatting at line ${i + 1}: ${
-                error instanceof Error ? error.message : String(error)
+              `Warning: Failed to process text formatting at line ${i + 1}: ${error instanceof Error ? error.message : String(error)
               }. Using plain text.`
             );
             docChildren.push(
@@ -388,6 +388,7 @@ export async function convertMarkdownToDocx(
                     text: trimmedLine,
                     color: "000000",
                     size: style.paragraphSize || 24,
+                    font: style.font,
                   }),
                 ],
                 spacing: {
@@ -409,8 +410,7 @@ export async function convertMarkdownToDocx(
       } catch (error) {
         // Log error and continue with next line
         console.warn(
-          `Warning: Failed to process line ${i + 1}: ${
-            error instanceof Error ? error.message : "Unknown error"
+          `Warning: Failed to process line ${i + 1}: ${error instanceof Error ? error.message : "Unknown error"
           }. Skipping line.`
         );
         continue;
@@ -450,6 +450,7 @@ export async function convertMarkdownToDocx(
                 children: [
                   new TextRun({
                     text: heading.text,
+                    font: style.font,
                   }),
                 ],
               }),
@@ -506,6 +507,7 @@ export async function convertMarkdownToDocx(
                   children: [
                     new TextRun({
                       children: [PageNumber.CURRENT],
+                      font: style.font
                     }),
                   ],
                 }),
@@ -519,7 +521,7 @@ export async function convertMarkdownToDocx(
         paragraphStyles: [
           {
             id: "Title",
-            name: "Title",
+            name: 'Normal',
             basedOn: "Normal",
             next: "Normal",
             quickFormat: true,
@@ -527,6 +529,7 @@ export async function convertMarkdownToDocx(
               size: style.titleSize,
               bold: true,
               color: "000000",
+              font: style.font
             },
             paragraph: {
               spacing: {
@@ -538,7 +541,7 @@ export async function convertMarkdownToDocx(
           },
           {
             id: "Heading1",
-            name: "Heading 1",
+            name: 'Normal',
             basedOn: "Normal",
             next: "Normal",
             quickFormat: true,
@@ -546,6 +549,7 @@ export async function convertMarkdownToDocx(
               size: style.titleSize,
               bold: true,
               color: "000000",
+              font: style.font
             },
             paragraph: {
               spacing: {
@@ -565,6 +569,7 @@ export async function convertMarkdownToDocx(
               size: style.titleSize - 4,
               bold: true,
               color: "000000",
+              font: style.font
             },
             paragraph: {
               spacing: {
@@ -584,6 +589,7 @@ export async function convertMarkdownToDocx(
               size: style.titleSize - 8,
               bold: true,
               color: "000000",
+              font: style.font
             },
             paragraph: {
               spacing: {
@@ -603,6 +609,7 @@ export async function convertMarkdownToDocx(
               size: style.titleSize - 12,
               bold: true,
               color: "000000",
+              font: style.font
             },
             paragraph: {
               spacing: {
@@ -622,6 +629,7 @@ export async function convertMarkdownToDocx(
               size: style.titleSize - 16,
               bold: true,
               color: "000000",
+              font: style.font
             },
             paragraph: {
               spacing: {
@@ -636,6 +644,7 @@ export async function convertMarkdownToDocx(
             name: "Strong",
             run: {
               bold: true,
+              font: style.font
             },
           },
         ],
@@ -648,8 +657,7 @@ export async function convertMarkdownToDocx(
       throw error;
     }
     throw new MarkdownConversionError(
-      `Failed to convert markdown to docx: ${
-        error instanceof Error ? error.message : "Unknown error"
+      `Failed to convert markdown to docx: ${error instanceof Error ? error.message : "Unknown error"
       }`,
       { originalError: error }
     );
@@ -682,8 +690,7 @@ export function downloadDocx(
   } catch (error) {
     console.error("Failed to save file:", error);
     throw new Error(
-      `Failed to save file: ${
-        error instanceof Error ? error.message : "Unknown error"
+      `Failed to save file: ${error instanceof Error ? error.message : "Unknown error"
       }`
     );
   }

@@ -96,6 +96,7 @@ export function processHeading(
             bold: true,
             size: headingSize,
             color: "000000",
+            font: style.font,
           }),
         ],
       }),
@@ -122,7 +123,7 @@ export function processHeading(
  */
 export function processTable(
   tableData: TableData,
-  documentType: "document" | "report"
+  documentType: "document" | "report",
 ): Table {
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
@@ -201,12 +202,14 @@ export function processListItem(
       new TextRun({
         text: "\n",
         size: style.listItemSize || 24,
+        font: style.font,
       }),
       new TextRun({
         text: config.boldText,
         bold: true,
         color: "000000",
         size: style.listItemSize || 24,
+        font: style.font,
       })
     );
   }
@@ -259,6 +262,7 @@ export function processBlockquote(text: string, style: Style): Paragraph {
         italics: true,
         color: "000000",
         size: style.blockquoteSize || 24, // Use custom blockquote size if provided
+        font: style.font,
       }),
     ],
     indent: {
@@ -292,6 +296,7 @@ export function processComment(text: string, style: Style): Paragraph {
         text: "Comment: " + text,
         italics: true,
         color: "666666",
+        font: style.font,
       }),
     ],
     spacing: {
@@ -604,6 +609,7 @@ export function processLinkParagraph(
         text: text,
         color: "0000FF",
         underline: { type: "single" },
+        font: style.font,
       }),
     ],
     link: url,
@@ -705,6 +711,7 @@ export async function processImage(
             text: `[Image could not be displayed: ${altText}]`,
             italics: true,
             color: "FF0000",
+            font: style.font,
           }),
         ],
         alignment: AlignmentType.CENTER,
@@ -737,6 +744,7 @@ export function processParagraph(text: string, style: Style): Paragraph {
           text: boldText,
           bold: true,
           size: style.paragraphSize || 24,
+          font: style.font,
         })
       );
     } else {
@@ -745,6 +753,7 @@ export function processParagraph(text: string, style: Style): Paragraph {
         new TextRun({
           text: word,
           size: style.paragraphSize || 24,
+          font: style.font,
         })
       );
     }
@@ -755,6 +764,7 @@ export function processParagraph(text: string, style: Style): Paragraph {
         new TextRun({
           text: " ",
           size: style.paragraphSize || 24,
+          font: style.font,
         })
       );
     }

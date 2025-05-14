@@ -1,4 +1,5 @@
 export interface Style {
+  font: string;
   titleSize: number;
   headingSpacing: number;
   paragraphSpacing: number;
@@ -53,6 +54,7 @@ export interface ListItemConfig {
 }
 
 export const defaultStyle: Style = {
+  font: "Calibri",
   titleSize: 32,
   headingSpacing: 240,
   paragraphSpacing: 240,

@@ -1,5 +1,5 @@
 {
-  "name": "@mohtasham/md-to-docx",
+  "name": "md-to-docx",
   "version": "1.4.3",
   "description": "Convert Markdown to Microsoft Word (.docx) documents with support for various Markdown features",
   "main": "dist/index.js",

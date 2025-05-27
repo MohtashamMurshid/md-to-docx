@@ -13,7 +13,23 @@ import {
   PageNumber,
 } from "docx";
 import saveAs from "file-saver";
-import { Options, Style, headingConfigs } from "./types";
+import {
+  Options,
+  Style,
+  headingConfigs,
+  TableData,
+  ListItemConfig,
+  NestedListItem,
+  TaskListItem,
+  DefinitionListItem,
+  FootnoteConfig,
+  Footnote,
+  CitationConfig,
+  Citation,
+  MathEquation,
+  HeadingConfig,
+  ProcessedContent,
+} from "./types.js";
 import {
   processHeading,
   processTable,
@@ -27,7 +43,15 @@ import {
   processLinkParagraph,
   processImage,
   processParagraph,
-} from "./helpers";
+  processNestedListItem,
+  processTaskListItem,
+  processDefinitionList,
+  processHorizontalRule,
+  processMathEquation,
+  detectListLevel,
+  parseTaskList,
+  parseDefinitionList,
+} from "./helpers.js";
 
 const defaultStyle: Style = {
   titleSize: 32,
@@ -42,7 +66,22 @@ const defaultOptions: Options = {
   style: defaultStyle,
 };
 
-export { Options, TableData } from "./types";
+export {
+  Options,
+  TableData,
+  Style,
+  ListItemConfig,
+  NestedListItem,
+  TaskListItem,
+  DefinitionListItem,
+  FootnoteConfig,
+  Footnote,
+  CitationConfig,
+  Citation,
+  MathEquation,
+  HeadingConfig,
+  ProcessedContent,
+} from "./types.js";
 
 /**
  * Custom error class for markdown conversion errors
@@ -271,7 +310,139 @@ export async function convertMarkdownToDocx(
           }
         }
 
-        // Handle lists
+        // Handle horizontal rules (---, ***, ___)
+        if (/^[-*_]{3,}$/.test(trimmedLine)) {
+          if (inList) {
+            docChildren.push(...listItems);
+            listItems = [];
+            inList = false;
+          }
+          docChildren.push(processHorizontalRule(style));
+          continue;
+        }
+
+        // Handle block math equations ($$...$$)
+        if (trimmedLine.startsWith("$$") && trimmedLine.endsWith("$$")) {
+          if (inList) {
+            docChildren.push(...listItems);
+            listItems = [];
+            inList = false;
+          }
+          const equation = trimmedLine.slice(2, -2).trim();
+          docChildren.push(processMathEquation(equation, true, style));
+          continue;
+        }
+
+        // Handle multi-line block math equations
+        if (trimmedLine === "$$") {
+          if (inList) {
+            docChildren.push(...listItems);
+            listItems = [];
+            inList = false;
+          }
+          let mathContent = "";
+          i++; // Move to next line
+          while (i < lines.length && lines[i].trim() !== "$$") {
+            mathContent += (mathContent ? "\n" : "") + lines[i];
+            i++;
+          }
+          if (mathContent.trim()) {
+            docChildren.push(
+              processMathEquation(mathContent.trim(), true, style)
+            );
+          }
+          continue;
+        }
+
+        // Handle footnote definitions [^1]: footnote content
+        if (trimmedLine.match(/^\[\^([^\]]+)\]:\s*(.+)$/)) {
+          if (inList) {
+            docChildren.push(...listItems);
+            listItems = [];
+            inList = false;
+          }
+          // Skip footnote definitions for now - they would be processed at document end
+          // In a full implementation, you'd collect these and add them to document footer
+          continue;
+        }
+
+        // Handle definition lists
+        const defListResult = parseDefinitionList(lines, i);
+        if (defListResult) {
+          if (inList) {
+            docChildren.push(...listItems);
+            listItems = [];
+            inList = false;
+          }
+          const { term, definition, skipLines } = defListResult;
+          docChildren.push(...processDefinitionList(term, definition, style));
+          i += skipLines;
+          continue;
+        }
+
+        // Handle task lists (- [ ] and - [x])
+        const taskListResult = parseTaskList(line);
+        if (taskListResult) {
+          inList = true;
+          const { text, isCompleted, level } = taskListResult;
+          listItems.push(processTaskListItem(text, isCompleted, style, level));
+          continue;
+        }
+
+        // Handle nested lists (improved list handling with nesting support)
+        if (
+          trimmedLine.startsWith("- ") ||
+          trimmedLine.startsWith("* ") ||
+          /^\s+[-*]\s/.test(line)
+        ) {
+          inList = true;
+          const level = detectListLevel(line);
+          const listText = line.replace(/^\s*[-*]\s+/, "").trim();
+
+          // Check if there's a bold section on the next line
+          let boldText = "";
+          if (
+            i + 1 < lines.length &&
+            lines[i + 1].trim().startsWith("**") &&
+            lines[i + 1].trim().endsWith("**")
+          ) {
+            boldText = lines[i + 1].trim().slice(2, -2);
+            i++;
+          }
+
+          listItems.push(
+            processNestedListItem(
+              {
+                text: listText,
+                boldText,
+                level,
+                isNumbered: false,
+              },
+              style
+            )
+          );
+          continue;
+        }
+
+        // Handle nested numbered lists
+        if (/^\s*\d+\.\s/.test(line)) {
+          inList = true;
+          const level = detectListLevel(line);
+          const listText = line.replace(/^\s*\d+\.\s/, "").trim();
+          listItems.push(
+            processNestedListItem(
+              {
+                text: listText,
+                level,
+                isNumbered: true,
+              },
+              style
+            )
+          );
+          continue;
+        }
+
+        // Handle lists (legacy support for flat lists)
         if (trimmedLine.startsWith("- ") || trimmedLine.startsWith("* ")) {
           inList = true;
           const listText = trimmedLine.replace(/^[\s-*]+/, "").trim();
@@ -291,7 +462,7 @@ export async function convertMarkdownToDocx(
           continue;
         }
 
-        // Handle numbered lists
+        // Handle numbered lists (legacy support)
         if (/^\s*\d+\.\s/.test(trimmedLine)) {
           inList = true;
           const listText = trimmedLine.replace(/^\s*\d+\.\s/, "").trim();

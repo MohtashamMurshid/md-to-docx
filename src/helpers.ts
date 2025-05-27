@@ -14,7 +14,7 @@ import {
   Bookmark,
   InternalHyperlink,
 } from "docx";
-import { Style, TableData, HeadingConfig, ListItemConfig } from "./types";
+import { Style, TableData, HeadingConfig, ListItemConfig } from "./types.js";
 
 // Helper function to sanitize text for use in bookmark IDs
 function sanitizeForBookmarkId(text: string): string {
@@ -302,7 +302,7 @@ export function processComment(text: string, style: Style): Paragraph {
 }
 
 /**
- * Processes formatted text (bold/italic/inline-code) and returns an array of TextRun objects
+ * Processes formatted text (bold/italic/inline-code/superscript/subscript/footnotes/citations/math/emoji) and returns an array of TextRun objects
  * @param line - The line to process
  * @param style - The style configuration
  * @returns An array of TextRun objects
@@ -313,46 +313,223 @@ export function processFormattedText(line: string, style?: Style): TextRun[] {
   let isBold = false;
   let isItalic = false;
   let isInlineCode = false;
+  let isSuperscript = false;
+  let isSubscript = false;
+  let isStrikethrough = false;
 
-  for (let j = 0; j < line.length; j++) {
-    // Handle inline code with backtick
-    if (line[j] === "`") {
-      if (currentText) {
-        if (!isInlineCode) {
+  // First, handle emoji processing
+  const emojiProcessedRuns = processEmoji(line, style);
+  if (emojiProcessedRuns.length > 1) {
+    return emojiProcessedRuns;
+  }
+
+  // Process special patterns first (footnotes, citations, math)
+  const processedLine = line
+    // Handle footnotes [^1]
+    .replace(/\[\^(\w+)\]/g, (match, id) => {
+      const footnoteNumber = parseInt(id) || 1;
+      return `__FOOTNOTE_${id}_${footnoteNumber}__`;
+    })
+    // Handle citations [@citation]
+    .replace(/\[@([^\]]+)\]/g, (match, citation) => {
+      return `__CITATION_${citation}__`;
+    })
+    // Handle inline math $equation$
+    .replace(/\$([^$]+)\$/g, (match, equation) => {
+      return `__MATH_${equation}__`;
+    });
+
+  for (let j = 0; j < processedLine.length; j++) {
+    // Handle special tokens
+    if (processedLine.substr(j).startsWith("__FOOTNOTE_")) {
+      const match = processedLine.substr(j).match(/^__FOOTNOTE_(\w+)_(\d+)__/);
+      if (match) {
+        if (currentText) {
           textRuns.push(
             new TextRun({
               text: currentText,
               bold: isBold,
               italics: isItalic,
+              superScript: isSuperscript,
+              subScript: isSubscript,
+              strike: isStrikethrough,
               color: "000000",
               size: style?.paragraphSize || 24,
             })
           );
-        } else {
-          textRuns.push(processInlineCode(currentText, style));
+          currentText = "";
         }
+        const [fullMatch, id, number] = match;
+        textRuns.push(processFootnoteReference(id, parseInt(number), style));
+        j += fullMatch.length - 1;
+        continue;
+      }
+    }
+
+    if (processedLine.substr(j).startsWith("__CITATION_")) {
+      const match = processedLine.substr(j).match(/^__CITATION_([^_]+)__/);
+      if (match) {
+        if (currentText) {
+          textRuns.push(
+            new TextRun({
+              text: currentText,
+              bold: isBold,
+              italics: isItalic,
+              superScript: isSuperscript,
+              subScript: isSubscript,
+              strike: isStrikethrough,
+              color: "000000",
+              size: style?.paragraphSize || 24,
+            })
+          );
+          currentText = "";
+        }
+        const [fullMatch, citation] = match;
+        textRuns.push(
+          ...processCitation(
+            citation,
+            citation,
+            style || {
+              titleSize: 32,
+              headingSpacing: 240,
+              paragraphSpacing: 240,
+              lineSpacing: 1.15,
+            }
+          )
+        );
+        j += fullMatch.length - 1;
+        continue;
+      }
+    }
+
+    if (processedLine.substr(j).startsWith("__MATH_")) {
+      const match = processedLine.substr(j).match(/^__MATH_([^_]+)__/);
+      if (match) {
+        if (currentText) {
+          textRuns.push(
+            new TextRun({
+              text: currentText,
+              bold: isBold,
+              italics: isItalic,
+              superScript: isSuperscript,
+              subScript: isSubscript,
+              strike: isStrikethrough,
+              color: "000000",
+              size: style?.paragraphSize || 24,
+            })
+          );
+          currentText = "";
+        }
+        const [fullMatch, equation] = match;
+        textRuns.push(
+          new TextRun({
+            text: `$${equation}$`,
+            font: "Cambria Math",
+            size: style?.mathEquationSize || 24,
+            color: "000000",
+            italics: true,
+          })
+        );
+        j += fullMatch.length - 1;
+        continue;
+      }
+    }
+
+    // Handle inline code with backtick
+    if (processedLine[j] === "`" && !isInlineCode) {
+      if (currentText) {
+        textRuns.push(
+          new TextRun({
+            text: currentText,
+            bold: isBold,
+            italics: isItalic,
+            superScript: isSuperscript,
+            subScript: isSubscript,
+            strike: isStrikethrough,
+            color: "000000",
+            size: style?.paragraphSize || 24,
+          })
+        );
         currentText = "";
       }
       isInlineCode = !isInlineCode;
       continue;
     }
 
-    // Handle bold with ** markers
-    if (j + 1 < line.length && line[j] === "*" && line[j + 1] === "*") {
+    if (processedLine[j] === "`" && isInlineCode) {
+      textRuns.push(processInlineCode(currentText, style));
+      currentText = "";
+      isInlineCode = false;
+      continue;
+    }
+
+    // Handle superscript with ^ markers
+    if (processedLine[j] === "^" && !isInlineCode) {
       if (currentText) {
-        if (!isInlineCode) {
-          textRuns.push(
-            new TextRun({
-              text: currentText,
-              bold: isBold,
-              italics: isItalic,
-              color: "000000",
-              size: style?.paragraphSize || 24,
-            })
-          );
-        } else {
-          textRuns.push(processInlineCode(currentText, style));
-        }
+        textRuns.push(
+          new TextRun({
+            text: currentText,
+            bold: isBold,
+            italics: isItalic,
+            superScript: isSuperscript,
+            subScript: isSubscript,
+            strike: isStrikethrough,
+            color: "000000",
+            size: style?.paragraphSize || 24,
+          })
+        );
+        currentText = "";
+      }
+      isSuperscript = !isSuperscript;
+      continue;
+    }
+
+    // Handle subscript with ~ markers (when not used for strikethrough)
+    if (
+      processedLine[j] === "~" &&
+      !isInlineCode &&
+      (j === 0 || processedLine[j - 1] !== "~") &&
+      (j === processedLine.length - 1 || processedLine[j + 1] !== "~")
+    ) {
+      if (currentText) {
+        textRuns.push(
+          new TextRun({
+            text: currentText,
+            bold: isBold,
+            italics: isItalic,
+            superScript: isSuperscript,
+            subScript: isSubscript,
+            strike: isStrikethrough,
+            color: "000000",
+            size: style?.paragraphSize || 24,
+          })
+        );
+        currentText = "";
+      }
+      isSubscript = !isSubscript;
+      continue;
+    }
+
+    // Handle bold with ** markers
+    if (
+      j + 1 < processedLine.length &&
+      processedLine[j] === "*" &&
+      processedLine[j + 1] === "*" &&
+      !isInlineCode
+    ) {
+      if (currentText) {
+        textRuns.push(
+          new TextRun({
+            text: currentText,
+            bold: isBold,
+            italics: isItalic,
+            superScript: isSuperscript,
+            subScript: isSubscript,
+            strike: isStrikethrough,
+            color: "000000",
+            size: style?.paragraphSize || 24,
+          })
+        );
         currentText = "";
       }
       isBold = !isBold;
@@ -362,24 +539,24 @@ export function processFormattedText(line: string, style?: Style): TextRun[] {
 
     // Handle italic with single * marker
     if (
-      line[j] === "*" &&
-      (j === 0 || line[j - 1] !== "*") &&
-      (j === line.length - 1 || line[j + 1] !== "*")
+      processedLine[j] === "*" &&
+      (j === 0 || processedLine[j - 1] !== "*") &&
+      (j === processedLine.length - 1 || processedLine[j + 1] !== "*") &&
+      !isInlineCode
     ) {
       if (currentText) {
-        if (!isInlineCode) {
-          textRuns.push(
-            new TextRun({
-              text: currentText,
-              bold: isBold,
-              italics: isItalic,
-              color: "000000",
-              size: style?.paragraphSize || 24,
-            })
-          );
-        } else {
-          textRuns.push(processInlineCode(currentText, style));
-        }
+        textRuns.push(
+          new TextRun({
+            text: currentText,
+            bold: isBold,
+            italics: isItalic,
+            superScript: isSuperscript,
+            subScript: isSubscript,
+            strike: isStrikethrough,
+            color: "000000",
+            size: style?.paragraphSize || 24,
+          })
+        );
         currentText = "";
       }
       isItalic = !isItalic;
@@ -387,28 +564,33 @@ export function processFormattedText(line: string, style?: Style): TextRun[] {
     }
 
     // Handle strikethrough with ~~ markers
-    if (j + 1 < line.length && line[j] === "~" && line[j + 1] === "~") {
+    if (
+      j + 1 < processedLine.length &&
+      processedLine[j] === "~" &&
+      processedLine[j + 1] === "~" &&
+      !isInlineCode
+    ) {
       if (currentText) {
-        if (!isInlineCode) {
-          textRuns.push(
-            new TextRun({
-              text: currentText,
-              bold: isBold,
-              italics: isItalic,
-              color: "000000",
-              size: style?.paragraphSize || 24,
-            })
-          );
-        } else {
-          textRuns.push(processInlineCode(currentText, style));
-        }
+        textRuns.push(
+          new TextRun({
+            text: currentText,
+            bold: isBold,
+            italics: isItalic,
+            superScript: isSuperscript,
+            subScript: isSubscript,
+            strike: isStrikethrough,
+            color: "000000",
+            size: style?.paragraphSize || 24,
+          })
+        );
         currentText = "";
       }
+      isStrikethrough = !isStrikethrough;
       j++;
       continue;
     }
 
-    currentText += line[j];
+    currentText += processedLine[j];
   }
 
   // Add any remaining text
@@ -419,6 +601,9 @@ export function processFormattedText(line: string, style?: Style): TextRun[] {
           text: currentText,
           bold: isBold,
           italics: isItalic,
+          superScript: isSuperscript,
+          subScript: isSubscript,
+          strike: isStrikethrough,
           color: "000000",
           size: style?.paragraphSize || 24,
         })
@@ -775,11 +960,6 @@ export function processParagraph(text: string, style: Style): Paragraph {
       : AlignmentType.LEFT
     : AlignmentType.LEFT;
 
-  // Log the alignment for debugging
-  console.log(
-    `Paragraph alignment: ${alignment}, Style alignment: ${style.paragraphAlignment}`
-  );
-
   // Only apply indent for justified text
   const indent =
     style.paragraphAlignment === "JUSTIFIED"
@@ -796,4 +976,402 @@ export function processParagraph(text: string, style: Style): Paragraph {
     alignment,
     indent,
   });
+}
+
+/**
+ * Processes a nested list item with proper indentation
+ * @param config - The list item configuration
+ * @param style - The style configuration
+ * @returns The processed paragraph
+ */
+export function processNestedListItem(
+  config: ListItemConfig,
+  style: Style
+): Paragraph {
+  const level = config.level || 0;
+  const indent = level * 360; // 0.25 inch per level
+
+  // Process the main text with formatting
+  const children = processFormattedText(config.text, style);
+
+  // Handle task lists
+  if (config.isTask) {
+    const checkbox = config.isCompleted ? "☑" : "☐";
+    children.unshift(
+      new TextRun({
+        text: checkbox + " ",
+        size: style.taskListCheckboxSize || 24,
+        color: "000000",
+      })
+    );
+  }
+
+  return new Paragraph({
+    children,
+    bullet: config.isNumbered
+      ? {
+          level: level,
+        }
+      : {
+          level: level,
+        },
+    indent: {
+      left: indent,
+    },
+    spacing: {
+      before: style.paragraphSpacing / 4,
+      after: style.paragraphSpacing / 4,
+    },
+  });
+}
+
+/**
+ * Processes a task list item
+ * @param text - The task text
+ * @param isCompleted - Whether the task is completed
+ * @param style - The style configuration
+ * @param level - The nesting level
+ * @returns The processed paragraph
+ */
+export function processTaskListItem(
+  text: string,
+  isCompleted: boolean,
+  style: Style,
+  level: number = 0
+): Paragraph {
+  const checkbox = isCompleted ? "☑" : "☐";
+  const indent = level * 360;
+
+  const children = [
+    new TextRun({
+      text: checkbox + " ",
+      size: style.taskListCheckboxSize || 24,
+      color: "000000",
+    }),
+    ...processFormattedText(text, style),
+  ];
+
+  return new Paragraph({
+    children,
+    indent: {
+      left: indent,
+    },
+    spacing: {
+      before: style.paragraphSpacing / 4,
+      after: style.paragraphSpacing / 4,
+    },
+  });
+}
+
+/**
+ * Processes a definition list item
+ * @param term - The definition term
+ * @param definition - The definition description
+ * @param style - The style configuration
+ * @returns Array of processed paragraphs
+ */
+export function processDefinitionList(
+  term: string,
+  definition: string,
+  style: Style
+): Paragraph[] {
+  const termParagraph = new Paragraph({
+    children: [
+      new TextRun({
+        text: term,
+        bold: style.definitionListTermBold !== false,
+        size: style.definitionListTermSize || 24,
+        color: "000000",
+      }),
+    ],
+    spacing: {
+      before: style.paragraphSpacing / 2,
+      after: style.paragraphSpacing / 4,
+    },
+  });
+
+  const definitionParagraph = new Paragraph({
+    children: processFormattedText(definition, style),
+    indent: {
+      left: style.definitionListIndent || 360,
+    },
+    spacing: {
+      before: style.paragraphSpacing / 4,
+      after: style.paragraphSpacing / 2,
+    },
+  });
+
+  return [termParagraph, definitionParagraph];
+}
+
+/**
+ * Processes a horizontal rule
+ * @param style - The style configuration
+ * @returns The processed paragraph
+ */
+export function processHorizontalRule(style: Style): Paragraph {
+  return new Paragraph({
+    children: [
+      new TextRun({
+        text: "",
+      }),
+    ],
+    border: {
+      bottom: {
+        style: BorderStyle.SINGLE,
+        size: style.horizontalRuleThickness || 1,
+        color: style.horizontalRuleColor || "000000",
+      },
+    },
+    spacing: {
+      before: style.paragraphSpacing,
+      after: style.paragraphSpacing,
+    },
+  });
+}
+
+/**
+ * Processes superscript text
+ * @param text - The text to format as superscript
+ * @param style - The style configuration
+ * @returns The formatted TextRun
+ */
+export function processSuperscript(text: string, style?: Style): TextRun {
+  return new TextRun({
+    text: text,
+    superScript: true,
+    size: style?.superscriptSize || 18,
+    color: "000000",
+  });
+}
+
+/**
+ * Processes subscript text
+ * @param text - The text to format as subscript
+ * @param style - The style configuration
+ * @returns The formatted TextRun
+ */
+export function processSubscript(text: string, style?: Style): TextRun {
+  return new TextRun({
+    text: text,
+    subScript: true,
+    size: style?.subscriptSize || 18,
+    color: "000000",
+  });
+}
+
+/**
+ * Processes a math equation (LaTeX)
+ * @param latex - The LaTeX equation
+ * @param displayMode - Whether to display as block or inline
+ * @param style - The style configuration
+ * @returns The processed paragraph
+ */
+export function processMathEquation(
+  latex: string,
+  displayMode: boolean = false,
+  style: Style
+): Paragraph {
+  // For now, we'll display the LaTeX as formatted text
+  // In a more advanced implementation, you might use a LaTeX renderer
+  const mathText = displayMode ? `$$${latex}$$` : `$${latex}$`;
+
+  const alignment = displayMode
+    ? style.mathEquationAlignment === "CENTER"
+      ? AlignmentType.CENTER
+      : style.mathEquationAlignment === "RIGHT"
+      ? AlignmentType.RIGHT
+      : AlignmentType.LEFT
+    : AlignmentType.LEFT;
+
+  return new Paragraph({
+    children: [
+      new TextRun({
+        text: mathText,
+        font: "Cambria Math",
+        size: style.mathEquationSize || 24,
+        color: "000000",
+        italics: true,
+      }),
+    ],
+    alignment: alignment,
+    spacing: {
+      before: displayMode ? style.paragraphSpacing : 0,
+      after: displayMode ? style.paragraphSpacing : 0,
+    },
+  });
+}
+
+/**
+ * Processes emoji text (converts Unicode emoji)
+ * @param text - The text containing emoji
+ * @param style - The style configuration
+ * @returns Array of TextRun objects
+ */
+export function processEmoji(text: string, style?: Style): TextRun[] {
+  // Simple emoji processing - in a real implementation you might want
+  // to use a more sophisticated emoji library
+  const emojiRegex =
+    /[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu;
+
+  const runs: TextRun[] = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = emojiRegex.exec(text)) !== null) {
+    // Add text before emoji
+    if (match.index > lastIndex) {
+      runs.push(
+        new TextRun({
+          text: text.slice(lastIndex, match.index),
+          size: style?.paragraphSize || 24,
+          color: "000000",
+        })
+      );
+    }
+
+    // Add emoji
+    runs.push(
+      new TextRun({
+        text: match[0],
+        size: (style?.paragraphSize || 24) + 4, // Slightly larger for emoji
+        color: "000000",
+      })
+    );
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Add remaining text
+  if (lastIndex < text.length) {
+    runs.push(
+      new TextRun({
+        text: text.slice(lastIndex),
+        size: style?.paragraphSize || 24,
+        color: "000000",
+      })
+    );
+  }
+
+  return runs.length > 0
+    ? runs
+    : [
+        new TextRun({
+          text: text,
+          size: style?.paragraphSize || 24,
+          color: "000000",
+        }),
+      ];
+}
+
+/**
+ * Processes a footnote reference
+ * @param footnoteId - The footnote ID
+ * @param footnoteNumber - The footnote number
+ * @param style - The style configuration
+ * @returns The formatted TextRun
+ */
+export function processFootnoteReference(
+  footnoteId: string,
+  footnoteNumber: number,
+  style?: Style
+): TextRun {
+  return new TextRun({
+    text: `[${footnoteNumber}]`,
+    superScript: true,
+    size: style?.footnoteSize || 20,
+    color: "0000FF", // Blue color for links
+  });
+}
+
+/**
+ * Processes a citation
+ * @param citation - The citation text
+ * @param citationId - The citation ID
+ * @param style - The style configuration
+ * @returns Array of TextRun objects
+ */
+export function processCitation(
+  citation: string,
+  citationId: string,
+  style: Style
+): TextRun[] {
+  // Format citation based on style
+  let formattedCitation = "";
+
+  switch (style.citationFormat) {
+    case "APA":
+      formattedCitation = `(${citation})`;
+      break;
+    case "MLA":
+      formattedCitation = `(${citation})`;
+      break;
+    case "CHICAGO":
+      formattedCitation = `[${citation}]`;
+      break;
+    default:
+      formattedCitation = `(${citation})`;
+  }
+
+  return [
+    new TextRun({
+      text: formattedCitation,
+      size: style.citationSize || 20,
+      color: "000000",
+      italics: true,
+    }),
+  ];
+}
+
+/**
+ * Detects the nesting level of a list item
+ * @param line - The line to analyze
+ * @returns The nesting level (0-based)
+ */
+export function detectListLevel(line: string): number {
+  const leadingSpaces = line.match(/^\s*/)?.[0].length || 0;
+  return Math.floor(leadingSpaces / 2); // Assuming 2 spaces per level
+}
+
+/**
+ * Checks if a line is a task list item
+ * @param line - The line to check
+ * @returns Object with task list info or null
+ */
+export function parseTaskList(
+  line: string
+): { text: string; isCompleted: boolean; level: number } | null {
+  const taskMatch = line.match(/^(\s*)-\s*\[([ x])\]\s*(.+)$/i);
+  if (taskMatch) {
+    const [, spaces, checkbox, text] = taskMatch;
+    const level = spaces.length / 2;
+    const isCompleted = checkbox.toLowerCase() === "x";
+    return { text: text.trim(), isCompleted, level };
+  }
+  return null;
+}
+
+/**
+ * Checks if a line is a definition list item
+ * @param lines - Array of lines to check
+ * @param currentIndex - Current line index
+ * @returns Object with definition list info or null
+ */
+export function parseDefinitionList(
+  lines: string[],
+  currentIndex: number
+): { term: string; definition: string; skipLines: number } | null {
+  const currentLine = lines[currentIndex]?.trim();
+  const nextLine = lines[currentIndex + 1]?.trim();
+
+  // Check for term followed by definition (starting with :)
+  if (currentLine && nextLine && nextLine.startsWith(": ")) {
+    return {
+      term: currentLine,
+      definition: nextLine.slice(2).trim(),
+      skipLines: 1,
+    };
+  }
+
+  return null;
 }

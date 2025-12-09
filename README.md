@@ -28,6 +28,7 @@ A powerful TypeScript module that converts Markdown text to Microsoft Word (.doc
 - 📏 Custom font sizes for all elements
 - ⚖️ Text alignment control for all elements
 - ↔️ RTL/LTR direction control
+- 🔄 Text find-and-replace functionality
 - 🧪 Comprehensive test coverage
 
 ## Installation
@@ -210,6 +211,33 @@ const markdown = `
 const blob = await convertMarkdownToDocx(markdown, customHeadingOptions);
 ```
 
+### Text Find-and-Replace
+
+You can apply text replacements to the markdown before conversion:
+
+```typescript
+const markdown = `
+# Document Title
+Hello oldText world. Company Name is great.
+`;
+
+const options = {
+  documentType: "document",
+  textReplacements: [
+    // Replace using RegExp
+    { find: /oldText/g, replace: 'newText' },
+    // Replace using string literal
+    { find: 'Company Name', replace: 'Acme Corp' },
+    // Replace with function
+    { find: /(\d+)/g, replace: (match) => `Number: ${match}` }
+  ],
+};
+
+const blob = await convertMarkdownToDocx(markdown, options);
+```
+
+The replacements are applied to the markdown AST before conversion, so they work across all markdown elements (headings, paragraphs, lists, etc.).
+
 ### In React
 
 ```typescript
@@ -274,6 +302,10 @@ Converts Markdown text to a DOCX document.
       - `blockquoteAlignment` (string): "LEFT" | "RIGHT" | "CENTER" | "JUSTIFIED"
     - Direction:
       - `direction` (string): "LTR" | "RTL". Applies bidirectional layout for paragraphs and runs. Combine with `paragraphAlignment: "RIGHT"` for typical RTL layouts.
+    - Text Replacements:
+      - `textReplacements` (array, optional): Array of `TextReplacement` objects for pattern-based text replacement
+        - `find` (string | RegExp): The pattern to find
+        - `replace` (string | function): The replacement (string or function that returns string or array of nodes)
 
 #### Returns
 

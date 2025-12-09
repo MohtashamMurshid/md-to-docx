@@ -14,8 +14,8 @@ import {
   IPropertiesOptions,
 } from "docx";
 import saveAs from "file-saver";
-import { Options, Style, headingConfigs } from "./types.js";
-import { parseMarkdownToAst } from "./markdownAst.js";
+import { Options, Style } from "./types.js";
+import { parseMarkdownToAst, applyTextReplacements } from "./markdownAst.js";
 import { mdastToDocxModel } from "./mdastToDocxModel.js";
 import { modelToDocx } from "./modelToDocx.js";
 
@@ -136,6 +136,11 @@ export async function parseToDocxOptions (
 
     // Parse markdown to AST
     const ast = await parseMarkdownToAst(markdown);
+
+    // Apply text replacements if provided
+    if (options.textReplacements && options.textReplacements.length > 0) {
+      applyTextReplacements(ast, options.textReplacements);
+    }
 
     // Convert AST to internal model
     const model = mdastToDocxModel(ast, style, options);

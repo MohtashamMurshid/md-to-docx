@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2025-12-09
+
+### Added
+
+- Text find-and-replace functionality via `textReplacements` option in `Options`
+- Support for pattern-based text replacement before markdown conversion using `mdast-util-find-and-replace`
+- New `TextReplacement` interface for defining find/replace patterns (supports string or RegExp patterns)
+- New `applyTextReplacements()` function exported from `markdownAst.ts` for advanced use cases
+- Support for bold+italic formatting with `***text***` markers (triple asterisks) in paragraphs, headings, and list items
+- Enhanced nested list handling with proper level tracking for multi-level bullet and numbered lists
+- New internal document model architecture with `docxModel.ts`, `mdastToDocxModel.ts`, and `modelToDocx.ts` for improved separation of concerns
+
+### Changed
+
+- Major refactoring of markdown processing pipeline: conversion now uses AST-based approach with `remark-parse` and `remark-gfm`
+- Improved list item rendering with proper level support for nested lists
+- Enhanced text parser to handle combined bold+italic formatting (`***text***`) correctly
+- Updated `ListItemConfig` interface to include `level` property for nested list support
+
+### Notes
+
+- Text replacements are applied to the markdown AST before conversion to DOCX, preserving markdown structure
+- Supports both string literals and regular expressions for pattern matching
+- Replacement can be a string or a function that returns a string or array of nodes
+- Bold+italic formatting (`***text***`) is now properly recognized and rendered in all text contexts
+
 ## [2.4.0] - 2025-10-01
 
 ### Added

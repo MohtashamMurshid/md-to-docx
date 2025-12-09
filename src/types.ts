@@ -46,6 +46,11 @@ export interface Style {
 export interface Options {
   documentType?: "document" | "report";
   style?: Style;
+  /**
+   * Array of text replacements to apply to the markdown AST before conversion
+   * Uses mdast-util-find-and-replace for pattern matching and replacement
+   */
+  textReplacements?: TextReplacement[];
 }
 
 export interface TableData {
@@ -72,6 +77,16 @@ export interface ListItemConfig {
   listNumber?: number;
   sequenceId?: number;
   level?: number;
+}
+
+/**
+ * Configuration for text find-and-replace operations
+ * @property find - The pattern to find (string or RegExp)
+ * @property replace - The replacement (string or function that returns string or array of nodes)
+ */
+export interface TextReplacement {
+  find: string | RegExp;
+  replace: string | ((match: string, ...args: any[]) => string | any);
 }
 
 export const defaultStyle: Style = {

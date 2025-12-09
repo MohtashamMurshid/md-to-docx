@@ -71,6 +71,7 @@ export interface ListItemConfig {
   isNumbered?: boolean;
   listNumber?: number;
   sequenceId?: number;
+  level?: number;
 }
 
 export const defaultStyle: Style = {

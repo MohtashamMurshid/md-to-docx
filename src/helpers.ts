@@ -154,6 +154,37 @@ function processFormattedTextForHeading(
       continue;
     }
 
+    // Handle bold+italic with *** markers (must check before **)
+    if (j + 2 < text.length && text[j] === "*" && text[j + 1] === "*" && text[j + 2] === "*") {
+      // Flush current text before toggling bold+italic
+      if (currentText) {
+        textRuns.push(
+          new TextRun({
+            text: currentText,
+            bold: isBold,
+            italics: isItalic,
+            color: "000000",
+            size: fontSize,
+            rightToLeft: style?.direction === "RTL",
+          })
+        );
+        currentText = "";
+      }
+
+      // Toggle both bold and italic state
+      if (!isBold && !isItalic) {
+        boldStart = j;
+        italicStart = j;
+      } else {
+        boldStart = -1;
+        italicStart = -1;
+      }
+      isBold = !isBold;
+      isItalic = !isItalic;
+      j += 2; // Skip the second and third *
+      continue;
+    }
+
     // Handle bold with ** markers
     if (j + 1 < text.length && text[j] === "*" && text[j + 1] === "*") {
       // Flush current text before toggling bold
@@ -220,18 +251,27 @@ function processFormattedTextForHeading(
   // Handle any remaining text
   if (currentText) {
     // If we have unclosed markers, treat them as literal text
-    if (isBold && boldStart >= 0) {
-      // Insert the ** back into the text and turn off bold
-      const beforeBold = currentText;
-      currentText = "**" + beforeBold;
+    // Check if both bold and italic were started together (triple asterisk)
+    if (isBold && isItalic && boldStart >= 0 && italicStart >= 0 && boldStart === italicStart) {
+      // Insert the *** back into the text and turn off both
+      const beforeFormatting = currentText;
+      currentText = "***" + beforeFormatting;
       isBold = false;
-    }
-
-    if (isItalic && italicStart >= 0) {
-      // Insert the * back into the text and turn off italic
-      const beforeItalic = currentText;
-      currentText = "*" + beforeItalic;
       isItalic = false;
+    } else {
+      if (isBold && boldStart >= 0) {
+        // Insert the ** back into the text and turn off bold
+        const beforeBold = currentText;
+        currentText = "**" + beforeBold;
+        isBold = false;
+      }
+
+      if (isItalic && italicStart >= 0) {
+        // Insert the * back into the text and turn off italic
+        const beforeItalic = currentText;
+        currentText = "*" + beforeItalic;
+        isItalic = false;
+      }
     }
 
     // Only add non-empty text runs
@@ -345,6 +385,8 @@ export function processListItem(
 ): Paragraph {
   let textContent = config.text;
 
+  const listLevel = config.level ?? 0;
+
   // Process the main text with formatting
   const children = processFormattedText(textContent, style);
 
@@ -372,7 +414,7 @@ export function processListItem(
       children,
       numbering: {
         reference: numberingReference,
-        level: 0,
+        level: listLevel,
       },
       spacing: {
         before: style.paragraphSpacing / 2,
@@ -385,7 +427,7 @@ export function processListItem(
     return new Paragraph({
       children,
       bullet: {
-        level: 0,
+        level: listLevel,
       },
       spacing: {
         before: style.paragraphSpacing / 2,
@@ -619,6 +661,37 @@ export function processFormattedText(line: string, style?: Style): (TextRun | Ex
       continue;
     }
 
+    // Handle bold+italic with *** markers (must check before **)
+    if (j + 2 < line.length && line[j] === "*" && line[j + 1] === "*" && line[j + 2] === "*") {
+      // Flush current text before toggling bold+italic
+      if (currentText) {
+        textRuns.push(
+          new TextRun({
+            text: currentText,
+            bold: isBold,
+            italics: isItalic,
+            color: "000000",
+            size: style?.paragraphSize || 24,
+            rightToLeft: style?.direction === "RTL",
+          })
+        );
+        currentText = "";
+      }
+
+      // Toggle both bold and italic state
+      if (!isBold && !isItalic) {
+        boldStart = j;
+        italicStart = j;
+      } else {
+        boldStart = -1;
+        italicStart = -1;
+      }
+      isBold = !isBold;
+      isItalic = !isItalic;
+      j += 2; // Skip the second and third *
+      continue;
+    }
+
     // Handle bold with ** markers
     if (j + 1 < line.length && line[j] === "*" && line[j + 1] === "*") {
       // Flush current text before toggling bold
@@ -684,18 +757,27 @@ export function processFormattedText(line: string, style?: Style): (TextRun | Ex
   // Handle any remaining text
   if (currentText) {
     // If we have unclosed markers, treat them as literal text
-    if (isBold && boldStart >= 0) {
-      // Insert the ** back into the text and turn off bold
-      const beforeBold = currentText;
-      currentText = "**" + beforeBold;
+    // Check if both bold and italic were started together (triple asterisk)
+    if (isBold && isItalic && boldStart >= 0 && italicStart >= 0 && boldStart === italicStart) {
+      // Insert the *** back into the text and turn off both
+      const beforeFormatting = currentText;
+      currentText = "***" + beforeFormatting;
       isBold = false;
-    }
-
-    if (isItalic && italicStart >= 0) {
-      // Insert the * back into the text and turn off italic
-      const beforeItalic = currentText;
-      currentText = "*" + beforeItalic;
       isItalic = false;
+    } else {
+      if (isBold && boldStart >= 0) {
+        // Insert the ** back into the text and turn off bold
+        const beforeBold = currentText;
+        currentText = "**" + beforeBold;
+        isBold = false;
+      }
+
+      if (isItalic && italicStart >= 0) {
+        // Insert the * back into the text and turn off italic
+        const beforeItalic = currentText;
+        currentText = "*" + beforeItalic;
+        isItalic = false;
+      }
     }
 
     if (isInlineCode) {
@@ -1009,29 +1091,65 @@ export async function processImage(
   style: Style
 ): Promise<Paragraph[]> {
   try {
+    // Parse optional width/height hints from URL fragment BEFORE processing
+    let widthHint: number | undefined;
+    let heightHint: number | undefined;
+    let urlWithoutFragment = imageUrl;
+
+    const hashIndex = imageUrl.indexOf("#");
+    if (hashIndex >= 0) {
+      const fragment = imageUrl.substring(hashIndex + 1);
+      urlWithoutFragment = imageUrl.substring(0, hashIndex);
+      
+      // Pattern #<width>x<height>
+      const wxh = fragment.match(/^(\d+)x(\d+)$/);
+      if (wxh) {
+        widthHint = parseInt(wxh[1], 10);
+        heightHint = parseInt(wxh[2], 10);
+      } else {
+        // Pattern #w=123&h=45 or #width=..&height=..
+        const params = new URLSearchParams(fragment.replace(/&amp;/g, "&"));
+        const w = params.get("w") || params.get("width");
+        const h = params.get("h") || params.get("height");
+        if (w && /^\d+$/.test(w)) widthHint = parseInt(w, 10);
+        if (h && /^\d+$/.test(h)) heightHint = parseInt(h, 10);
+      }
+    }
+
     // Support data URLs without fetch and extract raw data/content-type
     let data: Uint8Array | Buffer;
     let contentType = "";
 
-    if (/^data:/i.test(imageUrl)) {
+    if (/^data:/i.test(urlWithoutFragment)) {
       // data:[<mediatype>][;base64],<data>
-      const match = imageUrl.match(/^data:([^;,]*)(;base64)?,(.*)$/i);
+      const match = urlWithoutFragment.match(/^data:([^;,]*)(;base64)?,(.*)$/i);
       if (!match) {
-        throw new Error("Invalid data URL for image");
+        throw new Error(`Invalid data URL for image: ${urlWithoutFragment.substring(0, 100)}...`);
       }
       contentType = match[1] || "";
       const isBase64 = !!match[2];
       const dataPart = match[3];
-      const binary = isBase64
-        ? typeof Buffer !== "undefined"
-          ? Buffer.from(dataPart, "base64")
-          : Uint8Array.from(atob(dataPart), (c) => c.charCodeAt(0))
-        : typeof Buffer !== "undefined"
-        ? Buffer.from(decodeURIComponent(dataPart))
-        : new TextEncoder().encode(decodeURIComponent(dataPart));
-      data = binary as any;
+      
+      try {
+        const binary = isBase64
+          ? typeof Buffer !== "undefined"
+            ? Buffer.from(dataPart, "base64")
+            : Uint8Array.from(atob(dataPart), (c) => c.charCodeAt(0))
+          : typeof Buffer !== "undefined"
+          ? Buffer.from(decodeURIComponent(dataPart))
+          : new TextEncoder().encode(decodeURIComponent(dataPart));
+        data = binary as any;
+        
+        // Verify we got valid data
+        if (!data || data.length === 0) {
+          throw new Error("Data URL produced empty image data");
+        }
+      } catch (error) {
+        throw new Error(`Failed to decode data URL: ${error instanceof Error ? error.message : String(error)}`);
+      }
     } else {
-      const response = await fetch(imageUrl);
+      // Use URL without fragment for fetch (fetch automatically strips fragments anyway)
+      const response = await fetch(urlWithoutFragment);
 
       if (!response.ok) {
         throw new Error(
@@ -1050,34 +1168,25 @@ export async function processImage(
       contentType = response.headers.get("content-type") || "";
     }
     let imageType: "png" | "jpg" | "gif" = "png";
-    if (/jpeg|jpg/i.test(contentType) || /\.(jpe?g)(\?|$)/i.test(imageUrl)) {
+    // Use original imageUrl (with fragment) for type detection to preserve extension info
+    const urlForTypeDetection = imageUrl;
+    
+    // For data URLs, contentType should be set from the data URL itself
+    // For regular URLs, contentType comes from the response header
+    if (/jpeg|jpg/i.test(contentType) || /\.(jpe?g)(\?|#|$)/i.test(urlForTypeDetection)) {
       imageType = "jpg";
-    } else if (/png/i.test(contentType) || /\.(png)(\?|$)/i.test(imageUrl)) {
+    } else if (/png/i.test(contentType) || /\.(png)(\?|#|$)/i.test(urlForTypeDetection)) {
       imageType = "png";
-    } else if (/gif/i.test(contentType) || /\.(gif)(\?|$)/i.test(imageUrl)) {
+    } else if (/gif/i.test(contentType) || /\.(gif)(\?|#|$)/i.test(urlForTypeDetection)) {
       imageType = "gif";
+    } else {
+      // Default to PNG if type cannot be determined
+      imageType = "png";
     }
-
-    // Parse optional width/height hints from URL fragment
-    let widthHint: number | undefined;
-    let heightHint: number | undefined;
-
-    const hashIndex = imageUrl.indexOf("#");
-    if (hashIndex >= 0) {
-      const fragment = imageUrl.substring(hashIndex + 1);
-      // Pattern #<width>x<height>
-      const wxh = fragment.match(/^(\d+)x(\d+)$/);
-      if (wxh) {
-        widthHint = parseInt(wxh[1], 10);
-        heightHint = parseInt(wxh[2], 10);
-      } else {
-        // Pattern #w=123&h=45 or #width=..&height=..
-        const params = new URLSearchParams(fragment.replace(/&amp;/g, "&"));
-        const w = params.get("w") || params.get("width");
-        const h = params.get("h") || params.get("height");
-        if (w && /^\d+$/.test(w)) widthHint = parseInt(w, 10);
-        if (h && /^\d+$/.test(h)) heightHint = parseInt(h, 10);
-      }
+    
+    // Verify data is valid before proceeding
+    if (!data || (data instanceof Uint8Array && data.length === 0) || (data instanceof Buffer && data.length === 0)) {
+      throw new Error(`Invalid image data: data length is ${data ? (data instanceof Uint8Array ? data.length : (data as Buffer).length) : 0}`);
     }
 
     // Extract intrinsic dimensions and compute output to preserve aspect ratio
@@ -1149,15 +1258,27 @@ export async function processImage(
       outWidth = 200;
     }
 
+    // Ensure data is in the correct format (Buffer for Node.js, Uint8Array for browser)
+    // The docx library expects Buffer in Node.js environments
+    const imageData = typeof Buffer !== "undefined" && !(data instanceof Buffer)
+      ? Buffer.from(data)
+      : data instanceof Uint8Array
+      ? data
+      : Buffer.from(data as any);
+    
+    // Ensure we have valid dimensions
+    const finalHeight = outHeight || (outWidth ? Math.round(outWidth * 0.75) : 200); // Default aspect ratio if missing
+    
     // Create a paragraph with just the image, no hyperlink
     return [
       new Paragraph({
         children: [
           new ImageRun({
-            data,
-            transformation: outHeight
-              ? { width: outWidth, height: outHeight }
-              : { width: outWidth, height: 1 },
+            data: imageData,
+            transformation: {
+              width: outWidth,
+              height: finalHeight,
+            },
             type: imageType,
           }),
         ],

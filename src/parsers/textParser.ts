@@ -68,6 +68,37 @@ export function processFormattedText(line: string, style?: Style): TextRun[] {
       continue;
     }
 
+    // Handle bold+italic with *** markers (must check before **)
+    if (j + 2 < line.length && line[j] === "*" && line[j + 1] === "*" && line[j + 2] === "*") {
+      // Flush current text before toggling bold+italic
+      if (currentText) {
+        textRuns.push(
+          new TextRun({
+            text: currentText,
+            bold: isBold,
+            italics: isItalic,
+            color: "000000",
+            size: style?.paragraphSize || 24,
+            rightToLeft: style?.direction === "RTL",
+          })
+        );
+        currentText = "";
+      }
+
+      // Toggle both bold and italic state
+      if (!isBold && !isItalic) {
+        boldStart = j;
+        italicStart = j;
+      } else {
+        boldStart = -1;
+        italicStart = -1;
+      }
+      isBold = !isBold;
+      isItalic = !isItalic;
+      j += 2; // Skip the second and third *
+      continue;
+    }
+
     // Handle bold with ** markers
     if (j + 1 < line.length && line[j] === "*" && line[j + 1] === "*") {
       // Flush current text before toggling bold
@@ -133,18 +164,27 @@ export function processFormattedText(line: string, style?: Style): TextRun[] {
   // Handle any remaining text
   if (currentText) {
     // If we have unclosed markers, treat them as literal text
-    if (isBold && boldStart >= 0) {
-      // Insert the ** back into the text and turn off bold
-      const beforeBold = currentText;
-      currentText = "**" + beforeBold;
+    // Check if both bold and italic were started together (triple asterisk)
+    if (isBold && isItalic && boldStart >= 0 && italicStart >= 0 && boldStart === italicStart) {
+      // Insert the *** back into the text and turn off both
+      const beforeFormatting = currentText;
+      currentText = "***" + beforeFormatting;
       isBold = false;
-    }
-
-    if (isItalic && italicStart >= 0) {
-      // Insert the * back into the text and turn off italic
-      const beforeItalic = currentText;
-      currentText = "*" + beforeItalic;
       isItalic = false;
+    } else {
+      if (isBold && boldStart >= 0) {
+        // Insert the ** back into the text and turn off bold
+        const beforeBold = currentText;
+        currentText = "**" + beforeBold;
+        isBold = false;
+      }
+
+      if (isItalic && italicStart >= 0) {
+        // Insert the * back into the text and turn off italic
+        const beforeItalic = currentText;
+        currentText = "*" + beforeItalic;
+        isItalic = false;
+      }
     }
 
     if (isInlineCode) {
@@ -215,6 +255,37 @@ export function processFormattedTextForHeading(
       continue;
     }
 
+    // Handle bold+italic with *** markers (must check before **)
+    if (j + 2 < text.length && text[j] === "*" && text[j + 1] === "*" && text[j + 2] === "*") {
+      // Flush current text before toggling bold+italic
+      if (currentText) {
+        textRuns.push(
+          new TextRun({
+            text: currentText,
+            bold: isBold,
+            italics: isItalic,
+            color: "000000",
+            size: fontSize,
+            rightToLeft: style?.direction === "RTL",
+          })
+        );
+        currentText = "";
+      }
+
+      // Toggle both bold and italic state
+      if (!isBold && !isItalic) {
+        boldStart = j;
+        italicStart = j;
+      } else {
+        boldStart = -1;
+        italicStart = -1;
+      }
+      isBold = !isBold;
+      isItalic = !isItalic;
+      j += 2; // Skip the second and third *
+      continue;
+    }
+
     // Handle bold with ** markers
     if (j + 1 < text.length && text[j] === "*" && text[j + 1] === "*") {
       // Flush current text before toggling bold
@@ -281,18 +352,27 @@ export function processFormattedTextForHeading(
   // Handle any remaining text
   if (currentText) {
     // If we have unclosed markers, treat them as literal text
-    if (isBold && boldStart >= 0) {
-      // Insert the ** back into the text and turn off bold
-      const beforeBold = currentText;
-      currentText = "**" + beforeBold;
+    // Check if both bold and italic were started together (triple asterisk)
+    if (isBold && isItalic && boldStart >= 0 && italicStart >= 0 && boldStart === italicStart) {
+      // Insert the *** back into the text and turn off both
+      const beforeFormatting = currentText;
+      currentText = "***" + beforeFormatting;
       isBold = false;
-    }
-
-    if (isItalic && italicStart >= 0) {
-      // Insert the * back into the text and turn off italic
-      const beforeItalic = currentText;
-      currentText = "*" + beforeItalic;
       isItalic = false;
+    } else {
+      if (isBold && boldStart >= 0) {
+        // Insert the ** back into the text and turn off bold
+        const beforeBold = currentText;
+        currentText = "**" + beforeBold;
+        isBold = false;
+      }
+
+      if (isItalic && italicStart >= 0) {
+        // Insert the * back into the text and turn off italic
+        const beforeItalic = currentText;
+        currentText = "*" + beforeItalic;
+        isItalic = false;
+      }
     }
 
     // Only add non-empty text runs

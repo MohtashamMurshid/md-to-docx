@@ -41,7 +41,7 @@ export function processListItem(
       children,
       numbering: {
         reference: numberingReference,
-        level: 0,
+        level: config.level ?? 0,
       },
       spacing: {
         before: style.paragraphSpacing / 2,
@@ -54,7 +54,7 @@ export function processListItem(
     return new Paragraph({
       children,
       bullet: {
-        level: 0,
+        level: config.level ?? 0,
       },
       spacing: {
         before: style.paragraphSpacing / 2,

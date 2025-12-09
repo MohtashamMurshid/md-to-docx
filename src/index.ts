@@ -15,20 +15,9 @@ import {
 } from "docx";
 import saveAs from "file-saver";
 import { Options, Style, headingConfigs } from "./types.js";
-import {
-  processHeading,
-  processTable,
-  processListItem,
-  processBlockquote,
-  processComment,
-  processFormattedText,
-  collectTables,
-  processCodeBlock,
-  processLink,
-  processLinkParagraph,
-  processImage,
-  processParagraph,
-} from "./helpers.js";
+import { parseMarkdownToAst } from "./markdownAst.js";
+import { mdastToDocxModel } from "./mdastToDocxModel.js";
+import { modelToDocx } from "./modelToDocx.js";
 
 const defaultStyle: Style = {
   titleSize: 32,
@@ -132,7 +121,7 @@ export async function convertMarkdownToDocx( markdown: string, options: Options 
  * Convert Markdown to Docx options
  * @param markdown - The Markdown string to convert
  * @param options - The options for the conversion
- * @returns A Promise that resolves to a Blob containing the Docx file
+ * @returns A Promise that resolves to Docx options
  * @throws {MarkdownConversionError} If conversion fails
  */
 export async function parseToDocxOptions (
@@ -140,384 +129,19 @@ export async function parseToDocxOptions (
   options: Options = defaultOptions
 ): Promise<IPropertiesOptions> {
   try {
-
     // Validate inputs early
     validateInput(markdown, options);
 
     const { style = defaultStyle, documentType = "document" } = options;
-    const docChildren: (Paragraph | Table)[] = [];
-    const headings: { text: string; level: number; bookmarkId: string }[] = [];
-    const lines = markdown.split("\n");
-    let inList = false;
-    let listItems: Paragraph[] = [];
-    let currentListNumber = 1;
-    let isCurrentListNumbered = false;
-    let numberedListSequenceId = 0;
-    let inCodeBlock = false;
-    let codeBlockContent = "";
-    let codeBlockLanguage: string | undefined;
-    let tableIndex = 0;
-    const tables = collectTables(lines);
 
-    for (let i = 0; i < lines.length; i++) {
-      try {
-        const line = lines[i];
-        const trimmedLine = line.trim();
+    // Parse markdown to AST
+    const ast = await parseMarkdownToAst(markdown);
 
-        // Skip empty lines
-        if (!trimmedLine) {
-          if (inCodeBlock) {
-            codeBlockContent += "\n";
-          }
-          if (inList) {
-            docChildren.push(...listItems);
-            listItems = [];
-            inList = false;
-            currentListNumber = 1;
-            isCurrentListNumbered = false;
-          }
-          docChildren.push(new Paragraph({}));
-          continue;
-        }
+    // Convert AST to internal model
+    const model = mdastToDocxModel(ast, style, options);
 
-        // Handle Page Break
-        if (trimmedLine === "\\pagebreak") {
-          if (inList) {
-            docChildren.push(...listItems);
-            listItems = [];
-            inList = false;
-            currentListNumber = 1;
-            isCurrentListNumbered = false;
-          }
-          docChildren.push(new Paragraph({ children: [new PageBreak()] }));
-          continue;
-        }
-
-        // Handle Markdown Separators (e.g., ---)
-        if (/^\s*---\s*$/.test(trimmedLine)) {
-          if (inList) {
-            docChildren.push(...listItems);
-            listItems = [];
-            inList = false;
-            currentListNumber = 1;
-            isCurrentListNumbered = false;
-          }
-          // Skip the separator line
-          continue;
-        }
-
-        // Handle TOC Placeholder
-        if (trimmedLine === "[TOC]") {
-          if (inList) {
-            docChildren.push(...listItems);
-            listItems = [];
-            inList = false;
-          }
-          // Create a paragraph and add a unique property to identify it later
-          const tocPlaceholder = new Paragraph({});
-          (tocPlaceholder as any).__isTocPlaceholder = true; // Add temporary marker property
-          docChildren.push(tocPlaceholder);
-          continue;
-        }
-
-        // Handle code blocks
-        if (trimmedLine.startsWith("```")) {
-          if (!inCodeBlock) {
-            // Start of code block
-            inCodeBlock = true;
-            codeBlockLanguage = trimmedLine.slice(3).trim() || undefined;
-            codeBlockContent = "";
-          } else {
-            // End of code block
-            inCodeBlock = false;
-            docChildren.push(
-              processCodeBlock(
-                codeBlockContent.trim(),
-                codeBlockLanguage,
-                style
-              )
-            );
-            codeBlockContent = "";
-            codeBlockLanguage = undefined;
-          }
-          continue;
-        }
-
-        if (inCodeBlock) {
-          codeBlockContent += (codeBlockContent ? "\n" : "") + line;
-          continue;
-        }
-
-        // Process headings
-        if (trimmedLine.startsWith("#")) {
-          const match = trimmedLine.match(/^#+/);
-          if (match) {
-            const level = match[0].length;
-            if (level >= 1 && level <= 5) {
-              if (inList) {
-                docChildren.push(...listItems);
-                listItems = [];
-                inList = false;
-              }
-              const headingText = trimmedLine.substring(level).trim();
-              const config = {
-                ...headingConfigs[level],
-                alignment:
-                  headingConfigs[level].alignment || style.headingAlignment,
-              };
-              const { paragraph: headingParagraph, bookmarkId } =
-                processHeading(trimmedLine, config, style, documentType);
-              headings.push({ text: headingText, level, bookmarkId });
-
-              docChildren.push(headingParagraph);
-              continue;
-            }
-            // Graceful degradation for unsupported heading levels
-            console.warn(
-              `Warning: Heading level ${level} is not supported. Converting to regular paragraph.`
-            );
-          }
-        }
-
-        // Handle tables
-        if (trimmedLine.startsWith("|") && trimmedLine.endsWith("|")) {
-          // Support standard and aligned separator rows (with optional leading/trailing colons)
-          const separatorRegex = /^\s*\|(?:\s*:?-+:?\s*\|)+\s*$/;
-          if (
-            i + 1 < lines.length &&
-            (separatorRegex.test(lines[i + 1]) ||
-              (i + 2 < lines.length && separatorRegex.test(lines[i + 2])))
-          ) {
-            if (inList) {
-              docChildren.push(...listItems);
-              listItems = [];
-              inList = false;
-            }
-
-            if (tableIndex < tables.length) {
-              try {
-                docChildren.push(
-                  processTable(tables[tableIndex], documentType)
-                );
-                const tableRowCount = 2 + tables[tableIndex].rows.length;
-                i += tableRowCount - 1;
-                tableIndex++;
-                continue;
-              } catch (error) {
-                console.warn(
-                  `Warning: Failed to process table at line ${
-                    i + 1
-                  }. Converting to regular text.`
-                );
-                // Fallback to regular text
-                docChildren.push(
-                  new Paragraph({
-                    children: [
-                      new TextRun({
-                        text: trimmedLine.replace(/\|/g, "").trim(),
-                        color: "000000",
-                      }),
-                    ],
-                    bidirectional: style.direction === "RTL",
-                  })
-                );
-                continue;
-              }
-            }
-          }
-        }
-
-        // Handle lists
-        if (trimmedLine.startsWith("- ") || trimmedLine.startsWith("* ")) {
-          // Reset if switching from numbered to bullet list
-          if (isCurrentListNumbered) {
-            currentListNumber = 1;
-            isCurrentListNumbered = false;
-          }
-
-          inList = true;
-          const listText = trimmedLine.replace(/^[-*]\s+/, "").trim();
-
-          // Check if there's a bold section on the next line
-          let boldText = "";
-          if (
-            i + 1 < lines.length &&
-            lines[i + 1].trim().startsWith("**") &&
-            lines[i + 1].trim().endsWith("**")
-          ) {
-            boldText = lines[i + 1].trim().slice(2, -2); // Remove ** markers
-            i++;
-          }
-
-          listItems.push(processListItem({ text: listText, boldText }, style));
-          continue;
-        }
-
-        // Handle numbered lists
-        if (/^\s*\d+\.\s/.test(trimmedLine)) {
-          // Check if we need to start a new numbered list sequence
-          if (!isCurrentListNumbered || !inList) {
-            // Starting a new numbered list sequence
-            numberedListSequenceId++;
-            currentListNumber = 1;
-            isCurrentListNumbered = true;
-          }
-
-          inList = true;
-          const listText = trimmedLine.replace(/^\s*\d+\.\s/, "").trim();
-
-          // Check if there's a bold section on the next line
-          let boldText = "";
-          if (
-            i + 1 < lines.length &&
-            lines[i + 1].trim().startsWith("**") &&
-            lines[i + 1].trim().endsWith("**")
-          ) {
-            boldText = lines[i + 1].trim().slice(2, -2); // Remove ** markers
-            i++;
-          }
-
-          listItems.push(
-            processListItem(
-              {
-                text: listText,
-                boldText,
-                isNumbered: true,
-                listNumber: currentListNumber,
-                sequenceId: numberedListSequenceId,
-              },
-              style
-            )
-          );
-          currentListNumber++;
-          continue;
-        }
-
-        // Handle blockquotes
-        if (trimmedLine.startsWith("> ")) {
-          if (inList) {
-            docChildren.push(...listItems);
-            listItems = [];
-            inList = false;
-          }
-          const quoteText = trimmedLine.replace(/^>\s*/, "").trim();
-          docChildren.push(processBlockquote(quoteText, style));
-          continue;
-        }
-
-        // Handle comments
-        if (trimmedLine.startsWith("COMMENT:")) {
-          if (inList) {
-            docChildren.push(...listItems);
-            listItems = [];
-            inList = false;
-          }
-          const commentText = trimmedLine.replace(/^COMMENT:\s*/, "").trim();
-          docChildren.push(processComment(commentText, style));
-          continue;
-        }
-
-        // Handle images
-        const imageMatch = trimmedLine.match(/!\[([^\]]*)\]\(([^)]+)\)/);
-        if (imageMatch) {
-          const [_, altText, imageUrl] = imageMatch;
-          // Process images synchronously to ensure they're fully loaded
-          try {
-            const imageParagraphs = await processImage(
-              altText,
-              imageUrl,
-              style
-            );
-            docChildren.push(...imageParagraphs);
-          } catch (error) {
-            console.error(
-              `Error in image processing: ${
-                error instanceof Error ? error.message : String(error)
-              }`
-            );
-            docChildren.push(
-              new Paragraph({
-                children: [
-                  new TextRun({
-                    text: `[Image could not be loaded: ${altText}]`,
-                    italics: true,
-                    color: "FF0000",
-                  }),
-                ],
-                alignment: AlignmentType.CENTER,
-                bidirectional: style.direction === "RTL",
-              })
-            );
-          }
-          continue;
-        }
-
-        // Handle standalone links (entire line is a single link) - inline links are handled in processParagraph
-        const linkMatch = trimmedLine.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
-        if (linkMatch) {
-          const [_, text, url] = linkMatch;
-          docChildren.push(processLinkParagraph(text, url, style));
-          continue;
-        }
-
-        // Regular paragraph text with special formatting (use trimmedLine for processing)
-        if (!inList) {
-          try {
-            docChildren.push(processParagraph(trimmedLine, style));
-          } catch (error) {
-            // Fallback to plain text if formatting fails
-            console.warn(
-              `Warning: Failed to process text formatting at line ${i + 1}: ${
-                error instanceof Error ? error.message : String(error)
-              }. Using plain text.`
-            );
-            docChildren.push(
-              new Paragraph({
-                children: [
-                  new TextRun({
-                    text: trimmedLine,
-                    color: "000000",
-                    size: style.paragraphSize || 24,
-                  }),
-                ],
-                spacing: {
-                  before: style.paragraphSpacing,
-                  after: style.paragraphSpacing,
-                  line: style.lineSpacing * 240,
-                },
-                alignment: style.paragraphAlignment
-                  ? (AlignmentType as any)[style.paragraphAlignment]
-                  : undefined,
-              })
-            );
-          }
-          continue;
-        }
-
-        // Removed the fallback 'isContinuation' list item processing as it was causing type errors
-        // and needs a more robust implementation if required.
-      } catch (error) {
-        // Log error and continue with next line
-        console.warn(
-          `Warning: Failed to process line ${i + 1}: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }. Skipping line.`
-        );
-        continue;
-      }
-    }
-
-    // Handle any remaining code block
-    if (inCodeBlock && codeBlockContent) {
-      docChildren.push(
-        processCodeBlock(codeBlockContent.trim(), codeBlockLanguage, style)
-      );
-    }
-
-    // Add any remaining list items
-    if (inList && listItems.length > 0) {
-      docChildren.push(...listItems);
-    }
+    // Convert model to docx objects
+    const { children: docChildren, headings, maxSequenceId } = await modelToDocx(model, style, options);
 
     // Generate TOC content
     const tocContent: Paragraph[] = [];
@@ -628,7 +252,7 @@ export async function parseToDocxOptions (
 
     // Create numbering configurations for all numbered list sequences
     const numberingConfigs = [];
-    for (let i = 1; i <= numberedListSequenceId; i++) {
+    for (let i = 1; i <= maxSequenceId; i++) {
       numberingConfigs.push({
         reference: `numbered-list-${i}`,
         levels: [

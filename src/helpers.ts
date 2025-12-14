@@ -1185,7 +1185,7 @@ export async function processImage(
     }
     
     // Verify data is valid before proceeding
-    if (!data || (data instanceof Uint8Array && data.length === 0) || (data instanceof Buffer && data.length === 0)) {
+    if (!data || data.length === 0) {
       throw new Error(`Invalid image data: data length is ${data ? (data instanceof Uint8Array ? data.length : (data as Buffer).length) : 0}`);
     }
 

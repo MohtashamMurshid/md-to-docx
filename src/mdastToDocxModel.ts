@@ -210,6 +210,7 @@ export function mdastToDocxModel(root: Root, style: Style, options: Options): Do
       type: "table",
       headers,
       rows,
+      align: table.align || undefined,
     };
   }
 

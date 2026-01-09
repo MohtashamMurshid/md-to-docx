@@ -41,11 +41,13 @@ export interface Style {
   heading4Alignment?: "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
   heading5Alignment?: "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
   blockquoteAlignment?: "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
+  // Table options
+  tableLayout?: "autofit" | "fixed";
 }
 
 export interface Options {
   documentType?: "document" | "report";
-  style?: Style;
+  style?: Partial<Style>;
   /**
    * Array of text replacements to apply to the markdown AST before conversion
    * Uses mdast-util-find-and-replace for pattern matching and replacement
@@ -56,6 +58,7 @@ export interface Options {
 export interface TableData {
   headers: string[];
   rows: string[][];
+  align?: (string | null)[];
 }
 
 export interface ProcessedContent {
@@ -114,6 +117,8 @@ export const defaultStyle: Style = {
   heading5Alignment: "LEFT",
   blockquoteAlignment: "LEFT",
   headingAlignment: "LEFT",
+  // Table options
+  tableLayout: "autofit",
 };
 
 export const headingConfigs: Record<number, HeadingConfig> = {

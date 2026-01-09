@@ -308,23 +308,38 @@ function processFormattedTextForHeading(
  * Processes a table and returns table formatting
  * @param tableData - The table data
  * @param documentType - The document type
+ * @param style - The style configuration (optional)
  * @returns The processed table
  */
 export function processTable(
   tableData: TableData,
-  documentType: "document" | "report"
+  documentType: "document" | "report",
+  style?: Style
 ): Table {
+  // Determine table layout based on style configuration (default: autofit)
+  const layout = style?.tableLayout === "fixed"
+    ? TableLayoutType.FIXED
+    : TableLayoutType.AUTOFIT;
+
+  // Helper function to get alignment for a column index
+  const getColumnAlignment = (index: number): typeof AlignmentType[keyof typeof AlignmentType] => {
+    const align = tableData.align?.[index];
+    if (align === "center") return AlignmentType.CENTER;
+    if (align === "right") return AlignmentType.RIGHT;
+    return AlignmentType.LEFT;
+  };
+
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     rows: [
       new TableRow({
         tableHeader: true,
         children: tableData.headers.map(
-          (header) =>
+          (header, index) =>
             new TableCell({
               children: [
                 new Paragraph({
-                  alignment: AlignmentType.CENTER,
+                  alignment: getColumnAlignment(index),
                   style: "Strong",
                   children: [
                     new TextRun({
@@ -345,10 +360,11 @@ export function processTable(
         (row) =>
           new TableRow({
             children: row.map(
-              (cell) =>
+              (cell, index) =>
                 new TableCell({
                   children: [
                     new Paragraph({
+                      alignment: getColumnAlignment(index),
                       children: [
                         new TextRun({
                           text: cell,
@@ -363,7 +379,7 @@ export function processTable(
           })
       ),
     ],
-    layout: TableLayoutType.FIXED,
+    layout: layout,
     margins: {
       top: 100,
       bottom: 100,

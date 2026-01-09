@@ -126,8 +126,9 @@ export async function modelToDocx(
         const tableData = {
           headers: node.headers,
           rows: node.rows,
+          align: node.align,
         };
-        return [processTable(tableData, documentType)];
+        return [processTable(tableData, documentType, style)];
       }
 
       case "comment": {

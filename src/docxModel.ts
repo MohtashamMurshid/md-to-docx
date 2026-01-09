@@ -58,6 +58,7 @@ export interface DocxTableNode {
   type: "table";
   headers: string[];
   rows: string[][];
+  align?: (string | null)[];
 }
 
 export interface DocxCommentNode {

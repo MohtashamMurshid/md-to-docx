@@ -132,7 +132,9 @@ export async function parseToDocxOptions (
     // Validate inputs early
     validateInput(markdown, options);
 
-    const { style = defaultStyle, documentType = "document" } = options;
+    const { documentType = "document" } = options;
+    // Merge user-provided style with defaults
+    const style: Style = { ...defaultStyle, ...options.style };
 
     // Parse markdown to AST
     const ast = await parseMarkdownToAst(markdown);

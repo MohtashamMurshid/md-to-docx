@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2026-01-09
+
+### Fixed
+
+- Fixed table rendering issues where tables were narrow and columns misaligned (GitHub issue #23)
+- Changed default table layout from `FIXED` to `AUTOFIT` for better automatic column sizing
+- Table column alignment markers (`:---`, `:---:`, `---:`) are now properly captured and applied to DOCX cells
+
+### Added
+
+- New `tableLayout` style option to configure table layout mode (`"autofit"` or `"fixed"`)
+- Support for partial style overrides - users can now pass only the style properties they want to change
+
+### Changed
+
+- `Options.style` now accepts `Partial<Style>` allowing partial style configuration that merges with defaults
+- Updated `processTable` function signature to accept optional style parameter for layout configuration
+
 ## [2.5.1] - 2025-12-15
 
 ### Fixed

@@ -61,6 +61,13 @@ export function processTable(
     ? TableLayoutType.FIXED
     : TableLayoutType.AUTOFIT;
 
+  // Calculate column widths (using DXA units)
+  // Default A4 page content width is approximately 9026 DXA (about 15.9cm)
+  const pageWidth = 9026;
+  const columnCount = tableData.headers.length;
+  const columnWidth = Math.floor(pageWidth / columnCount);
+  const columnWidths = Array(columnCount).fill(columnWidth);
+
   // Helper function to get alignment for a column index
   const getColumnAlignment = (index: number): typeof AlignmentType[keyof typeof AlignmentType] => {
     const align = tableData.align?.[index];
@@ -71,12 +78,14 @@ export function processTable(
 
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
+    columnWidths: columnWidths,
     rows: [
       new TableRow({
         tableHeader: true,
         children: tableData.headers.map(
           (header, index) =>
             new TableCell({
+              width: { size: columnWidths[index], type: WidthType.DXA },
               children: [
                 new Paragraph({
                   alignment: getColumnAlignment(index),
@@ -102,6 +111,7 @@ export function processTable(
             children: row.map(
               (cell, index) =>
                 new TableCell({
+                  width: { size: columnWidths[index], type: WidthType.DXA },
                   children: [
                     new Paragraph({
                       alignment: getColumnAlignment(index),

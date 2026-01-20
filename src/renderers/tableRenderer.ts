@@ -64,7 +64,9 @@ export function processTable(
   // Calculate column widths (using DXA units)
   // Default A4 page content width is approximately 9026 DXA (about 15.9cm)
   const pageWidth = 9026;
-  const columnCount = tableData.headers.length;
+  // Derive max column count from headers and all rows to handle mismatches
+  const maxRowLength = tableData.rows.reduce((max, row) => Math.max(max, row.length), 0);
+  const columnCount = Math.max(tableData.headers.length, maxRowLength, 1); // Ensure at least 1 column
   const columnWidth = Math.floor(pageWidth / columnCount);
   const columnWidths = Array(columnCount).fill(columnWidth);
 

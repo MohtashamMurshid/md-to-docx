@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.1] - 2026-01-21
+
+### Fixed
+
+- Fixed tables rendering with very narrow columns by adding explicit `columnWidths` array for proper auto-fit width calculation (PR #24)
+- Added proper column width calculation based on A4 page content width (9026 DXA units)
+- Fixed column-count mismatches in table width calculation by deriving max column count from both headers and all rows
+- Ensured at least 1 column to avoid division by zero edge cases
+
 ## [2.6.0] - 2026-01-09
 
 ### Fixed

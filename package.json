@@ -5,6 +5,9 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
+  "bin": {
+    "md-to-docx": "dist/cli.js"
+  },
   "scripts": {
     "build": "tsc",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.mjs",

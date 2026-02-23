@@ -39,6 +39,26 @@ npm install @mohtasham/md-to-docx
 
 ## Usage
 
+### Standalone CLI
+
+Run directly without writing code:
+
+```bash
+npx @mohtasham/md-to-docx a.md b.docx
+```
+
+If installed globally, you can use:
+
+```bash
+md-to-docx a.md b.docx
+```
+
+Use custom options from a JSON file:
+
+```bash
+md-to-docx a.md b.docx --options options.json
+```
+
 ### Basic Usage
 
 ```typescript

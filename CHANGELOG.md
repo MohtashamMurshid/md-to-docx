@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added a standalone CLI via package binary `md-to-docx` to convert files directly from terminal.
+- CLI now supports direct usage like `npx @mohtasham/md-to-docx a.md b.docx`.
+- Added optional CLI flag `--options <options.json>` to load conversion options from a JSON file.
+
+### Documentation
+
+- Added README examples for standalone CLI usage.
+
+### Tests
+
+- Added `tests/cli.test.ts` covering conversion success, options-file support, and invalid-argument handling.
+
 ## [2.6.1] - 2026-01-21
 
 ### Fixed

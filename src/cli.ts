@@ -114,7 +114,12 @@ export async function runCli(
     output.log(`DOCX created at: ${outputPath}`);
     return 0;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message =
+      error instanceof Error
+        ? error.message
+        : typeof error === "object" && error !== null && "message" in error
+          ? String((error as { message: unknown }).message)
+          : String(error);
     output.error(`Error: ${message}`);
     output.error("");
     output.error(HELP_TEXT);

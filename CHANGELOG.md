@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.7.0] - 2026-02-24
 
 ### Added
 
@@ -17,9 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added README examples for standalone CLI usage.
 
+### Fixed
+
+- Fixed CLI error handler displaying "Unknown error" instead of actual error messages in ESM environments (cross-realm `instanceof Error` mismatch).
+
 ### Tests
 
 - Added `tests/cli.test.ts` covering conversion success, options-file support, and invalid-argument handling.
+- Added CLI tests for `-o` short flag, `--help`/`-h` flags, nested output directory creation, nonexistent input file, unknown flags, missing `--options` value, invalid JSON options, non-object JSON options, and wrong positional argument counts.
 
 ## [2.6.1] - 2026-01-21
 

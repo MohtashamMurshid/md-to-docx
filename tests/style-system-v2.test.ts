@@ -1,6 +1,19 @@
 import { describe, expect, it } from "@jest/globals";
 import { convertMarkdownToDocx } from "../src/index";
 import type { Options } from "../src/types";
+import * as fs from "fs";
+import * as path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const OUTPUT_DIR = path.join(__dirname, "..", "test-output");
+
+function saveBlob(blob: Blob, filename: string) {
+  if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+  return blob.arrayBuffer().then((buf) => {
+    fs.writeFileSync(path.join(OUTPUT_DIR, filename), Buffer.from(buf));
+  });
+}
 
 describe("Style system v2", () => {
   it("supports fontFamily together with underline and strikethrough markers", async () => {
@@ -25,6 +38,7 @@ This paragraph uses ++underline++, ~~strikethrough~~, and **bold**.
     const blob = await convertMarkdownToDocx(markdown, options);
     expect(blob).toBeInstanceOf(Blob);
     expect(blob.size).toBeGreaterThan(0);
+    await saveBlob(blob, "style-system-v2-font-family.docx");
   });
 
   it("supports deprecated fontFamilly alias for backwards compatibility", async () => {
@@ -39,6 +53,7 @@ This paragraph uses ++underline++, ~~strikethrough~~, and **bold**.
     const blob = await convertMarkdownToDocx(markdown, options);
     expect(blob).toBeInstanceOf(Blob);
     expect(blob.size).toBeGreaterThan(0);
+    await saveBlob(blob, "style-system-v2-deprecated-alias.docx");
   });
 
   it("throws for empty fontFamily values", async () => {

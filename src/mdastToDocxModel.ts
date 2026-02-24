@@ -1,4 +1,4 @@
-import type { Root, Node, List, ListItem, Heading, Paragraph, Code, Blockquote, Image, Table, TableRow, TableCell, Text, Emphasis, Strong, InlineCode, Link, Break } from "mdast";
+import type { Root, Node, List, ListItem, Heading, Paragraph, Code, Blockquote, Image, Table, TableRow, TableCell, Text, Emphasis, Strong, InlineCode, Link, Break, Delete } from "mdast";
 import type { DocxDocumentModel, DocxBlockNode, DocxTextNode, DocxListNode, DocxListItemNode } from "./docxModel.js";
 import { Style, Options } from "./types.js";
 
@@ -253,6 +253,15 @@ export function mdastToDocxModel(root: Root, style: Style, options: Options): Do
             result.push({
               ...child,
               bold: true,
+            });
+          }
+          break;
+        case "delete":
+          const strikeChildren = processInlineNodes((node as Delete).children);
+          for (const child of strikeChildren) {
+            result.push({
+              ...child,
+              strikethrough: true,
             });
           }
           break;

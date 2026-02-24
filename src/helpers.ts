@@ -28,6 +28,24 @@ function sanitizeForBookmarkId(text: string): string {
   return sanitized.substring(0, 40);
 }
 
+function resolveFontFamily(style?: Style): string | undefined {
+  return style?.fontFamily || style?.fontFamilly;
+}
+
+function hasUnescapedMarker(text: string, marker: string, startIndex: number): boolean {
+  const maxIndex = text.length - marker.length;
+  for (let i = startIndex; i <= maxIndex; i++) {
+    if (text[i] === "\\") {
+      i++;
+      continue;
+    }
+    if (text.substring(i, i + marker.length) === marker) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Processes a heading line and returns appropriate paragraph formatting and a bookmark ID
  * @param line - The heading line to process
@@ -47,7 +65,9 @@ export function processHeading(
   // Generate a unique bookmark ID using the clean text (without markdown)
   const cleanTextForBookmark = headingText
     .replace(/\*\*/g, "")
-    .replace(/\*/g, "");
+    .replace(/\*/g, "")
+    .replace(/\+\+/g, "")
+    .replace(/~~/g, "");
   const bookmarkId = `_Toc_${sanitizeForBookmarkId(
     cleanTextForBookmark
   )}_${Date.now()}`;
@@ -121,7 +141,8 @@ export function processHeading(
 }
 
 /**
- * Processes formatted text specifically for headings (bold/italic) and returns an array of TextRun objects
+ * Processes formatted text specifically for headings (bold/italic/underline/strikethrough)
+ * and returns an array of TextRun objects
  * @param text - The text to process
  * @param fontSize - The font size to apply
  * @returns An array of TextRun objects
@@ -135,16 +156,43 @@ function processFormattedTextForHeading(
   let currentText = "";
   let isBold = false;
   let isItalic = false;
+  let isUnderline = false;
+  let isStrikethrough = false;
 
   // Track unclosed markers to reset at end if needed
   let boldStart = -1;
   let italicStart = -1;
+  let underlineStart = -1;
+  let strikethroughStart = -1;
+  const fontFamily = resolveFontFamily(style);
+
+  function createRun(value: string): TextRun {
+    return new TextRun({
+      text: value,
+      bold: isBold,
+      italics: isItalic,
+      strike: isStrikethrough,
+      underline: isUnderline ? { type: "single" } : undefined,
+      color: "000000",
+      size: fontSize,
+      font: fontFamily,
+      rightToLeft: style?.direction === "RTL",
+    });
+  }
+
+  function flushCurrentText(): void {
+    if (!currentText) {
+      return;
+    }
+    textRuns.push(createRun(currentText));
+    currentText = "";
+  }
 
   for (let j = 0; j < text.length; j++) {
     // Handle escaped characters
     if (text[j] === "\\" && j + 1 < text.length) {
       const nextChar = text[j + 1];
-      if (nextChar === "*" || nextChar === "\\") {
+      if (nextChar === "*" || nextChar === "+" || nextChar === "~" || nextChar === "\\") {
         currentText += nextChar;
         j++; // Skip the escaped character
         continue;
@@ -156,20 +204,7 @@ function processFormattedTextForHeading(
 
     // Handle bold+italic with *** markers (must check before **)
     if (j + 2 < text.length && text[j] === "*" && text[j + 1] === "*" && text[j + 2] === "*") {
-      // Flush current text before toggling bold+italic
-      if (currentText) {
-        textRuns.push(
-          new TextRun({
-            text: currentText,
-            bold: isBold,
-            italics: isItalic,
-            color: "000000",
-            size: fontSize,
-            rightToLeft: style?.direction === "RTL",
-          })
-        );
-        currentText = "";
-      }
+      flushCurrentText();
 
       // Toggle both bold and italic state
       if (!isBold && !isItalic) {
@@ -187,20 +222,7 @@ function processFormattedTextForHeading(
 
     // Handle bold with ** markers
     if (j + 1 < text.length && text[j] === "*" && text[j + 1] === "*") {
-      // Flush current text before toggling bold
-      if (currentText) {
-        textRuns.push(
-          new TextRun({
-            text: currentText,
-            bold: isBold,
-            italics: isItalic,
-            color: "000000",
-            size: fontSize,
-            rightToLeft: style?.direction === "RTL",
-          })
-        );
-        currentText = "";
-      }
+      flushCurrentText();
 
       // Toggle bold state
       if (!isBold) {
@@ -213,26 +235,55 @@ function processFormattedTextForHeading(
       continue;
     }
 
+    // Handle underline with ++ markers
+    if (j + 1 < text.length && text[j] === "+" && text[j + 1] === "+") {
+      const canToggle =
+        isUnderline || hasUnescapedMarker(text, "++", j + 2);
+      if (!canToggle) {
+        currentText += "++";
+        j++;
+        continue;
+      }
+
+      flushCurrentText();
+      if (!isUnderline) {
+        underlineStart = j;
+      } else {
+        underlineStart = -1;
+      }
+      isUnderline = !isUnderline;
+      j++;
+      continue;
+    }
+
+    // Handle strikethrough with ~~ markers
+    if (j + 1 < text.length && text[j] === "~" && text[j + 1] === "~") {
+      const canToggle =
+        isStrikethrough || hasUnescapedMarker(text, "~~", j + 2);
+      if (!canToggle) {
+        currentText += "~~";
+        j++;
+        continue;
+      }
+
+      flushCurrentText();
+      if (!isStrikethrough) {
+        strikethroughStart = j;
+      } else {
+        strikethroughStart = -1;
+      }
+      isStrikethrough = !isStrikethrough;
+      j++;
+      continue;
+    }
+
     // Handle italic with single * marker (but not if it's part of **)
     if (
       text[j] === "*" &&
       (j === 0 || text[j - 1] !== "*") &&
       (j === text.length - 1 || text[j + 1] !== "*")
     ) {
-      // Flush current text before toggling italic
-      if (currentText) {
-        textRuns.push(
-          new TextRun({
-            text: currentText,
-            bold: isBold,
-            italics: isItalic,
-            color: "000000",
-            size: fontSize,
-            rightToLeft: style?.direction === "RTL",
-          })
-        );
-        currentText = "";
-      }
+      flushCurrentText();
 
       // Toggle italic state
       if (!isItalic) {
@@ -272,20 +323,23 @@ function processFormattedTextForHeading(
         currentText = "*" + beforeItalic;
         isItalic = false;
       }
+
+      if (isUnderline && underlineStart >= 0) {
+        const beforeUnderline = currentText;
+        currentText = "++" + beforeUnderline;
+        isUnderline = false;
+      }
+
+      if (isStrikethrough && strikethroughStart >= 0) {
+        const beforeStrike = currentText;
+        currentText = "~~" + beforeStrike;
+        isStrikethrough = false;
+      }
     }
 
     // Only add non-empty text runs
     if (currentText.trim()) {
-      textRuns.push(
-        new TextRun({
-          text: currentText,
-          bold: isBold,
-          italics: isItalic,
-          color: "000000",
-          size: fontSize,
-          rightToLeft: style?.direction === "RTL",
-        })
-      );
+      textRuns.push(createRun(currentText));
     }
   }
 
@@ -297,6 +351,7 @@ function processFormattedTextForHeading(
         color: "000000",
         size: fontSize,
         bold: true, // Headings are bold by default
+        font: fontFamily,
       })
     );
   }
@@ -328,6 +383,7 @@ export function processTable(
     if (align === "right") return AlignmentType.RIGHT;
     return AlignmentType.LEFT;
   };
+  const fontFamily = resolveFontFamily(style);
 
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
@@ -346,6 +402,7 @@ export function processTable(
                       text: header,
                       bold: true,
                       color: "000000",
+                      font: fontFamily,
                     }),
                   ],
                 }),
@@ -369,6 +426,7 @@ export function processTable(
                         new TextRun({
                           text: cell,
                           color: "000000",
+                          font: fontFamily,
                           rightToLeft: false,
                         }),
                       ],
@@ -400,6 +458,7 @@ export function processListItem(
   style: Style
 ): Paragraph {
   let textContent = config.text;
+  const fontFamily = resolveFontFamily(style);
 
   const listLevel = config.level ?? 0;
 
@@ -412,12 +471,14 @@ export function processListItem(
       new TextRun({
         text: "\n",
         size: style.listItemSize || 24,
+        font: fontFamily,
       }),
       new TextRun({
         text: config.boldText,
         bold: true,
         color: "000000",
         size: style.listItemSize || 24,
+        font: fontFamily,
       })
     );
   }
@@ -461,6 +522,7 @@ export function processListItem(
  * @returns The processed paragraph
  */
 export function processBlockquote(text: string, style: Style): Paragraph {
+  const fontFamily = resolveFontFamily(style);
   // Determine alignment for blockquote - only if explicitly set
   let alignment = undefined;
   if (style.blockquoteAlignment) {
@@ -490,6 +552,7 @@ export function processBlockquote(text: string, style: Style): Paragraph {
         italics: true,
         color: "000000",
         size: style.blockquoteSize || 24, // Use custom blockquote size if provided
+        font: fontFamily,
         rightToLeft: style.direction === "RTL",
       }),
     ],
@@ -519,12 +582,14 @@ export function processBlockquote(text: string, style: Style): Paragraph {
  * @returns The processed paragraph
  */
 export function processComment(text: string, style: Style): Paragraph {
+  const fontFamily = resolveFontFamily(style);
   return new Paragraph({
     children: [
       new TextRun({
         text: "Comment: " + text,
         italics: true,
         color: "666666",
+        font: fontFamily,
       }),
     ],
     spacing: {
@@ -535,7 +600,8 @@ export function processComment(text: string, style: Style): Paragraph {
 }
 
 /**
- * Processes formatted text (bold/italic/inline-code/links) and returns an array of TextRun or ExternalHyperlink objects
+ * Processes formatted text (bold/italic/underline/strikethrough/inline-code/links)
+ * and returns an array of TextRun or ExternalHyperlink objects
  * @param line - The line to process
  * @param style - The style configuration
  * @returns An array of TextRun or ExternalHyperlink objects
@@ -545,17 +611,52 @@ export function processFormattedText(line: string, style?: Style): (TextRun | Ex
   let currentText = "";
   let isBold = false;
   let isItalic = false;
+  let isUnderline = false;
+  let isStrikethrough = false;
   let isInlineCode = false;
 
   // Track unclosed markers to reset at end if needed
   let boldStart = -1;
   let italicStart = -1;
+  let underlineStart = -1;
+  let strikethroughStart = -1;
+  const fontFamily = resolveFontFamily(style);
+
+  function createTextRun(value: string): TextRun {
+    return new TextRun({
+      text: value,
+      bold: isBold,
+      italics: isItalic,
+      strike: isStrikethrough,
+      underline: isUnderline ? { type: "single" } : undefined,
+      color: "000000",
+      size: style?.paragraphSize || 24,
+      font: fontFamily,
+      rightToLeft: style?.direction === "RTL",
+    });
+  }
+
+  function flushCurrentText(): void {
+    if (!currentText) {
+      return;
+    }
+    textRuns.push(createTextRun(currentText));
+    currentText = "";
+  }
 
   for (let j = 0; j < line.length; j++) {
     // Handle escaped characters
     if (line[j] === "\\" && j + 1 < line.length) {
       const nextChar = line[j + 1];
-      if (nextChar === "*" || nextChar === "`" || nextChar === "\\" || nextChar === "[" || nextChar === "]") {
+      if (
+        nextChar === "*" ||
+        nextChar === "`" ||
+        nextChar === "\\" ||
+        nextChar === "[" ||
+        nextChar === "]" ||
+        nextChar === "+" ||
+        nextChar === "~"
+      ) {
         currentText += nextChar;
         j++; // Skip the escaped character
         continue;
@@ -598,20 +699,7 @@ export function processFormattedText(line: string, style?: Style): (TextRun | Ex
 
       // If we found a complete link pattern
       if (closeBracket > j && openParen > closeBracket && closeParen > openParen) {
-        // Flush current text first
-        if (currentText) {
-          textRuns.push(
-            new TextRun({
-              text: currentText,
-              bold: isBold,
-              italics: isItalic,
-              color: "000000",
-              size: style?.paragraphSize || 24,
-              rightToLeft: style?.direction === "RTL",
-            })
-          );
-          currentText = "";
-        }
+        flushCurrentText();
 
         // Extract link text and URL
         const linkText = line.substring(j + 1, closeBracket);
@@ -627,7 +715,9 @@ export function processFormattedText(line: string, style?: Style): (TextRun | Ex
                 underline: { type: "single" },
                 bold: isBold,
                 italics: isItalic,
+                strike: isStrikethrough,
                 size: style?.paragraphSize || 24,
+                font: fontFamily,
                 rightToLeft: style?.direction === "RTL",
               }),
             ],
@@ -644,19 +734,7 @@ export function processFormattedText(line: string, style?: Style): (TextRun | Ex
     // Handle inline code with backtick
     if (line[j] === "`" && !isInlineCode) {
       // Starting inline code - flush current text first
-      if (currentText) {
-        textRuns.push(
-          new TextRun({
-            text: currentText,
-            bold: isBold,
-            italics: isItalic,
-            color: "000000",
-            size: style?.paragraphSize || 24,
-            rightToLeft: style?.direction === "RTL",
-          })
-        );
-        currentText = "";
-      }
+      flushCurrentText();
       isInlineCode = true;
       continue;
     }
@@ -679,20 +757,7 @@ export function processFormattedText(line: string, style?: Style): (TextRun | Ex
 
     // Handle bold+italic with *** markers (must check before **)
     if (j + 2 < line.length && line[j] === "*" && line[j + 1] === "*" && line[j + 2] === "*") {
-      // Flush current text before toggling bold+italic
-      if (currentText) {
-        textRuns.push(
-          new TextRun({
-            text: currentText,
-            bold: isBold,
-            italics: isItalic,
-            color: "000000",
-            size: style?.paragraphSize || 24,
-            rightToLeft: style?.direction === "RTL",
-          })
-        );
-        currentText = "";
-      }
+      flushCurrentText();
 
       // Toggle both bold and italic state
       if (!isBold && !isItalic) {
@@ -710,20 +775,7 @@ export function processFormattedText(line: string, style?: Style): (TextRun | Ex
 
     // Handle bold with ** markers
     if (j + 1 < line.length && line[j] === "*" && line[j + 1] === "*") {
-      // Flush current text before toggling bold
-      if (currentText) {
-        textRuns.push(
-          new TextRun({
-            text: currentText,
-            bold: isBold,
-            italics: isItalic,
-            color: "000000",
-            size: style?.paragraphSize || 24,
-            rightToLeft: style?.direction === "RTL",
-          })
-        );
-        currentText = "";
-      }
+      flushCurrentText();
 
       // Toggle bold state
       if (!isBold) {
@@ -736,25 +788,53 @@ export function processFormattedText(line: string, style?: Style): (TextRun | Ex
       continue;
     }
 
+    // Handle underline with ++ markers
+    if (j + 1 < line.length && line[j] === "+" && line[j + 1] === "+") {
+      const canToggle = isUnderline || hasUnescapedMarker(line, "++", j + 2);
+      if (!canToggle) {
+        currentText += "++";
+        j++;
+        continue;
+      }
+
+      flushCurrentText();
+      if (!isUnderline) {
+        underlineStart = j;
+      } else {
+        underlineStart = -1;
+      }
+      isUnderline = !isUnderline;
+      j++;
+      continue;
+    }
+
+    // Handle strikethrough with ~~ markers
+    if (j + 1 < line.length && line[j] === "~" && line[j + 1] === "~") {
+      const canToggle = isStrikethrough || hasUnescapedMarker(line, "~~", j + 2);
+      if (!canToggle) {
+        currentText += "~~";
+        j++;
+        continue;
+      }
+
+      flushCurrentText();
+      if (!isStrikethrough) {
+        strikethroughStart = j;
+      } else {
+        strikethroughStart = -1;
+      }
+      isStrikethrough = !isStrikethrough;
+      j++;
+      continue;
+    }
+
     // Handle italic with single * marker (but not if it's part of **)
     if (
       line[j] === "*" &&
       (j === 0 || line[j - 1] !== "*") &&
       (j === line.length - 1 || line[j + 1] !== "*")
     ) {
-      // Flush current text before toggling italic
-      if (currentText) {
-        textRuns.push(
-          new TextRun({
-            text: currentText,
-            bold: isBold,
-            italics: isItalic,
-            color: "000000",
-            size: style?.paragraphSize || 24,
-          })
-        );
-        currentText = "";
-      }
+      flushCurrentText();
 
       // Toggle italic state
       if (!isItalic) {
@@ -794,6 +874,18 @@ export function processFormattedText(line: string, style?: Style): (TextRun | Ex
         currentText = "*" + beforeItalic;
         isItalic = false;
       }
+
+      if (isUnderline && underlineStart >= 0) {
+        const beforeUnderline = currentText;
+        currentText = "++" + beforeUnderline;
+        isUnderline = false;
+      }
+
+      if (isStrikethrough && strikethroughStart >= 0) {
+        const beforeStrike = currentText;
+        currentText = "~~" + beforeStrike;
+        isStrikethrough = false;
+      }
     }
 
     if (isInlineCode) {
@@ -803,16 +895,7 @@ export function processFormattedText(line: string, style?: Style): (TextRun | Ex
 
     // Only add non-empty text runs
     if (currentText.trim()) {
-      textRuns.push(
-        new TextRun({
-          text: currentText,
-          bold: isBold,
-          italics: isItalic,
-          color: "000000",
-          size: style?.paragraphSize || 24,
-          rightToLeft: style?.direction === "RTL",
-        })
-      );
+      textRuns.push(createTextRun(currentText));
     }
   }
 
@@ -823,6 +906,7 @@ export function processFormattedText(line: string, style?: Style): (TextRun | Ex
         text: "",
         color: "000000",
         size: style?.paragraphSize || 24,
+        font: fontFamily,
       })
     );
   }
@@ -1011,12 +1095,14 @@ export function processLinkParagraph(
   url: string,
   style: Style
 ): Paragraph {
+  const fontFamily = resolveFontFamily(style);
   const hyperlink = new ExternalHyperlink({
     children: [
       new TextRun({
         text: text,
         color: "0000FF",
         underline: { type: "single" },
+        font: fontFamily,
         rightToLeft: style.direction === "RTL",
       }),
     ],
@@ -1319,6 +1405,7 @@ export async function processImage(
             text: `[Image could not be displayed: ${altText}]`,
             italics: true,
             color: "FF0000",
+            font: resolveFontFamily(style),
           }),
         ],
         alignment: AlignmentType.CENTER,

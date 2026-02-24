@@ -3,6 +3,16 @@ export interface Style {
   headingSpacing: number;
   paragraphSpacing: number;
   lineSpacing: number;
+  /**
+   * Base font family for regular text runs.
+   * Code spans/blocks continue to use a monospace font.
+   */
+  fontFamily?: string;
+  /**
+   * Deprecated typo alias kept for backwards compatibility.
+   * Prefer `fontFamily`.
+   */
+  fontFamilly?: string;
   // Text direction
   direction?: "LTR" | "RTL";
   // Font size options

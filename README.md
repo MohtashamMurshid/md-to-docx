@@ -13,12 +13,12 @@ A powerful TypeScript library and CLI that converts Markdown to Microsoft Word (
 - Table of Contents generation with clickable links (`[TOC]`)
 - Page break support (`\pagebreak`)
 - Automatic page numbering (centered in footer)
-- Headings (H1–H5), bold, italic, ~~strikethrough~~
+- Headings (H1–H5), bold, italic, ++underline++, ~~strikethrough~~
 - Bullet points and numbered lists with rich formatting
 - Tables with headers and auto-fit column widths
 - Blockquotes, comments, links, and embedded images
 - Code blocks (inline and multi-line)
-- Customizable styling (font sizes, spacing, alignment)
+- Customizable styling (font sizes, spacing, alignment, font family)
 - Report and document modes
 - RTL/LTR direction control
 - Text find-and-replace functionality
@@ -74,6 +74,7 @@ The options JSON file accepts the same options as the programmatic API. For exam
 {
   "documentType": "report",
   "style": {
+    "fontFamily": "Trebuchet MS",
     "heading1Alignment": "CENTER",
     "paragraphAlignment": "JUSTIFIED",
     "direction": "LTR"
@@ -131,6 +132,7 @@ downloadDocx(blob, "output.docx");
 const options = {
   documentType: "report", // or 'document'
   style: {
+    fontFamily: "Trebuchet MS",
     titleSize: 32,
     headingSpacing: 240,
     paragraphSpacing: 240,
@@ -325,6 +327,8 @@ Converts Markdown text to a DOCX document.
   - `documentType` (string): Either 'document' or 'report'
   - `style` (object): Styling options
     - Text Sizes:
+      - `fontFamily` (string): Base font family for regular document text
+      - `fontFamilly` (string): Deprecated alias for `fontFamily`
       - `titleSize` (number): Font size for titles
       - `heading1Size` through `heading5Size` (number): Font sizes for H1-H5
       - `paragraphSize` (number): Font size for paragraphs
@@ -380,6 +384,7 @@ The module supports the following Markdown features:
 - Lists: `-`, `*`, `1.`, `2.`, etc.
 - Bold: `**text**`
 - Italic: `*text*`
+- Underline: `++text++`
 - Strikethrough: `~~text~~`
 - Blockquotes: `> text`
 - Tables: `| Header | Header |`

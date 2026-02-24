@@ -41,23 +41,42 @@ export async function modelToDocx(
   // Track numbering sequences for nested lists
   let maxSequenceId = 0;
 
+  function encodeInlineNode(node: {
+    value: string;
+    bold?: boolean;
+    italic?: boolean;
+    underline?: boolean;
+    strikethrough?: boolean;
+    code?: boolean;
+    link?: string;
+  }): string {
+    if (node.code) {
+      return "`" + node.value + "`";
+    }
+
+    let text = node.link ? `[${node.value}](${node.link})` : node.value;
+
+    if (node.strikethrough) {
+      text = `~~${text}~~`;
+    }
+    if (node.underline) {
+      text = `++${text}++`;
+    }
+
+    if (node.bold && node.italic) return "***" + text + "***";
+    if (node.bold) return "**" + text + "**";
+    if (node.italic) return "*" + text + "*";
+    return text;
+  }
+
   function renderBlockNode(
     node: DocxBlockNode,
     listLevel: number = 0
   ): (Paragraph | Table)[] {
     switch (node.type) {
       case "heading": {
-        // Re-encode inline formatting (bold/italic/code/links) into markdown
-        const headingText = node.children
-          .map((c) => {
-            if (c.code) return "`" + c.value + "`";
-            if (c.bold && c.italic) return "***" + c.value + "***";
-            if (c.bold) return "**" + c.value + "**";
-            if (c.italic) return "*" + c.value + "*";
-            if (c.link) return "[" + c.value + "](" + c.link + ")";
-            return c.value;
-          })
-          .join("");
+        // Re-encode inline formatting into markdown-like syntax for helpers.
+        const headingText = node.children.map((c) => encodeInlineNode(c)).join("");
 
         const headingLine = "#".repeat(node.level) + " " + headingText;
         const config = {
@@ -80,16 +99,7 @@ export async function modelToDocx(
       }
 
       case "paragraph": {
-        const paragraphText = node.children
-          .map((c) => {
-            if (c.code) return "`" + c.value + "`";
-            if (c.bold && c.italic) return "***" + c.value + "***";
-            if (c.bold) return "**" + c.value + "**";
-            if (c.italic) return "*" + c.value + "*";
-            if (c.link) return "[" + c.value + "](" + c.link + ")";
-            return c.value;
-          })
-          .join("");
+        const paragraphText = node.children.map((c) => encodeInlineNode(c)).join("");
         return [processParagraph(paragraphText, style)];
       }
 
@@ -189,17 +199,8 @@ export async function modelToDocx(
         paragraphs.push(...nestedParagraphs);
       } else if (child.type === "paragraph") {
         // Paragraph content - render as list item
-        // Convert text nodes back to markdown-like format for processListItem
-        // Note: ***text*** is now properly handled by the parser for bold+italic
         const paragraphText = child.children
-          .map((c) => {
-            if (c.code) return "`" + c.value + "`";
-            if (c.bold && c.italic) return "***" + c.value + "***";
-            if (c.bold) return "**" + c.value + "**";
-            if (c.italic) return "*" + c.value + "*";
-            if (c.link) return "[" + c.value + "](" + c.link + ")";
-            return c.value;
-          })
+          .map((c) => encodeInlineNode(c))
           .join("");
 
         // Use processListItem helper

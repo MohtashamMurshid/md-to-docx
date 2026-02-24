@@ -48,6 +48,22 @@ export class MarkdownConversionError extends Error {
   }
 }
 
+function normalizeStyleInput(style?: Partial<Style>): Partial<Style> | undefined {
+  if (!style) {
+    return style;
+  }
+
+  const fontFamily = style.fontFamily || style.fontFamilly;
+  if (!fontFamily) {
+    return style;
+  }
+
+  return {
+    ...style,
+    fontFamily,
+  };
+}
+
 /**
  * Validates markdown input and options
  * @throws {MarkdownConversionError} If input is invalid
@@ -59,9 +75,10 @@ function validateInput(markdown: string, options: Options): void {
     );
   }
 
-  if (options.style) {
+  const normalizedStyle = normalizeStyleInput(options.style);
+  if (normalizedStyle) {
     const { titleSize, headingSpacing, paragraphSpacing, lineSpacing } =
-      options.style;
+      normalizedStyle;
     if (titleSize && (titleSize < 8 || titleSize > 72)) {
       throw new MarkdownConversionError(
         "Invalid title size: Must be between 8 and 72 points",
@@ -84,6 +101,17 @@ function validateInput(markdown: string, options: Options): void {
       throw new MarkdownConversionError(
         "Invalid line spacing: Must be between 1 and 3",
         { lineSpacing }
+      );
+    }
+
+    if (
+      normalizedStyle.fontFamily !== undefined &&
+      (typeof normalizedStyle.fontFamily !== "string" ||
+        normalizedStyle.fontFamily.trim().length === 0)
+    ) {
+      throw new MarkdownConversionError(
+        "Invalid fontFamily: Must be a non-empty string",
+        { fontFamily: normalizedStyle.fontFamily }
       );
     }
   }
@@ -133,8 +161,9 @@ export async function parseToDocxOptions (
     validateInput(markdown, options);
 
     const { documentType = "document" } = options;
+    const normalizedStyle = normalizeStyleInput(options.style);
     // Merge user-provided style with defaults
-    const style: Style = { ...defaultStyle, ...options.style };
+    const style: Style = { ...defaultStyle, ...normalizedStyle };
 
     // Parse markdown to AST
     const ast = await parseMarkdownToAst(markdown);
@@ -224,6 +253,7 @@ export async function parseToDocxOptions (
                     size: fontSize,
                     bold: isBold,
                     italics: isItalic,
+                    font: style.fontFamily,
                   }),
                 ],
               }),
@@ -327,6 +357,7 @@ export async function parseToDocxOptions (
               size: style.titleSize,
               bold: true,
               color: "000000",
+              font: style.fontFamily,
             },
             paragraph: {
               spacing: {
@@ -346,6 +377,7 @@ export async function parseToDocxOptions (
               size: style.titleSize,
               bold: true,
               color: "000000",
+              font: style.fontFamily,
             },
             paragraph: {
               spacing: {
@@ -365,6 +397,7 @@ export async function parseToDocxOptions (
               size: style.titleSize - 4,
               bold: true,
               color: "000000",
+              font: style.fontFamily,
             },
             paragraph: {
               spacing: {
@@ -384,6 +417,7 @@ export async function parseToDocxOptions (
               size: style.titleSize - 8,
               bold: true,
               color: "000000",
+              font: style.fontFamily,
             },
             paragraph: {
               spacing: {
@@ -403,6 +437,7 @@ export async function parseToDocxOptions (
               size: style.titleSize - 12,
               bold: true,
               color: "000000",
+              font: style.fontFamily,
             },
             paragraph: {
               spacing: {
@@ -422,6 +457,7 @@ export async function parseToDocxOptions (
               size: style.titleSize - 16,
               bold: true,
               color: "000000",
+              font: style.fontFamily,
             },
             paragraph: {
               spacing: {
@@ -436,6 +472,7 @@ export async function parseToDocxOptions (
             name: "Strong",
             run: {
               bold: true,
+              font: style.fontFamily,
             },
           },
         ],

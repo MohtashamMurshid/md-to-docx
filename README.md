@@ -1,35 +1,29 @@
 # Markdown to DOCX Converter
 
-A powerful TypeScript module that converts Markdown text to Microsoft Word (.docx) documents with support for various Markdown features. Perfect for both Node.js and browser environments.
+A powerful TypeScript library and CLI that converts Markdown to Microsoft Word (.docx) documents. Works in Node.js and browser environments.
 
-## Github Repo (Open Source)
+## GitHub Repo (Open Source)
 
-[https://github.com/MohtashamMurshid/md-to-docx]
+[https://github.com/MohtashamMurshid/md-to-docx](https://github.com/MohtashamMurshid/md-to-docx)
 
 ## Features
 
-- 🎯 Convert Markdown to DOCX format
-- 📚 Table of Contents generation with clickable links (`[TOC]`)
-- 📄 Page break support (`\pagebreak`)
-- #️⃣ Automatic page numbering (centered in footer)
-- 📝 Support for all heading levels (H1-H5)
-- 📋 Bullet points and numbered lists with rich formatting
-- 📊 Tables with headers and data
-- 🔤 Bold and italic text formatting (including in lists)
-- 💬 Blockquotes
-- 💡 Comments
-- 🎨 Customizable styling
-- 📄 Report and document modes
-- 🌐 Browser and Node.js support
-- 🖼️ Support for embedded images
-- 💻 Code blocks (inline and multi-line)
-- 🔗 Support for links
-- ~~Strikethrough~~ text support
-- 📏 Custom font sizes for all elements
-- ⚖️ Text alignment control for all elements
-- ↔️ RTL/LTR direction control
-- 🔄 Text find-and-replace functionality
-- 🧪 Comprehensive test coverage
+- Convert Markdown to DOCX format
+- **Standalone CLI** — convert files directly from your terminal
+- Table of Contents generation with clickable links (`[TOC]`)
+- Page break support (`\pagebreak`)
+- Automatic page numbering (centered in footer)
+- Headings (H1–H5), bold, italic, ~~strikethrough~~
+- Bullet points and numbered lists with rich formatting
+- Tables with headers and auto-fit column widths
+- Blockquotes, comments, links, and embedded images
+- Code blocks (inline and multi-line)
+- Customizable styling (font sizes, spacing, alignment)
+- Report and document modes
+- RTL/LTR direction control
+- Text find-and-replace functionality
+- Browser and Node.js support
+- Comprehensive test coverage
 
 ## Installation
 
@@ -37,27 +31,39 @@ A powerful TypeScript module that converts Markdown text to Microsoft Word (.doc
 npm install @mohtasham/md-to-docx
 ```
 
-## Usage
+## CLI Usage
 
-### Standalone CLI
-
-Run directly without writing code:
+Convert Markdown files to DOCX directly from your terminal — no code required.
 
 ```bash
-npx @mohtasham/md-to-docx a.md b.docx
+# Using npx (no install needed)
+npx @mohtasham/md-to-docx input.md output.docx
+
+# If installed globally
+md-to-docx input.md output.docx
+
+# With a JSON options file for custom styling
+md-to-docx input.md output.docx --options options.json
+md-to-docx input.md output.docx -o options.json
+
+# Show help
+md-to-docx --help
 ```
 
-If installed globally, you can use:
+The options JSON file accepts the same options as the programmatic API. For example:
 
-```bash
-md-to-docx a.md b.docx
+```json
+{
+  "documentType": "report",
+  "style": {
+    "heading1Alignment": "CENTER",
+    "paragraphAlignment": "JUSTIFIED",
+    "direction": "LTR"
+  }
+}
 ```
 
-Use custom options from a JSON file:
-
-```bash
-md-to-docx a.md b.docx --options options.json
-```
+## Programmatic Usage
 
 ### Basic Usage
 
@@ -258,7 +264,7 @@ const blob = await convertMarkdownToDocx(markdown, options);
 
 The replacements are applied to the markdown AST before conversion, so they work across all markdown elements (headings, paragraphs, lists, etc.).
 
-### In React
+### React Example
 
 ```typescript
 import { useState } from "react";
@@ -366,36 +372,7 @@ The module supports the following Markdown features:
 - Links: `[text](url)`
 - Markdown Separators: `---` (horizontal rule, skipped during conversion)
 
-## License
-
-MIT
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## List Formatting Examples
-
-The module supports rich text formatting within list items:
-
-```typescript
-const markdown = `
-- Regular list item
-- List item with **bold text** inside
-- Item with *italic* and \`code\`
-- Mixed **bold** and *italic* formatting
-- List item
-  **Bold text on next line**
-
-1. Numbered list with **bold text**
-2. Numbered item with \`code\` and *italic*
-3. Mixed **bold** and *italic* text
-`;
-
-const blob = await convertMarkdownToDocx(markdown);
-```
-
-### Basic Usage with TOC and Page Breaks
+### TOC and Page Breaks
 
 ```typescript
 import { convertMarkdownToDocx, downloadDocx } from "@mohtasham/md-to-docx";
@@ -421,9 +398,14 @@ This is the second section, appearing after a page break.
 - Item B
 `;
 
-// Convert to DOCX
 const blob = await convertMarkdownToDocx(markdown);
-
-// Download in browser
 downloadDocx(blob, "output_with_toc.docx");
 ```
+
+## License
+
+MIT
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.

@@ -31,6 +31,24 @@ A powerful TypeScript library and CLI that converts Markdown to Microsoft Word (
 npm install @mohtasham/md-to-docx
 ```
 
+## Install as a Skill
+
+Install this repository as an agent skill with the `skills` CLI:
+
+```bash
+# Install from GitHub (recommended)
+npx skills add MohtashamMurshid/md-to-docx --skill md-to-docx --agent cursor --yes --full-depth
+
+# Install from local clone
+npx skills add . --skill md-to-docx --agent cursor --yes --full-depth
+```
+
+You can list discoverable skills before installing:
+
+```bash
+npx skills add MohtashamMurshid/md-to-docx --list --full-depth
+```
+
 ## CLI Usage
 
 Convert Markdown files to DOCX directly from your terminal — no code required.

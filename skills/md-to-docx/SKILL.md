@@ -1,6 +1,6 @@
 ---
 name: md-to-docx
-description: Convert Markdown files and strings into DOCX documents using @mohtasham/md-to-docx. Use when a user needs Markdown to Word conversion, CLI-based file conversion, options-driven styling/alignment, TOC/page break handling, or programmatic conversion in Node/browser code.
+description: Convert Markdown files and strings into DOCX documents using @mohtasham/md-to-docx. Use when a user needs Markdown to Word conversion, CLI-based file conversion, options-driven styling/alignment/font family, TOC/page break handling, underline/strikethrough formatting, or programmatic conversion in Node/browser code.
 ---
 
 # md-to-docx
@@ -14,7 +14,7 @@ Use this skill to reliably produce `.docx` output from Markdown.
    - Programmatic mode for app code integration.
 2. Confirm input source (Markdown file or Markdown string).
 3. Confirm output target (`.docx` file path or browser download).
-4. Apply options only when requested (alignment, sizes, direction, replacements).
+4. Apply options only when requested (alignment, sizes, direction, font family, replacements).
 5. Run conversion and report resulting output path or filename.
 
 ## CLI Mode
@@ -44,6 +44,7 @@ const markdown = "# Title\n\nHello **DOCX**.";
 const blob = await convertMarkdownToDocx(markdown, {
   documentType: "report",
   style: {
+    fontFamily: "Trebuchet MS",
     heading1Alignment: "CENTER",
     paragraphAlignment: "JUSTIFIED",
     direction: "LTR"
@@ -61,7 +62,8 @@ Use `downloadDocx(blob, filename?)` only in browser environments.
 Support includes:
 - Headings `#` to `#####`
 - Ordered/unordered lists
-- Bold, italic, strikethrough
+- Bold, italic, underline (`++text++`), strikethrough (`~~text~~`)
+- Custom font family via `fontFamily` style option
 - Blockquotes
 - Tables
 - Code blocks and inline code

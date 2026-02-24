@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0] - 2026-02-24
+
+### Added
+
+- Underline text formatting support via `++text++` markers in paragraphs, headings, and list items
+- New `fontFamily` style option to set the base font family for all regular text runs (code spans/blocks remain monospace)
+- Deprecated `fontFamilly` alias preserved for backwards compatibility
+- Validation that rejects empty or whitespace-only `fontFamily` values
+
+### Changed
+
+- Refactored heading and paragraph text processing to use shared `createRun`/`flushCurrentText` helpers, reducing duplication
+- Strikethrough (`~~text~~`) now properly wired through the internal document model (`DocxTextNode.strikethrough`)
+
+### Tests
+
+- Added `tests/style-system-v2.test.ts` covering font family, deprecated alias, underline markers, and invalid-value rejection
+
 ## [2.7.1] - 2026-02-24
 
 ### Added

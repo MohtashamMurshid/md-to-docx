@@ -55,9 +55,152 @@ export interface Style {
   tableLayout?: "autofit" | "fixed";
 }
 
+export type AlignmentOption = "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
+
+export type SectionPageNumberDisplay =
+  | "none"
+  | "current"
+  | "currentAndTotal"
+  | "currentAndSectionTotal";
+
+export type SectionPageNumberFormat =
+  | "decimal"
+  | "upperRoman"
+  | "lowerRoman"
+  | "upperLetter"
+  | "lowerLetter";
+
+export type SectionPageNumberSeparator =
+  | "hyphen"
+  | "period"
+  | "colon"
+  | "emDash"
+  | "endash";
+
+export interface HeaderFooterContent {
+  /**
+   * Optional plain text rendered before page number fields.
+   */
+  text?: string;
+  /**
+   * Paragraph alignment inside the header/footer slot.
+   */
+  alignment?: AlignmentOption;
+  /**
+   * Page number field rendering strategy for this slot.
+   */
+  pageNumberDisplay?: SectionPageNumberDisplay;
+}
+
+export type HeaderFooterSlot = HeaderFooterContent | null;
+
+export interface HeaderFooterGroup {
+  default?: HeaderFooterSlot;
+  first?: HeaderFooterSlot;
+  even?: HeaderFooterSlot;
+}
+
+export interface SectionPageMargins {
+  top?: number;
+  right?: number;
+  bottom?: number;
+  left?: number;
+  header?: number;
+  footer?: number;
+  gutter?: number;
+}
+
+export interface SectionPageSize {
+  width?: number;
+  height?: number;
+  orientation?: "PORTRAIT" | "LANDSCAPE";
+}
+
+export interface SectionPageConfig {
+  margin?: SectionPageMargins;
+  size?: SectionPageSize;
+}
+
+export interface SectionPageNumbering {
+  /**
+   * Page number to start from in this section.
+   */
+  start?: number;
+  /**
+   * Number formatting for the section page numbers.
+   */
+  formatType?: SectionPageNumberFormat;
+  /**
+   * Number separator when chapter/page separators are used.
+   */
+  separator?: SectionPageNumberSeparator;
+  /**
+   * Footer rendering style for page numbers.
+   */
+  display?: SectionPageNumberDisplay;
+  /**
+   * Alignment for the auto-generated page number footer paragraph.
+   */
+  alignment?: AlignmentOption;
+}
+
+export interface SectionConfig {
+  /**
+   * Style override applied to content rendered inside this section.
+   */
+  style?: Partial<Style>;
+  /**
+   * Section-level page properties (size, margins, orientation).
+   */
+  page?: SectionPageConfig;
+  /**
+   * Section-level header configuration.
+   */
+  headers?: HeaderFooterGroup;
+  /**
+   * Section-level footer configuration.
+   */
+  footers?: HeaderFooterGroup;
+  /**
+   * Section-level page numbering configuration.
+   */
+  pageNumbering?: SectionPageNumbering;
+  /**
+   * Enables different first-page header/footer handling in Word.
+   */
+  titlePage?: boolean;
+  /**
+   * Word section break behavior.
+   */
+  type?:
+    | "NEXT_PAGE"
+    | "NEXT_COLUMN"
+    | "CONTINUOUS"
+    | "EVEN_PAGE"
+    | "ODD_PAGE";
+}
+
+export interface SectionTemplate extends SectionConfig {}
+
+export interface DocumentSection extends SectionConfig {
+  /**
+   * Markdown content that belongs to this section.
+   */
+  markdown: string;
+}
+
 export interface Options {
   documentType?: "document" | "report";
   style?: Partial<Style>;
+  /**
+   * Shared defaults applied to each section before per-section overrides.
+   */
+  template?: SectionTemplate;
+  /**
+   * Explicit section list. If omitted, the whole markdown input is treated
+   * as a single section using global options.
+   */
+  sections?: DocumentSection[];
   /**
    * Array of text replacements to apply to the markdown AST before conversion
    * Uses mdast-util-find-and-replace for pattern matching and replacement

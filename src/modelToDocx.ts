@@ -28,7 +28,8 @@ import {
 export async function modelToDocx(
   model: DocxDocumentModel,
   style: Style,
-  options: Options
+  options: Options,
+  renderOptions: { sequenceIdOffset?: number } = {}
 ): Promise<{
   children: (Paragraph | Table)[];
   headings: { text: string; level: number; bookmarkId: string }[];
@@ -37,6 +38,7 @@ export async function modelToDocx(
   const children: (Paragraph | Table)[] = [];
   const headings: { text: string; level: number; bookmarkId: string }[] = [];
   const documentType = options.documentType || "document";
+  const sequenceIdOffset = renderOptions.sequenceIdOffset || 0;
 
   // Track numbering sequences for nested lists
   let maxSequenceId = 0;
@@ -166,15 +168,24 @@ export async function modelToDocx(
   ): Paragraph[] {
     const paragraphs: Paragraph[] = [];
     let itemNumber = 1;
+    const adjustedSequenceId = list.sequenceId
+      ? list.sequenceId + sequenceIdOffset
+      : undefined;
 
     // Track max sequence ID
-    if (list.sequenceId && list.sequenceId > maxSequenceId) {
-      maxSequenceId = list.sequenceId;
+    if (adjustedSequenceId && adjustedSequenceId > maxSequenceId) {
+      maxSequenceId = adjustedSequenceId;
     }
 
     for (const item of list.children) {
       // Render list item content
-      const itemParagraphs = renderListItem(item, list.ordered, currentLevel, list.sequenceId, itemNumber);
+      const itemParagraphs = renderListItem(
+        item,
+        list.ordered,
+        currentLevel,
+        adjustedSequenceId,
+        itemNumber
+      );
       paragraphs.push(...itemParagraphs);
       itemNumber++;
     }

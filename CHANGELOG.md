@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- New template + sections API (`options.template`, `options.sections`) for real multi-section document generation.
+- Per-section header/footer slots (`default`, `first`, `even`) with optional page-number field rendering.
+- Section-level page numbering controls (`start`, `formatType`, `separator`, and display strategy).
+- Section-level style overrides so formatting can change mid-document (addresses GitHub issue #16 use case).
+
+### Changed
+
+- `parseToDocxOptions` now emits real DOCX section entries instead of forcing a single continuous section.
+- Numbered-list sequence IDs are offset per rendered section to avoid cross-section numbering collisions.
+
+### Tests
+
+- Added `tests/sections.test.ts` covering section properties, footer behavior, numbering resets, and per-section style conversion.
+
 ## [2.8.0] - 2026-02-24
 
 ### Added

@@ -13,6 +13,9 @@ A powerful TypeScript library and CLI that converts Markdown to Microsoft Word (
 - Table of Contents generation with clickable links (`[TOC]`)
 - Page break support (`\pagebreak`)
 - Automatic page numbering (centered in footer)
+- Template + sections API for multi-part documents
+- Per-section headers/footers and page-numbering resets
+- Section-specific style overrides (solve custom first-page + mid-doc style shifts)
 - Headings (H1–H5), bold, italic, ++underline++, ~~strikethrough~~
 - Bullet points and numbered lists with rich formatting
 - Tables with headers and auto-fit column widths
@@ -154,6 +157,81 @@ const options = {
 };
 
 const blob = await convertMarkdownToDocx(markdown, options);
+```
+
+### Template + Sections (cover page, per-section header/footer, numbering reset)
+
+Use `template` for shared section defaults and `sections` for explicit
+document parts with their own markdown and overrides.
+
+```typescript
+const options = {
+  style: {
+    fontFamily: "Trebuchet MS",
+    paragraphSize: 24
+  },
+  template: {
+    page: {
+      margin: {
+        top: 1440,
+        right: 1080,
+        bottom: 1440,
+        left: 1080
+      }
+    },
+    pageNumbering: {
+      display: "current",
+      alignment: "CENTER"
+    }
+  },
+  sections: [
+    {
+      markdown: `# My Report\n\nPrepared for ACME Corp`,
+      // cover page without footer numbering
+      footers: { default: null },
+      pageNumbering: { display: "none" },
+      style: {
+        paragraphAlignment: "CENTER",
+        paragraphSize: 28
+      }
+    },
+    {
+      markdown: `[TOC]\n\n# Executive Summary\n\nContent...`,
+      headers: {
+        default: { text: "Executive Summary", alignment: "RIGHT" }
+      },
+      footers: {
+        default: {
+          text: "Page",
+          pageNumberDisplay: "currentAndSectionTotal",
+          alignment: "RIGHT"
+        }
+      },
+      pageNumbering: {
+        start: 1,
+        formatType: "decimal"
+      },
+      style: {
+        paragraphAlignment: "JUSTIFIED"
+      }
+    },
+    {
+      markdown: `# Appendix\n\nAdditional details...`,
+      headers: {
+        default: { text: "Appendix", alignment: "LEFT" }
+      },
+      pageNumbering: {
+        start: 1,
+        formatType: "upperRoman"
+      },
+      style: {
+        paragraphSize: 22
+      }
+    }
+  ]
+};
+
+const blob = await convertMarkdownToDocx("", options);
 ```
 
 ### Custom Table of Contents Styling
@@ -325,6 +403,25 @@ Converts Markdown text to a DOCX document.
 - `markdown` (string): The Markdown text to convert
 - `options` (object, optional): Configuration options
   - `documentType` (string): Either 'document' or 'report'
+  - `template` (object): Shared section defaults for multi-section documents
+    - `style` (object): Default style overrides for every section
+    - `headers` / `footers` (object): Default header/footer slots (`default`, `first`, `even`)
+    - `pageNumbering` (object): Default page numbering behavior for sections
+      - `display`: `"none" | "current" | "currentAndTotal" | "currentAndSectionTotal"`
+      - `alignment`: `"LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED"`
+      - `start`: Start page number for the section (>= 1)
+      - `formatType`: `"decimal" | "upperRoman" | "lowerRoman" | "upperLetter" | "lowerLetter"`
+  - `sections` (array): Explicit section list (if omitted, markdown input is a single section)
+    - `markdown` (string): Markdown content for that section
+    - `style` (object): Section-local style overrides
+    - `headers` / `footers` (object): Section-local header/footer slots (`default`, `first`, `even`)
+      - Each slot can be:
+        - `null` to disable that slot
+        - `{ text?, alignment?, pageNumberDisplay? }`
+    - `pageNumbering` (object): Section-local numbering/reset behavior
+    - `page` (object): Section page options (`margin`, `size`, `orientation`)
+    - `titlePage` (boolean): Enables first-page header/footer behavior for that section
+    - `type` (string): Section break type (`NEXT_PAGE`, `CONTINUOUS`, etc.)
   - `style` (object): Styling options
     - Text Sizes:
       - `fontFamily` (string): Base font family for regular document text

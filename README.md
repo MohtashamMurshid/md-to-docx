@@ -38,6 +38,7 @@ Install this repository as an agent skill with the `skills` CLI:
 ```bash
 # Install from GitHub (recommended)
 npx skills add MohtashamMurshid/md-to-docx --skill md-to-docx --agent cursor --yes --full-depth
+```
 
 # Install from local clone
 npx skills add . --skill md-to-docx --agent cursor --yes --full-depth

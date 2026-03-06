@@ -1,15 +1,26 @@
 {
   "name": "@mohtasham/md-to-docx",
-  "version": "2.9.0",
-  "description": "Convert Markdown to Microsoft Word (.docx) documents with support for various Markdown features",
+  "version": "2.9.1",
+  "description": "TypeScript library and CLI for converting Markdown into Microsoft Word (.docx) documents",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
   "bin": {
     "md-to-docx": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc",
+    "docs:api": "typedoc --options typedoc.json",
+    "docs:check": "npm run docs:api",
+    "pack:check": "npm pack --dry-run",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.mjs",
     "test:single": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.mjs",
     "test:alignment": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.mjs src/heading-alignment.test.ts",
@@ -24,8 +35,22 @@
   ],
   "author": "Mohtasham",
   "license": "MIT",
+  "homepage": "https://github.com/MohtashamMurshid/md-to-docx#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MohtashamMurshid/md-to-docx.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MohtashamMurshid/md-to-docx/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "npm@10.9.4",
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "devDependencies": {
     "@types/file-saver": "^2.0.7",
@@ -34,6 +59,8 @@
     "@types/node": "^20.11.24",
     "jest": "^29.7.0",
     "ts-jest": "^29.1.2",
+    "typedoc": "^0.28.17",
+    "typedoc-plugin-markdown": "^4.10.0",
     "typescript": "^5.8.2"
   },
   "dependencies": {

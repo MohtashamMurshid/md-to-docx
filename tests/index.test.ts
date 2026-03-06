@@ -7,6 +7,8 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const outputDir = path.join(__dirname, "..", "test-output");
+const transparentPngDataUrl =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAGgwJ/vk9yBgAAAABJRU5ErkJggg==";
 
 // Create output directory if it doesn't exist
 if (!fs.existsSync(outputDir)) {
@@ -18,15 +20,13 @@ jest.setTimeout(30000);
 
 describe("convertMarkdownToDocx", () => {
   it("should handle images correctly", async () => {
-    console.log("Starting image test");
-
     const markdown = `
 # Image Test
 This is a test with embedded images and explicit sizing.
 
-![Square 200x200](https://picsum.photos/200/200)
-![Logo 180x16](https://raw.githubusercontent.com/microsoft/vscode/main/resources/win32/code_70x70.png#180x16)
-![Explicit w h params](https://picsum.photos/600/400#w=150&h=100)
+![Square 200x200](${transparentPngDataUrl})
+![Logo 180x16](${transparentPngDataUrl}#180x16)
+![Explicit w h params](${transparentPngDataUrl}#w=150&h=100)
 `;
 
     const options: Options = {
@@ -40,17 +40,13 @@ This is a test with embedded images and explicit sizing.
       },
     };
 
-    console.log("Converting markdown to docx");
     const buffer = await convertMarkdownToDocx(markdown, options);
-    console.log("Conversion complete, buffer size:", await buffer.size);
 
     // Save the file for manual inspection
     const outputPath = path.join(outputDir, "image-test.docx");
-    console.log("Saving file to:", outputPath);
 
     const arrayBuffer = await buffer.arrayBuffer();
     fs.writeFileSync(outputPath, Buffer.from(arrayBuffer));
-    console.log("File saved successfully");
 
     // Verify the buffer is not empty
     const size = await buffer.size;
@@ -58,8 +54,6 @@ This is a test with embedded images and explicit sizing.
   });
 
   it("should handle code blocks correctly", async () => {
-    console.log("Starting code block test");
-
     const markdown = `
 # Code Block Test
 This is a test with various code blocks.
@@ -112,17 +106,13 @@ def calculate_fibonacci(n: int) -> list[int]:
       },
     };
 
-    console.log("Converting markdown to docx");
     const buffer = await convertMarkdownToDocx(markdown, options);
-    console.log("Conversion complete, buffer size:", await buffer.size);
 
     // Save the file for manual inspection
     const outputPath = path.join(outputDir, "code-block-test.docx");
-    console.log("Saving file to:", outputPath);
 
     const arrayBuffer = await buffer.arrayBuffer();
     fs.writeFileSync(outputPath, Buffer.from(arrayBuffer));
-    console.log("File saved successfully");
 
     // Verify the buffer is not empty
     const size = await buffer.size;
@@ -142,7 +132,7 @@ This is a paragraph with **bold** and *italic* text.
 1. Numbered item 1
 2. Numbered item 2
 
-![Test Image](https://raw.githubusercontent.com/microsoft/vscode/main/resources/win32/code_70x70.png)
+![Test Image](${transparentPngDataUrl})
 
 > This is a blockquote
 
@@ -238,11 +228,9 @@ More content here.
     const outputPath = path.join(outputDir, "test-toc-pagebreak.docx");
     const arrayBuffer = await buffer.arrayBuffer();
     fs.writeFileSync(outputPath, Buffer.from(arrayBuffer));
-    console.log("TOC/Page Break test output saved to:", outputPath);
   });
 
   it("should handle custom options with specific heading alignments", async () => {
-    console.log("Starting custom options test");
     const markdown = `
 ## 1. Introduction
 
@@ -280,15 +268,12 @@ The research design for this seminar report is primarily qualitative, utilizing 
       },
     };
 
-    console.log("Converting markdown with custom options");
     const buffer = await convertMarkdownToDocx(markdown, customOptions);
-    console.log("Conversion complete, buffer size:", await buffer.size);
 
     // Save the file for manual inspection
     const outputPath = path.join(outputDir, "custom-options-test.docx");
     const arrayBuffer = await buffer.arrayBuffer();
     fs.writeFileSync(outputPath, Buffer.from(arrayBuffer));
-    console.log("File saved to:", outputPath);
 
     // Verify the buffer is not empty
     const size = await buffer.size;
@@ -325,10 +310,8 @@ Organizations adopting explainable AI frameworks report better regulatory compli
 
     // Save the file for manual inspection
     const outputPath = path.join(outputDir, "supporting-evidence-test.docx");
-    console.log("Saving complex content test output to:", outputPath);
     const arrayBuffer = await blob.arrayBuffer();
     fs.writeFileSync(outputPath, Buffer.from(arrayBuffer));
-    console.log("Complex content test output saved successfully.");
 
     // Add more specific assertions if needed, e.g., by unpacking and inspecting the docx content
   });
@@ -377,18 +360,12 @@ describe("List Functionality Tests", () => {
 1. Numbered list item
 2. Another numbered item`;
 
-    console.log("Testing bullet points and numbered lists...");
-
     const docxBlob = await convertMarkdownToDocx(markdown);
 
     // Save the blob to a file for manual inspection
     const buffer = await docxBlob.arrayBuffer();
     const outputPath = path.join(outputDir, "lists-functionality-test.docx");
     fs.writeFileSync(outputPath, Buffer.from(buffer));
-
-    console.log(
-      `✅ Lists test completed successfully! File saved to: ${outputPath}`
-    );
 
     // Verify the blob was created successfully
     expect(docxBlob).toBeInstanceOf(Blob);
@@ -425,18 +402,12 @@ Some interrupting text here.
 - Bullet item 1 
 - Bullet item 2`;
 
-    console.log("Testing advanced list scenarios...");
-
     const docxBlob = await convertMarkdownToDocx(markdown);
 
     // Save the blob to a file
     const buffer = await docxBlob.arrayBuffer();
     const outputPath = path.join(outputDir, "advanced-lists-test.docx");
     fs.writeFileSync(outputPath, Buffer.from(buffer));
-
-    console.log(
-      `✅ Advanced lists test completed! File saved to: ${outputPath}`
-    );
 
     // Verify the blob was created successfully
     expect(docxBlob).toBeInstanceOf(Blob);

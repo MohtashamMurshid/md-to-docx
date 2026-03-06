@@ -6,6 +6,8 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const outputDir = path.join(__dirname, "..", "test-output");
+const transparentPngDataUrl =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAGgwJ/vk9yBgAAAABJRU5ErkJggg==";
 
 if (!fs.existsSync(outputDir)) {
   fs.mkdirSync(outputDir);
@@ -15,7 +17,7 @@ jest.setTimeout(20000);
 
 describe("image sizing", () => {
   it("preserves aspect ratio when only width is provided", async () => {
-    const markdown = `![Wide Banner](https://picsum.photos/800/160#w=400)`;
+    const markdown = `![Wide Banner](${transparentPngDataUrl}#w=400)`;
 
     const blob = await convertMarkdownToDocx(markdown);
     expect(blob).toBeInstanceOf(Blob);
@@ -27,7 +29,7 @@ describe("image sizing", () => {
   });
 
   it("uses explicit width and height when both provided", async () => {
-    const markdown = `![Exact Size](https://picsum.photos/600/400#w=120&h=60)`;
+    const markdown = `![Exact Size](${transparentPngDataUrl}#w=120&h=60)`;
 
     const blob = await convertMarkdownToDocx(markdown);
     expect(blob).toBeInstanceOf(Blob);
@@ -39,9 +41,7 @@ describe("image sizing", () => {
   });
 
   it("supports data URLs with explicit size", async () => {
-    // 1x1 PNG (transparent)
-    const onePx =
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAGgwJ/vk9yBgAAAABJRU5ErkJggg==#w=50&h=50";
+    const onePx = `${transparentPngDataUrl}#w=50&h=50`;
     const markdown = `![one px](${onePx})`;
 
     const blob = await convertMarkdownToDocx(markdown);

@@ -85,6 +85,28 @@ The options JSON file accepts the same options as the programmatic API. For exam
 }
 ```
 
+For template + multi-section documents, pass the same structure through `--options`:
+
+```json
+{
+  "template": {
+    "pageNumbering": { "display": "current", "alignment": "CENTER" }
+  },
+  "sections": [
+    {
+      "markdown": "# Cover\n\nGenerated from CLI",
+      "footers": { "default": null },
+      "pageNumbering": { "display": "none" }
+    },
+    {
+      "markdown": "# Body\n\nContent starts here",
+      "headers": { "default": { "text": "Main Section", "alignment": "RIGHT" } },
+      "pageNumbering": { "start": 1, "formatType": "decimal" }
+    }
+  ]
+}
+```
+
 ## Programmatic Usage
 
 ### Basic Usage
@@ -197,8 +219,12 @@ const options = {
     },
     {
       markdown: `[TOC]\n\n# Executive Summary\n\nContent...`,
+      titlePage: true,
+      type: "NEXT_PAGE",
       headers: {
-        default: { text: "Executive Summary", alignment: "RIGHT" }
+        default: { text: "Executive Summary", alignment: "RIGHT" },
+        first: { text: "Executive Summary (First)", alignment: "RIGHT" },
+        even: { text: "Executive Summary (Even)", alignment: "LEFT" }
       },
       footers: {
         default: {
@@ -209,7 +235,13 @@ const options = {
       },
       pageNumbering: {
         start: 1,
-        formatType: "decimal"
+        formatType: "decimal",
+        separator: "hyphen"
+      },
+      page: {
+        size: {
+          orientation: "PORTRAIT"
+        }
       },
       style: {
         paragraphAlignment: "JUSTIFIED"
@@ -220,9 +252,15 @@ const options = {
       headers: {
         default: { text: "Appendix", alignment: "LEFT" }
       },
+      type: "ODD_PAGE",
       pageNumbering: {
         start: 1,
         formatType: "upperRoman"
+      },
+      page: {
+        size: {
+          orientation: "LANDSCAPE"
+        }
       },
       style: {
         paragraphSize: 22
@@ -233,6 +271,12 @@ const options = {
 
 const blob = await convertMarkdownToDocx("", options);
 ```
+
+Precedence and merge behavior:
+- Global `style` applies first.
+- `template.style` is applied next for shared section defaults.
+- Per-section `style` wins last.
+- For `headers`/`footers`, each slot (`default`, `first`, `even`) can inherit, override, or be disabled with `null`.
 
 ### Custom Table of Contents Styling
 
@@ -411,6 +455,7 @@ Converts Markdown text to a DOCX document.
       - `alignment`: `"LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED"`
       - `start`: Start page number for the section (>= 1)
       - `formatType`: `"decimal" | "upperRoman" | "lowerRoman" | "upperLetter" | "lowerLetter"`
+      - `separator`: `"hyphen" | "period" | "colon" | "emDash" | "endash"`
   - `sections` (array): Explicit section list (if omitted, markdown input is a single section)
     - `markdown` (string): Markdown content for that section
     - `style` (object): Section-local style overrides

@@ -1,6 +1,8 @@
 # Markdown to DOCX Converter
 
 A powerful TypeScript library and CLI that converts Markdown to Microsoft Word (.docx) documents. Works in Node.js and browser environments.
+[![npm version](https://img.shields.io/npm/v/%40mohtasham%2Fmd-to-docx)](https://www.npmjs.com/package/@mohtasham/md-to-docx)
+[![npm downloads](https://img.shields.io/npm/dt/%40mohtasham%2Fmd-to-docx)](https://www.npmjs.com/package/@mohtasham/md-to-docx)
 
 ## GitHub Repo (Open Source)
 

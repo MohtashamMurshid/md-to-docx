@@ -1047,12 +1047,25 @@ export function processCodeBlock(
     }
   });
 
+  const alignment = (() => {
+    switch (style.codeBlockAlignment) {
+      case "CENTER":
+        return AlignmentType.CENTER;
+      case "RIGHT":
+        return AlignmentType.RIGHT;
+      case "JUSTIFIED":
+        return AlignmentType.JUSTIFIED;
+      case "LEFT":
+      default:
+        return AlignmentType.LEFT;
+    }
+  })();
+
   return new Paragraph({
     children: codeRuns,
     spacing: {
       before: style.paragraphSpacing,
       after: style.paragraphSpacing,
-      // Preserve line spacing exactly
       line: 360,
       lineRule: "exact",
     },
@@ -1065,10 +1078,10 @@ export function processCodeBlock(
       left: { style: BorderStyle.SINGLE, size: 1, color: "DDDDDD" },
       right: { style: BorderStyle.SINGLE, size: 1, color: "DDDDDD" },
     },
-    // Preserve indentation
     indent: {
-      left: 360, // 0.25 inch indent for the entire code block
+      left: 360,
     },
+    alignment,
   });
 }
 

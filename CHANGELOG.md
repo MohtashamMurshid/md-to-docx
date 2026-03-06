@@ -7,12 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.9.0] - 2026-03-06
+
 ### Added
 
 - New template + sections API (`options.template`, `options.sections`) for real multi-section document generation.
 - Per-section header/footer slots (`default`, `first`, `even`) with optional page-number field rendering.
 - Section-level page numbering controls (`start`, `formatType`, `separator`, and display strategy).
 - Section-level style overrides so formatting can change mid-document (addresses GitHub issue #16 use case).
+- Configurable `codeBlockAlignment` style option for code block paragraphs (`LEFT`, `CENTER`, `RIGHT`, `JUSTIFIED`), defaulting to `LEFT` (PR #40).
 
 ### Changed
 

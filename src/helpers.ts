@@ -1047,6 +1047,21 @@ export function processCodeBlock(
     }
   });
 
+  // Resolve alignment from style (default LEFT so code blocks are not justified)
+  const alignment = (() => {
+    switch (style.codeBlockAlignment) {
+      case "CENTER":
+        return AlignmentType.CENTER;
+      case "RIGHT":
+        return AlignmentType.RIGHT;
+      case "JUSTIFIED":
+        return AlignmentType.JUSTIFIED;
+      case "LEFT":
+      default:
+        return AlignmentType.LEFT;
+    }
+  })();
+
   return new Paragraph({
     children: codeRuns,
     spacing: {
@@ -1069,6 +1084,7 @@ export function processCodeBlock(
     indent: {
       left: 360, // 0.25 inch indent for the entire code block
     },
+    alignment,
   });
 }
 

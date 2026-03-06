@@ -51,6 +51,7 @@ export interface Style {
   heading4Alignment?: "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
   heading5Alignment?: "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
   blockquoteAlignment?: "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
+  codeBlockAlignment?: "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
   // Table options
   tableLayout?: "autofit" | "fixed";
 }
@@ -126,6 +127,7 @@ export const defaultStyle: Style = {
   heading4Alignment: "LEFT",
   heading5Alignment: "LEFT",
   blockquoteAlignment: "LEFT",
+  codeBlockAlignment: "LEFT",
   headingAlignment: "LEFT",
   // Table options
   tableLayout: "autofit",

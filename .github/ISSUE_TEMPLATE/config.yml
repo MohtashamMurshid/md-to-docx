@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Usage and support
+    url: https://github.com/MohtashamMurshid/md-to-docx/blob/main/SUPPORT.md
+    about: Read support guidance before opening a general question.
+  - name: Security policy
+    url: https://github.com/MohtashamMurshid/md-to-docx/blob/main/SECURITY.md
+    about: Use the security policy for sensitive reports.

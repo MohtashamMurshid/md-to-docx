@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.9.1] - 2026-03-06
+
+### Added
+
+- Added a full contributor-facing documentation set under `docs/`, including getting started, CLI, library usage, examples, advanced sections, skill usage, and contributing guides.
+- Added repository community files for contributors and maintainers: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `SUPPORT.md`, PR template, and issue templates.
+- Added generated markdown API reference output under `docs/api/` using TypeDoc and `typedoc-plugin-markdown`.
+
+### Changed
+
+- Reworked the top-level README into a clearer open-source landing page with faster paths for npm users, CLI users, contributors, and skill users.
+- Expanded package metadata with repository, homepage, bugs, engines, package manager, export map, docs scripts, and package validation helpers.
+- Strengthened CI/CD to validate multiple Node versions, API docs generation, package packing, and npm provenance publishing.
+- Improved public JSDoc coverage and exported supporting public types used by the API reference.
+
+### Tests
+
+- Replaced network-dependent image test inputs with data URLs for more deterministic local and CI runs.
+- Reduced noisy console logging in the Jest suite to make contributor test output easier to scan.
+
 ## [2.9.0] - 2026-03-06
 
 ### Added

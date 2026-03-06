@@ -33,6 +33,16 @@ import { parseMarkdownToAst, applyTextReplacements } from "./markdownAst.js";
 import { mdastToDocxModel } from "./mdastToDocxModel.js";
 import { modelToDocx } from "./modelToDocx.js";
 
+/**
+ * @packageDocumentation
+ *
+ * Public package entry point for Markdown-to-DOCX conversion.
+ *
+ * Use `convertMarkdownToDocx()` to render Markdown into a DOCX `Blob`,
+ * `parseToDocxOptions()` to inspect the generated `docx` configuration before
+ * packing, and `downloadDocx()` for browser-side file downloads.
+ */
+
 const defaultStyle: Style = {
   titleSize: 32,
   headingSpacing: 240,
@@ -48,21 +58,31 @@ const defaultOptions: Options = {
 };
 
 export {
+  AlignmentOption,
   DocumentSection,
   HeaderFooterContent,
   HeaderFooterGroup,
+  HeaderFooterSlot,
   Options,
+  SectionPageConfig,
+  SectionPageMargins,
+  SectionPageNumberDisplay,
+  SectionPageNumberFormat,
+  SectionPageNumbering,
+  SectionPageNumberSeparator,
+  SectionPageSize,
   SectionConfig,
   SectionTemplate,
   Style,
   TableData,
+  TextReplacement,
 } from "./types.js";
 
 /**
  * Custom error class for markdown conversion errors
- * @extends Error
- * @param message - The error message
- * @param context - The context of the error
+ *
+ * @param message - Human-readable error message.
+ * @param context - Optional extra context to help debug the failure.
  */
 export class MarkdownConversionError extends Error {
   constructor(message: string, public context?: any) {
@@ -525,8 +545,9 @@ function validateSectionConfigInput(
 }
 
 /**
- * Validates markdown input and options
- * @throws {MarkdownConversionError} If input is invalid
+ * Validates markdown input and options before conversion starts.
+ *
+ * @throws {MarkdownConversionError} If the input is invalid.
  */
 function validateInput(markdown: string, options: Options): void {
   if (typeof markdown !== "string") {
@@ -980,11 +1001,18 @@ function replaceTocPlaceholders(
 }
 
 /**
- * Convert Markdown to Docx file
- * @param markdown - The Markdown string to convert
- * @param options - The options for the conversion
- * @returns A Promise that resolves to a Blob containing the Docx file
- * @throws {MarkdownConversionError} If conversion fails
+ * Converts Markdown into a DOCX `Blob`.
+ *
+ * @param markdown - Markdown content to convert.
+ * @param options - Optional conversion settings for styling, sections, and page layout.
+ * @returns A `Blob` containing the generated DOCX file.
+ *
+ * @example
+ * ```ts
+ * const blob = await convertMarkdownToDocx("# Hello");
+ * ```
+ *
+ * @throws {MarkdownConversionError} If validation or conversion fails.
  */
 export async function convertMarkdownToDocx( markdown: string, options: Options = defaultOptions): Promise<Blob>  {
   try {
@@ -1008,11 +1036,16 @@ export async function convertMarkdownToDocx( markdown: string, options: Options 
   }
 }
 /**
- * Convert Markdown to Docx options
- * @param markdown - The Markdown string to convert
- * @param options - The options for the conversion
- * @returns A Promise that resolves to Docx options
- * @throws {MarkdownConversionError} If conversion fails
+ * Parses Markdown into `docx` document options without packing them into a file.
+ *
+ * This is useful when you want to inspect or post-process the generated
+ * `docx` configuration before creating the final document.
+ *
+ * @param markdown - Markdown content to convert.
+ * @param options - Optional conversion settings for styling, sections, and page layout.
+ * @returns The `docx` document options used to create the final file.
+ *
+ * @throws {MarkdownConversionError} If validation or conversion fails.
  */
 export async function parseToDocxOptions (
   markdown: string,
@@ -1257,12 +1290,19 @@ export async function parseToDocxOptions (
 }
 
 /**
- * Downloads a DOCX file in the browser environment
- * @param blob - The Blob containing the DOCX file data
- * @param filename - The name to save the file as (defaults to "document.docx")
- * @throws {Error} If the function is called outside browser environment
- * @throws {Error} If invalid blob or filename is provided
- * @throws {Error} If file save fails
+ * Downloads a generated DOCX file in browser environments.
+ *
+ * @param blob - DOCX file data to download.
+ * @param filename - Download filename. Defaults to `"document.docx"`.
+ *
+ * @example
+ * ```ts
+ * const blob = await convertMarkdownToDocx("# Browser Example");
+ * downloadDocx(blob, "example.docx");
+ * ```
+ *
+ * @throws {Error} If called outside the browser, receives an invalid blob or
+ * filename, or the save operation fails.
  */
 export function downloadDocx(
   blob: Blob,

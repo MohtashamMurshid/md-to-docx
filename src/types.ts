@@ -1,3 +1,6 @@
+/**
+ * Visual formatting options applied while converting Markdown into DOCX content.
+ */
 export interface Style {
   titleSize: number;
   headingSpacing: number;
@@ -56,14 +59,23 @@ export interface Style {
   tableLayout?: "autofit" | "fixed";
 }
 
+/**
+ * Supported paragraph and heading alignment values.
+ */
 export type AlignmentOption = "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
 
+/**
+ * Footer page-number rendering strategies available per section or slot.
+ */
 export type SectionPageNumberDisplay =
   | "none"
   | "current"
   | "currentAndTotal"
   | "currentAndSectionTotal";
 
+/**
+ * Supported numbering formats for section page numbers.
+ */
 export type SectionPageNumberFormat =
   | "decimal"
   | "upperRoman"
@@ -71,6 +83,9 @@ export type SectionPageNumberFormat =
   | "upperLetter"
   | "lowerLetter";
 
+/**
+ * Supported separators for page-number display formats that use one.
+ */
 export type SectionPageNumberSeparator =
   | "hyphen"
   | "period"
@@ -78,6 +93,9 @@ export type SectionPageNumberSeparator =
   | "emDash"
   | "endash";
 
+/**
+ * Plain-text content rendered in a header or footer slot.
+ */
 export interface HeaderFooterContent {
   /**
    * Optional plain text rendered before page number fields.
@@ -95,12 +113,18 @@ export interface HeaderFooterContent {
 
 export type HeaderFooterSlot = HeaderFooterContent | null;
 
+/**
+ * Word header/footer slots for default, first-page, and even-page variants.
+ */
 export interface HeaderFooterGroup {
   default?: HeaderFooterSlot;
   first?: HeaderFooterSlot;
   even?: HeaderFooterSlot;
 }
 
+/**
+ * Word page margin values expressed in twips.
+ */
 export interface SectionPageMargins {
   top?: number;
   right?: number;
@@ -111,17 +135,26 @@ export interface SectionPageMargins {
   gutter?: number;
 }
 
+/**
+ * Section page size overrides.
+ */
 export interface SectionPageSize {
   width?: number;
   height?: number;
   orientation?: "PORTRAIT" | "LANDSCAPE";
 }
 
+/**
+ * Section-level page layout options.
+ */
 export interface SectionPageConfig {
   margin?: SectionPageMargins;
   size?: SectionPageSize;
 }
 
+/**
+ * Section page-number behavior and formatting.
+ */
 export interface SectionPageNumbering {
   /**
    * Page number to start from in this section.
@@ -145,6 +178,9 @@ export interface SectionPageNumbering {
   alignment?: AlignmentOption;
 }
 
+/**
+ * Shared section-level options supported by templates and explicit sections.
+ */
 export interface SectionConfig {
   /**
    * Style override applied to content rendered inside this section.
@@ -181,8 +217,14 @@ export interface SectionConfig {
     | "ODD_PAGE";
 }
 
+/**
+ * Shared defaults applied to each explicit section before local overrides.
+ */
 export interface SectionTemplate extends SectionConfig {}
 
+/**
+ * A single markdown-backed document section.
+ */
 export interface DocumentSection extends SectionConfig {
   /**
    * Markdown content that belongs to this section.
@@ -190,8 +232,18 @@ export interface DocumentSection extends SectionConfig {
   markdown: string;
 }
 
+/**
+ * Top-level conversion options for `convertMarkdownToDocx()`.
+ */
 export interface Options {
+  /**
+   * Report mode can be used for more formal document layouts, while document
+   * mode is the default general-purpose option.
+   */
   documentType?: "document" | "report";
+  /**
+   * Global style options applied before template and section overrides.
+   */
   style?: Partial<Style>;
   /**
    * Shared defaults applied to each section before per-section overrides.
@@ -209,6 +261,9 @@ export interface Options {
   textReplacements?: TextReplacement[];
 }
 
+/**
+ * Simplified table data representation used internally by table helpers.
+ */
 export interface TableData {
   headers: string[];
   rows: string[][];

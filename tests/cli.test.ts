@@ -74,6 +74,71 @@ describe("standalone CLI", () => {
     expect(stat.size).toBeGreaterThan(0);
   });
 
+  it("supports template and multi-section options from JSON file", async () => {
+    const inputPath = path.join(tempDir, "input.md");
+    const outputPath = path.join(tempDir, "output-multi-section.docx");
+    const optionsPath = path.join(tempDir, "multi-section-options.json");
+    const output = captureOutput();
+
+    await fsp.writeFile(inputPath, "# Placeholder\n\nCLI should ignore this with sections.");
+    await fsp.writeFile(
+      optionsPath,
+      JSON.stringify({
+        template: {
+          page: {
+            margin: {
+              top: 1440,
+              right: 1080,
+              bottom: 1440,
+              left: 1080,
+            },
+          },
+          pageNumbering: {
+            display: "current",
+            alignment: "CENTER",
+          },
+        },
+        sections: [
+          {
+            markdown: "# Cover\n\nPrepared by CLI",
+            footers: {
+              default: null,
+            },
+            pageNumbering: {
+              display: "none",
+            },
+            style: {
+              paragraphAlignment: "CENTER",
+            },
+          },
+          {
+            markdown: "# Body\n\nMain content starts here.\n\n1. One\n2. Two",
+            headers: {
+              default: {
+                text: "Main Section",
+                alignment: "RIGHT",
+              },
+            },
+            pageNumbering: {
+              start: 1,
+              formatType: "decimal",
+            },
+          },
+        ],
+      })
+    );
+
+    const exitCode = await runCli(
+      [inputPath, outputPath, "--options", optionsPath],
+      output
+    );
+
+    expect(exitCode).toBe(0);
+    expect(output.errors).toHaveLength(0);
+    const stat = await fsp.stat(outputPath);
+    expect(stat.size).toBeGreaterThan(0);
+  });
+
   it("supports -o short flag for options", async () => {
     const inputPath = path.join(tempDir, "input.md");
     const outputPath = path.join(tempDir, "output.docx");

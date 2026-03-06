@@ -1047,7 +1047,6 @@ export function processCodeBlock(
     }
   });
 
-  // Resolve alignment from style (default LEFT so code blocks are not justified)
   const alignment = (() => {
     switch (style.codeBlockAlignment) {
       case "CENTER":
@@ -1067,7 +1066,6 @@ export function processCodeBlock(
     spacing: {
       before: style.paragraphSpacing,
       after: style.paragraphSpacing,
-      // Preserve line spacing exactly
       line: 360,
       lineRule: "exact",
     },
@@ -1080,9 +1078,8 @@ export function processCodeBlock(
       left: { style: BorderStyle.SINGLE, size: 1, color: "DDDDDD" },
       right: { style: BorderStyle.SINGLE, size: 1, color: "DDDDDD" },
     },
-    // Preserve indentation
     indent: {
-      left: 360, // 0.25 inch indent for the entire code block
+      left: 360,
     },
     alignment,
   });

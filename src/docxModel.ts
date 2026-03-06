@@ -58,8 +58,8 @@ export interface DocxImageNode {
 
 export interface DocxTableNode {
   type: "table";
-  headers: string[];
-  rows: string[][];
+  headers: DocxTextNode[][];
+  rows: DocxTextNode[][][];
   align?: (string | null)[];
 }
 

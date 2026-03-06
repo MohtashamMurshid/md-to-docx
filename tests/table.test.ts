@@ -99,6 +99,40 @@ Would you like a **template or example format** for these reports (e.g., Excel o
     expect(blob.size).toBeGreaterThan(0);
   });
 
+  it("should preserve inline formatting in table cells (issue #35)", async () => {
+    const markdown = `
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Bold text** | *Italic text* | ~~Deprecated~~ |
+| \`inline code\` | [link](https://example.com) | **bold** and *italic* |
+| ***bold italic*** | ++underline++ | Normal text |
+`;
+
+    const blob = await convertMarkdownToDocx(markdown);
+    const buffer = await blob.arrayBuffer();
+    const outputPath = path.join(outputDir, "table-inline-formatting.docx");
+    fs.writeFileSync(outputPath, Buffer.from(buffer));
+
+    expect(blob).toBeInstanceOf(Blob);
+    expect(blob.size).toBeGreaterThan(0);
+  });
+
+  it("should preserve inline formatting in table headers (issue #35)", async () => {
+    const markdown = `
+| **Bold Header** | *Italic Header* | \`Code Header\` |
+|-----------------|-----------------|-----------------|
+| cell 1          | cell 2          | cell 3          |
+`;
+
+    const blob = await convertMarkdownToDocx(markdown);
+    const buffer = await blob.arrayBuffer();
+    const outputPath = path.join(outputDir, "table-formatted-headers.docx");
+    fs.writeFileSync(outputPath, Buffer.from(buffer));
+
+    expect(blob).toBeInstanceOf(Blob);
+    expect(blob.size).toBeGreaterThan(0);
+  });
+
   it("should use configurable tableLayout option", async () => {
     const markdown = `
 | Column A | Column B | Column C |

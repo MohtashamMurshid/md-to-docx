@@ -183,24 +183,20 @@ export function mdastToDocxModel(root: Root, style: Style, options: Options): Do
   }
 
   function processTable(table: Table): DocxBlockNode {
-    const headers: string[] = [];
-    const rows: string[][] = [];
+    const headers: DocxTextNode[][] = [];
+    const rows: DocxTextNode[][][] = [];
 
     if (table.children.length > 0) {
-      // First row is header
       const headerRow = table.children[0] as TableRow;
       for (const cell of headerRow.children) {
-        const cellText = extractTextFromTableCell(cell as TableCell);
-        headers.push(cellText);
+        headers.push(extractRichTextFromTableCell(cell as TableCell));
       }
 
-      // Remaining rows
       for (let i = 1; i < table.children.length; i++) {
         const row = table.children[i] as TableRow;
-        const rowData: string[] = [];
+        const rowData: DocxTextNode[][] = [];
         for (const cell of row.children) {
-          const cellText = extractTextFromTableCell(cell as TableCell);
-          rowData.push(cellText);
+          rowData.push(extractRichTextFromTableCell(cell as TableCell));
         }
         rows.push(rowData);
       }
@@ -214,17 +210,16 @@ export function mdastToDocxModel(root: Root, style: Style, options: Options): Do
     };
   }
 
-  function extractTextFromTableCell(cell: TableCell): string {
-    let text = "";
-    // TableCell.children is FlowContent[] which can include paragraphs
+  function extractRichTextFromTableCell(cell: TableCell): DocxTextNode[] {
+    const nodes: DocxTextNode[] = [];
     for (const child of cell.children as any[]) {
       if (child.type === "paragraph") {
-        text += extractTextFromInlineNodes(child.children);
+        nodes.push(...processInlineNodes(child.children));
       } else if (child.type === "text") {
-        text += child.value;
+        nodes.push({ type: "text", value: child.value });
       }
     }
-    return text.trim();
+    return nodes;
   }
 
   function processInlineNodes(nodes: any[]): DocxTextNode[] {

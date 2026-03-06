@@ -17,14 +17,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Section-level style overrides so formatting can change mid-document (addresses GitHub issue #16 use case).
 - Configurable `codeBlockAlignment` style option for code block paragraphs (`LEFT`, `CENTER`, `RIGHT`, `JUSTIFIED`), defaulting to `LEFT` (PR #40).
 
+### Fixed
+
+- Table cells now preserve inline formatting (bold, italic, strikethrough, underline, inline code, links) instead of stripping to plain text (GitHub issue #35).
+
 ### Changed
 
 - `parseToDocxOptions` now emits real DOCX section entries instead of forcing a single continuous section.
 - Numbered-list sequence IDs are offset per rendered section to avoid cross-section numbering collisions.
+- `DocxTableNode` model stores rich `DocxTextNode[][]` cell content instead of plain strings.
+- `processTable` in helpers now uses `processFormattedText` for cell rendering, enabling full inline markup support.
 
 ### Tests
 
 - Added `tests/sections.test.ts` covering section properties, footer behavior, numbering resets, and per-section style conversion.
+- Added table inline formatting tests covering bold, italic, strikethrough, underline, inline code, and links in cells and headers (issue #35).
 
 ## [2.8.0] - 2026-02-24
 

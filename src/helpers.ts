@@ -385,6 +385,12 @@ export function processTable(
   };
   const fontFamily = resolveFontFamily(style);
 
+  const ensureBold = (text: string): string => {
+    const trimmed = text.trim();
+    if (trimmed.startsWith("**") && trimmed.endsWith("**")) return text;
+    return `**${text}**`;
+  };
+
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     rows: [
@@ -397,14 +403,7 @@ export function processTable(
                 new Paragraph({
                   alignment: getColumnAlignment(index),
                   style: "Strong",
-                  children: [
-                    new TextRun({
-                      text: header,
-                      bold: true,
-                      color: "000000",
-                      font: fontFamily,
-                    }),
-                  ],
+                  children: processFormattedText(ensureBold(header), style),
                 }),
               ],
               shading: {
@@ -422,14 +421,7 @@ export function processTable(
                   children: [
                     new Paragraph({
                       alignment: getColumnAlignment(index),
-                      children: [
-                        new TextRun({
-                          text: cell,
-                          color: "000000",
-                          font: fontFamily,
-                          rightToLeft: false,
-                        }),
-                      ],
+                      children: processFormattedText(cell, style),
                     }),
                   ],
                 })

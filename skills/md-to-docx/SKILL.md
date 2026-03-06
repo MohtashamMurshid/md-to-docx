@@ -95,7 +95,7 @@ Support includes:
 - Bold, italic, underline (`++text++`), strikethrough (`~~text~~`)
 - Custom font family via `fontFamily` style option
 - Blockquotes
-- Tables
+- Tables (with inline formatting: bold, italic, code, links, strikethrough in cells)
 - Code blocks and inline code (with configurable `codeBlockAlignment`)
 - Links and images
 - `COMMENT: ...`

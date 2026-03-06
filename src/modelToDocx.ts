@@ -136,8 +136,12 @@ export async function modelToDocx(
 
       case "table": {
         const tableData = {
-          headers: node.headers,
-          rows: node.rows,
+          headers: node.headers.map(
+            (cells) => cells.map((c) => encodeInlineNode(c)).join("")
+          ),
+          rows: node.rows.map((row) =>
+            row.map((cells) => cells.map((c) => encodeInlineNode(c)).join(""))
+          ),
           align: node.align,
         };
         return [processTable(tableData, documentType, style)];

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "@jest/globals";
 import { convertMarkdownToDocx } from "../src/index";
 import fs from "fs";
+import JSZip from "jszip";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -9,6 +10,18 @@ const outputDir = path.join(__dirname, "..", "test-output");
 
 if (!fs.existsSync(outputDir)) {
   fs.mkdirSync(outputDir, { recursive: true });
+}
+
+async function getDocumentXml(blob: Blob): Promise<string> {
+  const buffer = await blob.arrayBuffer();
+  const zip = await JSZip.loadAsync(Buffer.from(buffer));
+  const documentXml = zip.file("word/document.xml");
+
+  if (!documentXml) {
+    throw new Error("word/document.xml not found in DOCX");
+  }
+
+  return documentXml.async("string");
 }
 
 describe("Table rendering", () => {
@@ -115,6 +128,18 @@ Would you like a **template or example format** for these reports (e.g., Excel o
 
     expect(blob).toBeInstanceOf(Blob);
     expect(blob.size).toBeGreaterThan(0);
+
+    const documentXml = await getDocumentXml(blob);
+    expect(documentXml).toContain("Bold text");
+    expect(documentXml).toContain("Italic text");
+    expect(documentXml).toContain("Deprecated");
+    expect(documentXml).toContain("inline code");
+    expect(documentXml).toContain("link");
+    expect(documentXml).toContain("bold");
+    expect(documentXml).toContain("italic");
+    expect(documentXml).toContain("bold italic");
+    expect(documentXml).toContain("underline");
+    expect(documentXml).toContain("Normal text");
   });
 
   it("should preserve inline formatting in table headers (issue #35)", async () => {
@@ -131,6 +156,11 @@ Would you like a **template or example format** for these reports (e.g., Excel o
 
     expect(blob).toBeInstanceOf(Blob);
     expect(blob.size).toBeGreaterThan(0);
+
+    const documentXml = await getDocumentXml(blob);
+    expect(documentXml).toContain("Bold Header");
+    expect(documentXml).toContain("Italic Header");
+    expect(documentXml).toContain("Code Header");
   });
 
   it("should use configurable tableLayout option", async () => {

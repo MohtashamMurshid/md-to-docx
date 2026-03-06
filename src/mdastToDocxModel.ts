@@ -215,8 +215,8 @@ export function mdastToDocxModel(root: Root, style: Style, options: Options): Do
     for (const child of cell.children as any[]) {
       if (child.type === "paragraph") {
         nodes.push(...processInlineNodes(child.children));
-      } else if (child.type === "text") {
-        nodes.push({ type: "text", value: child.value });
+      } else {
+        nodes.push(...processInlineNodes([child]));
       }
     }
     return nodes;

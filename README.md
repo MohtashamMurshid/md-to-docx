@@ -149,6 +149,7 @@ const options = {
     tocFontSize: 22, // Custom font size for TOC entries
     paragraphAlignment: "JUSTIFIED",
     blockquoteAlignment: "CENTER",
+    codeBlockAlignment: "LEFT",
     direction: "RTL", // Set document direction to Right-to-Left
   },
 };
@@ -213,6 +214,7 @@ const alignmentOptions = {
   style: {
     paragraphAlignment: "JUSTIFIED",
     blockquoteAlignment: "CENTER",
+    codeBlockAlignment: "LEFT",
     direction: "LTR", // Default; set to "RTL" for right-to-left languages
     // All headings default to LEFT alignment
   },
@@ -242,6 +244,7 @@ const customHeadingOptions = {
     // Other style options
     paragraphAlignment: "LEFT", // Paragraphs will be left-aligned
     blockquoteAlignment: "LEFT", // Blockquotes will be left-aligned
+    codeBlockAlignment: "LEFT", // Code blocks will be left-aligned
     direction: "RTL", // Example: apply RTL flow with per-heading alignments
   },
 };
@@ -348,6 +351,7 @@ Converts Markdown text to a DOCX document.
       - `headingAlignment` (string): "LEFT" | "RIGHT" | "CENTER" | "JUSTIFIED" (fallback for all headings)
       - `heading1Alignment` through `heading5Alignment` (string): Individual heading level alignments
       - `blockquoteAlignment` (string): "LEFT" | "RIGHT" | "CENTER" | "JUSTIFIED"
+      - `codeBlockAlignment` (string): "LEFT" | "RIGHT" | "CENTER" | "JUSTIFIED"
     - Direction:
       - `direction` (string): "LTR" | "RTL". Applies bidirectional layout for paragraphs and runs. Combine with `paragraphAlignment: "RIGHT"` for typical RTL layouts.
     - Text Replacements:

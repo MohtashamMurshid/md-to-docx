@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MD to DOCX Web Test</title>
+</head>
+<body>
+    <h1>Markdown to DOCX Converter (Web Browser)</h1>
+    <textarea id="markdown-input" rows="15" cols="80">
+# Image Alignment & Size Test
+This is a test of generating DOCX directly in the browser!
+
+Left-aligned image with explicit size (100x100):
+![100x100 image](https://picsum.photos/400/200#w=100&h=100)
+
+Base64 image test:
+![1x1 red pixel](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==#w=50&h=50)
+
+    </textarea>
+    <br><br>
+    
+    <h3>Style Options</h3>
+    <div>
+        <label>Image Alignment:</label>
+        <select id="image-align">
+            <option value="LEFT">Left</option>
+            <option value="CENTER" selected>Center</option>
+            <option value="RIGHT">Right</option>
+        </select>
+    </div>
+    
+    <br>
+    <button id="convert-btn">Download DOCX</button>
+    <p id="status"></p>
+
+    <!-- Use explicit module script -->
+    <script type="module" src="/main.js"></script>
+</body>
+</html>

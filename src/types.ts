@@ -52,6 +52,9 @@ export interface Style {
   heading5Alignment?: "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
   blockquoteAlignment?: "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
   codeBlockAlignment?: "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
+  imageAlignment?: "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
+  imageWidth?: number;
+  imageHeight?: number;
   // Table options
   tableLayout?: "autofit" | "fixed";
 }
@@ -272,6 +275,9 @@ export const defaultStyle: Style = {
   blockquoteAlignment: "LEFT",
   codeBlockAlignment: "LEFT",
   headingAlignment: "LEFT",
+  imageAlignment: "CENTER",
+  imageWidth: 200,
+  imageHeight: 200,
   // Table options
   tableLayout: "autofit",
 };

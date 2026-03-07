@@ -47,13 +47,13 @@ export async function processImage(
           new ImageRun({
             data,
             transformation: {
-              width: 200,
-              height: 200,
+              width: style.imageWidth ?? 200,
+              height: style.imageHeight ?? 200,
             },
             type: imageType,
           }),
         ],
-        alignment: AlignmentType.CENTER,
+        alignment: style.imageAlignment ? AlignmentType[style.imageAlignment] : AlignmentType.CENTER,
         spacing: {
           before: style.paragraphSpacing,
           after: style.paragraphSpacing,
@@ -76,7 +76,7 @@ export async function processImage(
             color: "FF0000",
           }),
         ],
-        alignment: AlignmentType.CENTER,
+        alignment: style.imageAlignment ? AlignmentType[style.imageAlignment] : AlignmentType.CENTER,
       }),
     ];
   }

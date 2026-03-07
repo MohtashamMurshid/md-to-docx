@@ -150,6 +150,9 @@ const options = {
     paragraphAlignment: "JUSTIFIED",
     blockquoteAlignment: "CENTER",
     codeBlockAlignment: "LEFT",
+    imageAlignment: "CENTER",
+    imageWidth: 200,
+    imageHeight: 200,
     direction: "RTL", // Set document direction to Right-to-Left
   },
 };
@@ -352,6 +355,10 @@ Converts Markdown text to a DOCX document.
       - `heading1Alignment` through `heading5Alignment` (string): Individual heading level alignments
       - `blockquoteAlignment` (string): "LEFT" | "RIGHT" | "CENTER" | "JUSTIFIED"
       - `codeBlockAlignment` (string): "LEFT" | "RIGHT" | "CENTER" | "JUSTIFIED"
+      - `imageAlignment` (string): "LEFT" | "RIGHT" | "CENTER" | "JUSTIFIED"
+    - Image Options:
+      - `imageWidth` (number): Width of images in pixels
+      - `imageHeight` (number): Height of images in pixels
     - Direction:
       - `direction` (string): "LTR" | "RTL". Applies bidirectional layout for paragraphs and runs. Combine with `paragraphAlignment: "RIGHT"` for typical RTL layouts.
     - Text Replacements:

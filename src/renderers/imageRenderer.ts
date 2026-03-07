@@ -14,30 +14,47 @@ export async function processImage(
   style: Style
 ): Promise<Paragraph[]> {
   try {
-    const response = await fetch(imageUrl);
+    let data: Uint8Array | Buffer;
+    let imageType: "png" | "jpg" | "gif" = "png";
 
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch image: ${response.status} ${response.statusText}`
-      );
-    }
+    if (imageUrl.startsWith("data:image/")) {
+      // Handle base64 image
+      const [header, base64Data] = imageUrl.split(",");
+      data = typeof Buffer !== "undefined"
+        ? Buffer.from(base64Data, "base64")
+        : Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
 
-    const arrayBuffer = await response.arrayBuffer();
-    // Use Buffer in Node environments, Uint8Array in browsers
-    const data: Uint8Array | Buffer =
-      typeof Buffer !== "undefined"
+      if (header.includes("image/jpeg") || header.includes("image/jpg")) {
+        imageType = "jpg";
+      } else if (header.includes("image/gif")) {
+        imageType = "gif";
+      } else {
+        imageType = "png";
+      }
+    } else {
+      const response = await fetch(imageUrl);
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to fetch image: ${response.status} ${response.statusText}`
+        );
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      // Use Buffer in Node environments, Uint8Array in browsers
+      data = typeof Buffer !== "undefined"
         ? Buffer.from(arrayBuffer)
         : new Uint8Array(arrayBuffer);
 
-    // Infer image type from content-type header or URL extension
-    const contentType = response.headers.get("content-type") || "";
-    let imageType: "png" | "jpg" | "gif" = "png";
-    if (/jpeg|jpg/i.test(contentType) || /\.(jpe?g)(\?|$)/i.test(imageUrl)) {
-      imageType = "jpg";
-    } else if (/png/i.test(contentType) || /\.(png)(\?|$)/i.test(imageUrl)) {
-      imageType = "png";
-    } else if (/gif/i.test(contentType) || /\.(gif)(\?|$)/i.test(imageUrl)) {
-      imageType = "gif";
+      // Infer image type from content-type header or URL extension
+      const contentType = response.headers.get("content-type") || "";
+      if (/jpeg|jpg/i.test(contentType) || /\.(jpe?g)(\?|$)/i.test(imageUrl)) {
+        imageType = "jpg";
+      } else if (/png/i.test(contentType) || /\.(png)(\?|$)/i.test(imageUrl)) {
+        imageType = "png";
+      } else if (/gif/i.test(contentType) || /\.(gif)(\?|$)/i.test(imageUrl)) {
+        imageType = "gif";
+      }
     }
 
     // Create a paragraph with just the image, no hyperlink

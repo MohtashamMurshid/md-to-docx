@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Split the 1,449-line `src/helpers.ts` god-file into nine focused renderer modules under `src/renderers/` (`textRenderer`, `headingRenderer`, `listRenderer`, `tableRenderer`, `blockquoteRenderer`, `codeRenderer`, `commentRenderer`, `imageRenderer`, `paragraphRenderer`) and two shared utilities under `src/utils/` (`bookmarkUtils`, `styleUtils`).
+- `processImage` now delegates aspect-ratio math to `computeImageDimensions` instead of re-inlining the same block; intrinsic PNG/JPG/GIF dimension reading extracted to a private helper.
+- `MarkdownConversionError.context` is now typed as `unknown` instead of `any`.
+- `fontFamilly` style property now carries a proper `@deprecated` JSDoc tag.
+
+### Removed
+
+- Deleted unused duplicate stubs and scanners that were never wired into the public code path: `src/parsers/textParser.ts`, all seven unused files under `src/renderers/*` (restored with the live implementations), the old `src/utils/bookmarkUtils.ts` duplicate, and `src/types.d.ts`.
+- Removed the dead `processLink` function (returned a styled `TextRun` with no actual hyperlink behavior).
+- Removed the unused `defaultStyle` and `headingConfigs` exports from `src/types.ts` (the canonical `defaultStyle` in `src/index.ts` is unchanged).
+
+### Fixed
+
+- Corrected contradictory `include`/`exclude` settings in `tsconfig.json` that simultaneously listed a single test file and excluded all `*.test.ts`.
+
+### Internal
+
+- No public API changes. All 57 existing tests pass unchanged.
+- Added `TODO.md` tracking the remaining code-quality follow-ups (inline-parser rewrite, bookmark ID collisions, `Style` restructure, lint tooling, etc.).
+
 ## [2.9.0] - 2026-03-06
 
 ### Added

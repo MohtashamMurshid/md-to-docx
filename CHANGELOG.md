@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.9.1] - 2026-04-17
+
 ### Added
 
 - Added a `package.json` `exports` field that formally scopes the public API to the root entrypoint (`.`) plus `./package.json`. This makes the supported surface explicit: anything not re-exported from `src/index.ts` is internal and may be reorganized without a major version bump. Deep imports into `dist/**` are no longer part of the compatibility contract.

@@ -44,9 +44,15 @@ export function processInlineCode(code: string, style?: Style): TextRun {
  * and returns an array of TextRun or ExternalHyperlink objects
  * @param line - The line to process
  * @param style - The style configuration
+ * @param options - Optional rendering overrides (e.g. forceBold to ensure every run is bold)
  * @returns An array of TextRun or ExternalHyperlink objects
  */
-export function processFormattedText(line: string, style?: Style): (TextRun | ExternalHyperlink)[] {
+export function processFormattedText(
+  line: string,
+  style?: Style,
+  options?: { forceBold?: boolean }
+): (TextRun | ExternalHyperlink)[] {
+  const forceBold = options?.forceBold === true;
   const textRuns: (TextRun | ExternalHyperlink)[] = [];
   let currentText = "";
   let isBold = false;
@@ -65,7 +71,7 @@ export function processFormattedText(line: string, style?: Style): (TextRun | Ex
   function createTextRun(value: string): TextRun {
     return new TextRun({
       text: value,
-      bold: isBold,
+      bold: forceBold || isBold,
       italics: isItalic,
       strike: isStrikethrough,
       underline: isUnderline ? { type: "single" } : undefined,
@@ -145,7 +151,7 @@ export function processFormattedText(line: string, style?: Style): (TextRun | Ex
                 text: linkText,
                 color: "0000FF",
                 underline: { type: "single" },
-                bold: isBold,
+                bold: forceBold || isBold,
                 italics: isItalic,
                 strike: isStrikethrough,
                 size: style?.paragraphSize || 24,

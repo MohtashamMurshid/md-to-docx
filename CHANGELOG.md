@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added a `package.json` `exports` field that formally scopes the public API to the root entrypoint (`.`) plus `./package.json`. This makes the supported surface explicit: anything not re-exported from `src/index.ts` is internal and may be reorganized without a major version bump. Deep imports into `dist/**` are no longer part of the compatibility contract.
+
 ### Changed
 
 - Split the 1,449-line `src/helpers.ts` god-file into nine focused renderer modules under `src/renderers/` (`textRenderer`, `headingRenderer`, `listRenderer`, `tableRenderer`, `blockquoteRenderer`, `codeRenderer`, `commentRenderer`, `imageRenderer`, `paragraphRenderer`) and two shared utilities under `src/utils/` (`bookmarkUtils`, `styleUtils`).

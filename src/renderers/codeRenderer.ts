@@ -1,4 +1,4 @@
-import { Paragraph, TextRun, BorderStyle } from "docx";
+import { Paragraph, TextRun, AlignmentType, BorderStyle } from "docx";
 import { Style } from "../types.js";
 
 /**
@@ -13,13 +13,9 @@ export function processCodeBlock(
   language: string | undefined,
   style: Style
 ): Paragraph {
-  // Split the code into lines and process each line
   const lines = code.split("\n");
-
-  // Create text runs for each line
   const codeRuns: TextRun[] = [];
 
-  // Add language indicator if present
   if (language) {
     codeRuns.push(
       new TextRun({
@@ -40,14 +36,11 @@ export function processCodeBlock(
     );
   }
 
-  // Process each line
   lines.forEach((line, index) => {
-    // Preserve leading spaces by converting them to non-breaking spaces
     const leadingSpaces = line.match(/^\s*/)?.[0].length || 0;
     const leadingNbsp = "\u00A0".repeat(leadingSpaces);
     const processedLine = leadingNbsp + line.slice(leadingSpaces);
 
-    // Add the line
     codeRuns.push(
       new TextRun({
         text: processedLine,
@@ -58,7 +51,6 @@ export function processCodeBlock(
       })
     );
 
-    // Add line break if not the last line
     if (index < lines.length - 1) {
       codeRuns.push(
         new TextRun({
@@ -72,12 +64,25 @@ export function processCodeBlock(
     }
   });
 
+  const alignment = (() => {
+    switch (style.codeBlockAlignment) {
+      case "CENTER":
+        return AlignmentType.CENTER;
+      case "RIGHT":
+        return AlignmentType.RIGHT;
+      case "JUSTIFIED":
+        return AlignmentType.JUSTIFIED;
+      case "LEFT":
+      default:
+        return AlignmentType.LEFT;
+    }
+  })();
+
   return new Paragraph({
     children: codeRuns,
     spacing: {
       before: style.paragraphSpacing,
       after: style.paragraphSpacing,
-      // Preserve line spacing exactly
       line: 360,
       lineRule: "exact",
     },
@@ -90,9 +95,9 @@ export function processCodeBlock(
       left: { style: BorderStyle.SINGLE, size: 1, color: "DDDDDD" },
       right: { style: BorderStyle.SINGLE, size: 1, color: "DDDDDD" },
     },
-    // Preserve indentation
     indent: {
-      left: 360, // 0.25 inch indent for the entire code block
+      left: 360,
     },
+    alignment,
   });
 }

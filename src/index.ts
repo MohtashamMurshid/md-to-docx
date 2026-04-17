@@ -32,6 +32,7 @@ import {
 import { parseMarkdownToAst, applyTextReplacements } from "./markdownAst.js";
 import { mdastToDocxModel } from "./mdastToDocxModel.js";
 import { modelToDocx } from "./modelToDocx.js";
+import { resolveFontFamily } from "./utils/styleUtils.js";
 
 const defaultStyle: Style = {
   titleSize: 32,
@@ -65,7 +66,7 @@ export {
  * @param context - The context of the error
  */
 export class MarkdownConversionError extends Error {
-  constructor(message: string, public context?: any) {
+  constructor(message: string, public context?: unknown) {
     super(message);
     this.name = "MarkdownConversionError";
   }
@@ -135,10 +136,6 @@ interface ResolvedSectionInput {
   markdown: string;
   style: Style;
   config: SectionConfig;
-}
-
-function resolveFontFamily(style: Style): string | undefined {
-  return style.fontFamily || style.fontFamilly;
 }
 
 function normalizeSectionConfig<T extends SectionConfig>(
@@ -961,7 +958,7 @@ function replaceTocPlaceholders(
   let inserted = tocInserted;
 
   children.forEach((child) => {
-    if ((child as any).__isTocPlaceholder === true) {
+    if ((child as unknown as { __isTocPlaceholder?: boolean }).__isTocPlaceholder === true) {
       if (tocContent.length > 0 && !inserted) {
         nextChildren.push(...tocContent);
         inserted = true;

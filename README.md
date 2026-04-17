@@ -22,7 +22,7 @@ A powerful TypeScript library and CLI that converts Markdown to Microsoft Word (
 - Bullet points and numbered lists with rich formatting
 - Tables with headers and auto-fit column widths
 - Blockquotes, comments, links, and embedded images
-- Code blocks (inline and multi-line)
+- Code blocks (inline and multi-line) with optional syntax highlighting
 - Customizable styling (font sizes, spacing, alignment, font family)
 - Report and document modes
 - RTL/LTR direction control
@@ -382,6 +382,67 @@ const markdown = `
 const blob = await convertMarkdownToDocx(markdown, customHeadingOptions);
 ```
 
+### Syntax Highlighting in Code Blocks
+
+Fenced code blocks can be syntax-highlighted in the generated DOCX. Highlighting
+is **opt-in** — when disabled (the default) the output is identical to previous
+versions. When enabled, [`lowlight`](https://github.com/wooorm/lowlight) is used
+to tokenize the code and each token is rendered as a colored `TextRun`.
+
+```typescript
+import { convertMarkdownToDocx } from "@mohtasham/md-to-docx";
+
+const markdown = `
+\`\`\`typescript
+const greet = (name: string) => "Hello, " + name;
+\`\`\`
+`;
+
+const blob = await convertMarkdownToDocx(markdown, {
+  codeHighlighting: {
+    enabled: true,
+  },
+});
+```
+
+You can override any part of the default GitHub-light theme by passing a
+partial `theme` object. Keys correspond to the `hljs-*` token classes emitted
+by highlight.js (without the `hljs-` prefix). Reserved keys `default`,
+`background`, `border`, and `languageLabel` style the code block chrome.
+
+```typescript
+await convertMarkdownToDocx(markdown, {
+  codeHighlighting: {
+    enabled: true,
+    showLanguageLabel: true,
+    languages: ["typescript", "javascript", "python", "bash"],
+    theme: {
+      background: "0D1117",
+      border: "30363D",
+      default: "C9D1D9",
+      languageLabel: "8B949E",
+      keyword: "FF7B72",
+      string: "A5D6FF",
+      number: "79C0FF",
+      comment: "8B949E",
+      "title.function": "D2A8FF",
+    },
+  },
+});
+```
+
+Options:
+
+- `enabled` (boolean, default `false`): turn highlighting on.
+- `theme` (object, optional): partial theme merged over the built-in default.
+  All values are RRGGBB hex strings without the leading `#`.
+- `languages` (string[], optional): whitelist of language names to load.
+  Defaults to the lowlight `common` bundle (~37 popular languages). Unknown or
+  excluded languages fall back to the plain rendering path, so conversion
+  never fails because of an unsupported fence.
+- `showLanguageLabel` (boolean, default `true`): render the language name as
+  a bold label at the top of the code block.
+
 ### Text Find-and-Replace
 
 You can apply text replacements to the markdown before conversion:
@@ -499,6 +560,11 @@ Converts Markdown text to a DOCX document.
       - `textReplacements` (array, optional): Array of `TextReplacement` objects for pattern-based text replacement
         - `find` (string | RegExp): The pattern to find
         - `replace` (string | function): The replacement (string or function that returns string or array of nodes)
+  - `codeHighlighting` (object, optional): Syntax highlighting for fenced code blocks (off by default)
+    - `enabled` (boolean): Turn highlighting on. Defaults to `false`.
+    - `theme` (object): Partial `CodeHighlightTheme` merged over the built-in GitHub-light palette. Keys are highlight.js token classes (without the `hljs-` prefix); values are RRGGBB hex strings. Reserved keys: `default`, `background`, `border`, `languageLabel`.
+    - `languages` (string[]): Optional whitelist of language names to load. Defaults to the `common` lowlight bundle. Unknown or excluded languages fall back to the plain rendering path.
+    - `showLanguageLabel` (boolean): Render the language name as a bold label above the code. Defaults to `true`.
 
 #### Returns
 

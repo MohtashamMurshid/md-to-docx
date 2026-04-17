@@ -1,28 +1,37 @@
 import { Paragraph, TextRun, AlignmentType, BorderStyle } from "docx";
-import { Style } from "../types.js";
+import { CodeHighlightOptions, Style } from "../types.js";
+import { resolveTheme, tokenizeToRuns } from "../utils/codeHighlight.js";
 
 /**
  * Processes a code block and returns appropriate paragraph formatting
  * @param code - The code block text
  * @param language - The programming language (optional)
  * @param style - The style configuration
+ * @param codeHighlighting - Optional highlighting configuration
  * @returns The processed paragraph
  */
 export function processCodeBlock(
   code: string,
   language: string | undefined,
-  style: Style
+  style: Style,
+  codeHighlighting?: CodeHighlightOptions
 ): Paragraph {
-  const lines = code.split("\n");
-  const codeRuns: TextRun[] = [];
+  const highlightingEnabled = codeHighlighting?.enabled === true;
+  const resolvedTheme = highlightingEnabled
+    ? resolveTheme(codeHighlighting?.theme)
+    : undefined;
 
-  if (language) {
+  const codeRuns: TextRun[] = [];
+  const showLanguageLabel =
+    codeHighlighting?.showLanguageLabel !== false;
+
+  if (language && showLanguageLabel) {
     codeRuns.push(
       new TextRun({
         text: language,
         font: "Courier New",
         size: style.codeBlockSize || 18,
-        color: "666666",
+        color: resolvedTheme?.languageLabel || "666666",
         bold: true,
         rightToLeft: style.direction === "RTL",
       }),
@@ -36,33 +45,48 @@ export function processCodeBlock(
     );
   }
 
-  lines.forEach((line, index) => {
-    const leadingSpaces = line.match(/^\s*/)?.[0].length || 0;
-    const leadingNbsp = "\u00A0".repeat(leadingSpaces);
-    const processedLine = leadingNbsp + line.slice(leadingSpaces);
-
-    codeRuns.push(
-      new TextRun({
-        text: processedLine,
-        font: "Courier New",
-        size: style.codeBlockSize || 20,
-        color: "444444",
-        rightToLeft: style.direction === "RTL",
-      })
+  let highlightedRuns: TextRun[] | null = null;
+  if (highlightingEnabled && language) {
+    highlightedRuns = tokenizeToRuns(
+      code,
+      language,
+      style,
+      codeHighlighting!
     );
+  }
 
-    if (index < lines.length - 1) {
+  if (highlightedRuns && highlightedRuns.length > 0) {
+    codeRuns.push(...highlightedRuns);
+  } else {
+    const lines = code.split("\n");
+    lines.forEach((line, index) => {
+      const leadingSpaces = line.match(/^\s*/)?.[0].length || 0;
+      const leadingNbsp = "\u00A0".repeat(leadingSpaces);
+      const processedLine = leadingNbsp + line.slice(leadingSpaces);
+
       codeRuns.push(
         new TextRun({
-          text: "\n",
+          text: processedLine,
           font: "Courier New",
           size: style.codeBlockSize || 20,
-          break: 1,
+          color: resolvedTheme?.default || "444444",
           rightToLeft: style.direction === "RTL",
         })
       );
-    }
-  });
+
+      if (index < lines.length - 1) {
+        codeRuns.push(
+          new TextRun({
+            text: "\n",
+            font: "Courier New",
+            size: style.codeBlockSize || 20,
+            break: 1,
+            rightToLeft: style.direction === "RTL",
+          })
+        );
+      }
+    });
+  }
 
   const alignment = (() => {
     switch (style.codeBlockAlignment) {
@@ -78,6 +102,9 @@ export function processCodeBlock(
     }
   })();
 
+  const backgroundFill = resolvedTheme?.background || "F5F5F5";
+  const borderColor = resolvedTheme?.border || "DDDDDD";
+
   return new Paragraph({
     children: codeRuns,
     spacing: {
@@ -87,13 +114,13 @@ export function processCodeBlock(
       lineRule: "exact",
     },
     shading: {
-      fill: "F5F5F5",
+      fill: backgroundFill,
     },
     border: {
-      top: { style: BorderStyle.SINGLE, size: 1, color: "DDDDDD" },
-      bottom: { style: BorderStyle.SINGLE, size: 1, color: "DDDDDD" },
-      left: { style: BorderStyle.SINGLE, size: 1, color: "DDDDDD" },
-      right: { style: BorderStyle.SINGLE, size: 1, color: "DDDDDD" },
+      top: { style: BorderStyle.SINGLE, size: 1, color: borderColor },
+      bottom: { style: BorderStyle.SINGLE, size: 1, color: borderColor },
+      left: { style: BorderStyle.SINGLE, size: 1, color: borderColor },
+      right: { style: BorderStyle.SINGLE, size: 1, color: borderColor },
     },
     indent: {
       left: 360,

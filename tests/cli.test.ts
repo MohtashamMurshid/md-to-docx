@@ -46,15 +46,14 @@ describe("standalone CLI", () => {
     expect(stat.size).toBeGreaterThan(0);
   });
 
-  it("supports options loaded from JSON file", async () => {
+  it("loads options from JSON (--options and -o) and supports multi-section template", async () => {
     const inputPath = path.join(tempDir, "input.md");
-    const outputPath = path.join(tempDir, "output-with-options.docx");
-    const optionsPath = path.join(tempDir, "options.json");
-    const output = captureOutput();
+    const simpleOptionsPath = path.join(tempDir, "options.json");
+    const multiSectionOptionsPath = path.join(tempDir, "multi-section.json");
 
     await fsp.writeFile(inputPath, "# Styled CLI Test\n\nContent.");
     await fsp.writeFile(
-      optionsPath,
+      simpleOptionsPath,
       JSON.stringify({
         documentType: "report",
         style: {
@@ -63,98 +62,57 @@ describe("standalone CLI", () => {
         },
       })
     );
-
-    const exitCode = await runCli(
-      [inputPath, outputPath, "--options", optionsPath],
-      output
-    );
-
-    expect(exitCode).toBe(0);
-    const stat = await fsp.stat(outputPath);
-    expect(stat.size).toBeGreaterThan(0);
-  });
-
-  it("supports template and multi-section options from JSON file", async () => {
-    const inputPath = path.join(tempDir, "input.md");
-    const outputPath = path.join(tempDir, "output-multi-section.docx");
-    const optionsPath = path.join(tempDir, "multi-section-options.json");
-    const output = captureOutput();
-
-    await fsp.writeFile(inputPath, "# Placeholder\n\nCLI should ignore this with sections.");
     await fsp.writeFile(
-      optionsPath,
+      multiSectionOptionsPath,
       JSON.stringify({
         template: {
-          page: {
-            margin: {
-              top: 1440,
-              right: 1080,
-              bottom: 1440,
-              left: 1080,
-            },
-          },
-          pageNumbering: {
-            display: "current",
-            alignment: "CENTER",
-          },
+          page: { margin: { top: 1440, right: 1080, bottom: 1440, left: 1080 } },
+          pageNumbering: { display: "current", alignment: "CENTER" },
         },
         sections: [
           {
             markdown: "# Cover\n\nPrepared by CLI",
-            footers: {
-              default: null,
-            },
-            pageNumbering: {
-              display: "none",
-            },
-            style: {
-              paragraphAlignment: "CENTER",
-            },
+            footers: { default: null },
+            pageNumbering: { display: "none" },
+            style: { paragraphAlignment: "CENTER" },
           },
           {
             markdown: "# Body\n\nMain content starts here.\n\n1. One\n2. Two",
-            headers: {
-              default: {
-                text: "Main Section",
-                alignment: "RIGHT",
-              },
-            },
-            pageNumbering: {
-              start: 1,
-              formatType: "decimal",
-            },
+            headers: { default: { text: "Main Section", alignment: "RIGHT" } },
+            pageNumbering: { start: 1, formatType: "decimal" },
           },
         ],
       })
     );
 
-    const exitCode = await runCli(
-      [inputPath, outputPath, "--options", optionsPath],
-      output
-    );
+    // --options (long flag)
+    const long = captureOutput();
+    const longOut = path.join(tempDir, "long.docx");
+    expect(
+      await runCli([inputPath, longOut, "--options", simpleOptionsPath], long)
+    ).toBe(0);
+    expect(long.errors).toHaveLength(0);
+    expect((await fsp.stat(longOut)).size).toBeGreaterThan(0);
 
-    expect(exitCode).toBe(0);
-    expect(output.errors).toHaveLength(0);
-    const stat = await fsp.stat(outputPath);
-    expect(stat.size).toBeGreaterThan(0);
-  });
+    // -o (short flag)
+    const short = captureOutput();
+    const shortOut = path.join(tempDir, "short.docx");
+    expect(
+      await runCli([inputPath, shortOut, "-o", simpleOptionsPath], short)
+    ).toBe(0);
+    expect(short.errors).toHaveLength(0);
 
-  it("supports -o short flag for options", async () => {
-    const inputPath = path.join(tempDir, "input.md");
-    const outputPath = path.join(tempDir, "output.docx");
-    const optionsPath = path.join(tempDir, "options.json");
-    const output = captureOutput();
-
-    await fsp.writeFile(inputPath, "# Short Flag\n\nContent.");
-    await fsp.writeFile(optionsPath, JSON.stringify({ documentType: "report" }));
-
-    const exitCode = await runCli(
-      [inputPath, outputPath, "-o", optionsPath],
-      output
-    );
-
-    expect(exitCode).toBe(0);
-    expect(output.errors).toHaveLength(0);
+    // multi-section template
+    const multi = captureOutput();
+    const multiOut = path.join(tempDir, "multi.docx");
+    expect(
+      await runCli(
+        [inputPath, multiOut, "--options", multiSectionOptionsPath],
+        multi
+      )
+    ).toBe(0);
+    expect(multi.errors).toHaveLength(0);
+    expect((await fsp.stat(multiOut)).size).toBeGreaterThan(0);
   });
 
   it("creates nested output directories automatically", async () => {
@@ -167,120 +125,108 @@ describe("standalone CLI", () => {
     const exitCode = await runCli([inputPath, outputPath], output);
 
     expect(exitCode).toBe(0);
-    const stat = await fsp.stat(outputPath);
-    expect(stat.size).toBeGreaterThan(0);
+    expect((await fsp.stat(outputPath)).size).toBeGreaterThan(0);
   });
 
-  it("returns non-zero on invalid arguments", async () => {
-    const output = captureOutput();
+  it.each([["--help"], ["-h"]])(
+    "prints help text with %s and exits 0",
+    async (flag) => {
+      const output = captureOutput();
+      const exitCode = await runCli([flag], output);
 
-    const exitCode = await runCli([], output);
+      expect(exitCode).toBe(0);
+      expect(output.logs.join("\n")).toContain("Usage:");
+      if (flag === "--help") {
+        expect(output.logs.join("\n")).toContain("--options");
+      }
+    }
+  );
 
-    expect(exitCode).toBe(1);
-    expect(output.errors.join("\n")).toContain("Usage:");
-  });
+  describe("failure modes", () => {
+    // Cases that don't require setup beyond a fresh captureOutput/tempDir.
+    const simpleCases: Array<{
+      label: string;
+      argv: (tmp: string) => string[];
+      expectedError: string | RegExp;
+    }> = [
+      {
+        label: "no arguments",
+        argv: () => [],
+        expectedError: "Usage:",
+      },
+      {
+        label: "unknown flag",
+        argv: () => ["a.md", "b.docx", "--verbose"],
+        expectedError: "Unknown argument: --verbose",
+      },
+      {
+        label: "--options without value",
+        argv: () => ["a.md", "b.docx", "--options"],
+        expectedError: "Missing value for --options",
+      },
+      {
+        label: "too many positional arguments",
+        argv: () => ["a.md", "b.docx", "extra.md"],
+        expectedError: "Expected exactly 2 positional arguments",
+      },
+      {
+        label: "only one positional argument",
+        argv: () => ["a.md"],
+        expectedError: "Expected exactly 2 positional arguments",
+      },
+      {
+        label: "nonexistent input file",
+        argv: (tmp) => [
+          path.join(tmp, "missing.md"),
+          path.join(tmp, "output.docx"),
+        ],
+        expectedError: /no such file|ENOENT/,
+      },
+    ];
 
-  it("prints help text with --help and exits 0", async () => {
-    const output = captureOutput();
+    it.each(simpleCases)(
+      "fails on $label",
+      async ({ argv, expectedError }) => {
+        const output = captureOutput();
+        const exitCode = await runCli(argv(tempDir), output);
 
-    const exitCode = await runCli(["--help"], output);
-
-    expect(exitCode).toBe(0);
-    expect(output.logs.join("\n")).toContain("Usage:");
-    expect(output.logs.join("\n")).toContain("--options");
-  });
-
-  it("prints help text with -h and exits 0", async () => {
-    const output = captureOutput();
-
-    const exitCode = await runCli(["-h"], output);
-
-    expect(exitCode).toBe(0);
-    expect(output.logs.join("\n")).toContain("Usage:");
-  });
-
-  it("fails on nonexistent input file", async () => {
-    const outputPath = path.join(tempDir, "output.docx");
-    const output = captureOutput();
-
-    const exitCode = await runCli(
-      [path.join(tempDir, "missing.md"), outputPath],
-      output
+        expect(exitCode).toBe(1);
+        const errText = output.errors.join("\n");
+        if (typeof expectedError === "string") {
+          expect(errText).toContain(expectedError);
+        } else {
+          expect(errText).toMatch(expectedError);
+        }
+      }
     );
 
-    expect(exitCode).toBe(1);
-    expect(output.errors.join("\n")).toMatch(/no such file|ENOENT/);
-  });
+    it.each([
+      {
+        label: "invalid JSON",
+        body: "not valid json",
+        expectedError: "Invalid JSON",
+      },
+      {
+        label: "non-object JSON value",
+        body: '["not", "an", "object"]',
+        expectedError: "Options JSON must be an object",
+      },
+    ])("fails when options file contains $label", async ({ body, expectedError }) => {
+      const inputPath = path.join(tempDir, "input.md");
+      const outputPath = path.join(tempDir, "output.docx");
+      const optionsPath = path.join(tempDir, "options.json");
+      const output = captureOutput();
 
-  it("fails on unknown flags", async () => {
-    const output = captureOutput();
+      await fsp.writeFile(inputPath, "# Test\n\nContent.");
+      await fsp.writeFile(optionsPath, body);
 
-    const exitCode = await runCli(["a.md", "b.docx", "--verbose"], output);
+      const exitCode = await runCli(
+        [inputPath, outputPath, "--options", optionsPath],
+        output
+      );
 
-    expect(exitCode).toBe(1);
-    expect(output.errors.join("\n")).toContain("Unknown argument: --verbose");
-  });
-
-  it("fails when --options is given without a value", async () => {
-    const output = captureOutput();
-
-    const exitCode = await runCli(["a.md", "b.docx", "--options"], output);
-
-    expect(exitCode).toBe(1);
-    expect(output.errors.join("\n")).toContain("Missing value for --options");
-  });
-
-  it("fails when options file contains invalid JSON", async () => {
-    const inputPath = path.join(tempDir, "input.md");
-    const outputPath = path.join(tempDir, "output.docx");
-    const optionsPath = path.join(tempDir, "bad.json");
-    const output = captureOutput();
-
-    await fsp.writeFile(inputPath, "# Test\n\nContent.");
-    await fsp.writeFile(optionsPath, "not valid json");
-
-    const exitCode = await runCli(
-      [inputPath, outputPath, "--options", optionsPath],
-      output
-    );
-
-    expect(exitCode).toBe(1);
-    expect(output.errors.join("\n")).toContain("Invalid JSON");
-  });
-
-  it("fails when options file contains a non-object JSON value", async () => {
-    const inputPath = path.join(tempDir, "input.md");
-    const outputPath = path.join(tempDir, "output.docx");
-    const optionsPath = path.join(tempDir, "array.json");
-    const output = captureOutput();
-
-    await fsp.writeFile(inputPath, "# Test\n\nContent.");
-    await fsp.writeFile(optionsPath, '["not", "an", "object"]');
-
-    const exitCode = await runCli(
-      [inputPath, outputPath, "--options", optionsPath],
-      output
-    );
-
-    expect(exitCode).toBe(1);
-    expect(output.errors.join("\n")).toContain("Options JSON must be an object");
-  });
-
-  it("fails when too many positional arguments are given", async () => {
-    const output = captureOutput();
-
-    const exitCode = await runCli(["a.md", "b.docx", "extra.md"], output);
-
-    expect(exitCode).toBe(1);
-    expect(output.errors.join("\n")).toContain("Expected exactly 2 positional arguments");
-  });
-
-  it("fails when only one positional argument is given", async () => {
-    const output = captureOutput();
-
-    const exitCode = await runCli(["a.md"], output);
-
-    expect(exitCode).toBe(1);
-    expect(output.errors.join("\n")).toContain("Expected exactly 2 positional arguments");
+      expect(exitCode).toBe(1);
+      expect(output.errors.join("\n")).toContain(expectedError);
+    });
   });
 });

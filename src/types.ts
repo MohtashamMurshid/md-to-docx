@@ -206,6 +206,67 @@ export interface Options {
    * Uses mdast-util-find-and-replace for pattern matching and replacement
    */
   textReplacements?: TextReplacement[];
+  /**
+   * Optional syntax highlighting configuration for fenced code blocks.
+   * When `enabled` is true, lowlight is used to tokenize the code and
+   * emit colored runs in the DOCX output. Disabled by default.
+   */
+  codeHighlighting?: CodeHighlightOptions;
+}
+
+/**
+ * Map of highlight.js token class names (without the `hljs-` prefix) to
+ * hex colors (without the leading `#`), used to color runs in the
+ * rendered code block. Supports a few reserved keys for base colors.
+ */
+export interface CodeHighlightTheme {
+  /**
+   * Fallback text color for unclassified tokens. Hex without `#`.
+   */
+  default?: string;
+  /**
+   * Overrides the code block background shading fill. Hex without `#`.
+   */
+  background?: string;
+  /**
+   * Overrides the code block border color. Hex without `#`.
+   */
+  border?: string;
+  /**
+   * Overrides the language label color. Hex without `#`.
+   */
+  languageLabel?: string;
+  /**
+   * Map of token classes (e.g. `keyword`, `string`, `title.function`) to
+   * hex colors. Dotted classes fall back to their first segment if an
+   * exact match is not present.
+   */
+  [tokenClass: string]: string | undefined;
+}
+
+/**
+ * Configuration for syntax highlighting in fenced code blocks.
+ */
+export interface CodeHighlightOptions {
+  /**
+   * Turn highlighting on. Defaults to false, preserving existing output.
+   */
+  enabled?: boolean;
+  /**
+   * User-supplied partial theme, merged over the built-in default theme.
+   */
+  theme?: CodeHighlightTheme;
+  /**
+   * Optional whitelist of language names to load. When provided, only
+   * those languages (plus aliases) are highlighted; others fall back to
+   * the plain rendering path. Defaults to the lowlight `common` set.
+   */
+  languages?: string[];
+  /**
+   * Controls rendering of the language label above highlighted code.
+   * Defaults to true.
+   */
+  showLanguageLabel?: boolean;
 }
 
 export interface TableData {

@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Optional syntax highlighting for fenced code blocks, powered by [`lowlight`](https://github.com/wooorm/lowlight). Enable via `options.codeHighlighting.enabled` and each token is rendered as a colored `TextRun` in the DOCX output.
+  - New `CodeHighlightOptions` and `CodeHighlightTheme` types exported from the package root.
+  - Built-in GitHub-light default theme. Users can override any subset via a partial `theme` map. Reserved keys `default`, `background`, `border`, and `languageLabel` style the code block chrome.
+  - `languages` whitelist (defaults to the lowlight `common` bundle of ~37 popular languages) controls which grammars get loaded; unknown or excluded languages transparently fall back to the plain rendering path so conversion never fails on an unsupported fence.
+  - `showLanguageLabel` (default `true`) toggles the bold language label above the code.
+- New `src/utils/codeHighlight.ts` module containing the theme, the cached lowlight instance factory, and the hast-tree tokenizer.
+
+### Changed
+
+- `processCodeBlock` in `src/renderers/codeRenderer.ts` now accepts an optional fourth `CodeHighlightOptions` argument. When highlighting is disabled (the default), output is byte-identical to 2.9.1.
+- `modelToDocx` threads `options.codeHighlighting` through to the code block renderer.
+- `modelToDocx` now inserts a blank spacer paragraph between two immediately-adjacent fenced code blocks so Word does not collapse their shared borders into a single visual block.
+
+### Tests
+
+- Added `tests/code-highlighting.test.ts` (10 cases) covering default-off behavior, default-theme coloring for keyword/number/string tokens, custom theme overrides, unknown-language fallback, missing-language fallback, `showLanguageLabel: false`, language whitelist filtering, and newline preservation across multi-line highlighted blocks. Full suite: 45/45 passing.
+
 ## [2.9.1] - 2026-04-17
 
 ### Added

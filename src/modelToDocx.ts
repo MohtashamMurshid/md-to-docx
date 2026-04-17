@@ -8,18 +8,18 @@ import {
 } from "docx";
 import type { DocxDocumentModel, DocxBlockNode, DocxListNode, DocxListItemNode } from "./docxModel.js";
 import { Style, Options } from "./types.js";
+import { processHeading } from "./renderers/headingRenderer.js";
+import { processTable } from "./renderers/tableRenderer.js";
+import { processCodeBlock } from "./renderers/codeRenderer.js";
+import { processBlockquote } from "./renderers/blockquoteRenderer.js";
+import { processComment } from "./renderers/commentRenderer.js";
+import { processImage } from "./renderers/imageRenderer.js";
+import { processParagraph } from "./renderers/paragraphRenderer.js";
 import {
-  processHeading,
-  processTable,
-  processCodeBlock,
-  processBlockquote,
-  processComment,
-  processImage,
-  processParagraph,
   processFormattedText,
   processLinkParagraph,
-  processListItem,
-} from "./helpers.js";
+} from "./renderers/textRenderer.js";
+import { processListItem } from "./renderers/listRenderer.js";
 
 /**
  * Converts internal docx model to docx Paragraph/Table objects

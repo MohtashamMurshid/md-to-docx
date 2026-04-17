@@ -11,6 +11,6 @@
     "declaration": true,
     "rootDir": "./src"
   },
-  "include": ["src/**/*", "tests/list-formatting.test.ts"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
 }

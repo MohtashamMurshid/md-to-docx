@@ -1,5 +1,6 @@
 import { Paragraph, TextRun, AlignmentType, BorderStyle } from "docx";
 import { Style } from "../types.js";
+import { resolveFontFamily } from "../utils/styleUtils.js";
 
 /**
  * Processes a blockquote and returns appropriate paragraph formatting
@@ -8,7 +9,8 @@ import { Style } from "../types.js";
  * @returns The processed paragraph
  */
 export function processBlockquote(text: string, style: Style): Paragraph {
-  // Determine alignment for blockquote - only if explicitly set
+  const fontFamily = resolveFontFamily(style);
+
   let alignment = undefined;
   if (style.blockquoteAlignment) {
     switch (style.blockquoteAlignment) {
@@ -25,7 +27,6 @@ export function processBlockquote(text: string, style: Style): Paragraph {
         alignment = AlignmentType.JUSTIFIED;
         break;
       default:
-        // Don't set alignment if not explicitly defined
         alignment = undefined;
     }
   }
@@ -36,12 +37,13 @@ export function processBlockquote(text: string, style: Style): Paragraph {
         text: text,
         italics: true,
         color: "000000",
-        size: style.blockquoteSize || 24, // Use custom blockquote size if provided
+        size: style.blockquoteSize || 24,
+        font: fontFamily,
         rightToLeft: style.direction === "RTL",
       }),
     ],
     indent: {
-      left: 720, // 0.5 inch indent
+      left: 720,
     },
     spacing: {
       before: style.paragraphSpacing,

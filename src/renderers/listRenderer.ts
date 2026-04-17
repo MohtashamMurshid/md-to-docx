@@ -1,6 +1,7 @@
 import { Paragraph, TextRun } from "docx";
 import { Style, ListItemConfig } from "../types.js";
-import { processFormattedText } from "../parsers/textParser.js";
+import { resolveFontFamily } from "../utils/styleUtils.js";
+import { processFormattedText } from "./textRenderer.js";
 
 /**
  * Processes a list item and returns appropriate paragraph formatting
@@ -12,49 +13,37 @@ export function processListItem(
   config: ListItemConfig,
   style: Style
 ): Paragraph {
-  let textContent = config.text;
+  const textContent = config.text;
+  const fontFamily = resolveFontFamily(style);
 
-  // Process the main text with formatting
+  const listLevel = config.level ?? 0;
+
   const children = processFormattedText(textContent, style);
 
-  // If there's bold text on the next line, add it with a line break
   if (config.boldText) {
     children.push(
       new TextRun({
         text: "\n",
         size: style.listItemSize || 24,
+        font: fontFamily,
       }),
       new TextRun({
         text: config.boldText,
         bold: true,
         color: "000000",
         size: style.listItemSize || 24,
+        font: fontFamily,
       })
     );
   }
 
-  // Use different formatting for numbered vs bullet lists
   if (config.isNumbered) {
-    // Use numbering for numbered lists with unique reference per sequence
     const numberingReference = `numbered-list-${config.sequenceId || 1}`;
     return new Paragraph({
       children,
       numbering: {
         reference: numberingReference,
-        level: config.level ?? 0,
-      },
-      spacing: {
-        before: style.paragraphSpacing / 2,
-        after: style.paragraphSpacing / 2,
-      },
-      bidirectional: style.direction === "RTL",
-    });
-  } else {
-    // Use bullet formatting for bullet lists
-    return new Paragraph({
-      children,
-      bullet: {
-        level: config.level ?? 0,
+        level: listLevel,
       },
       spacing: {
         before: style.paragraphSpacing / 2,
@@ -63,4 +52,16 @@ export function processListItem(
       bidirectional: style.direction === "RTL",
     });
   }
+
+  return new Paragraph({
+    children,
+    bullet: {
+      level: listLevel,
+    },
+    spacing: {
+      before: style.paragraphSpacing / 2,
+      after: style.paragraphSpacing / 2,
+    },
+    bidirectional: style.direction === "RTL",
+  });
 }

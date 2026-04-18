@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Optional syntax highlighting for fenced code blocks, powered by [`lowlight`](https://github.com/wooorm/lowlight). Enable via `options.codeHighlighting.enabled` and each token is rendered as a colored `TextRun` in the DOCX output.
+- Optional syntax highlighting for fenced code blocks, powered by `[lowlight](https://github.com/wooorm/lowlight)`. Enable via `options.codeHighlighting.enabled` and each token is rendered as a colored `TextRun` in the DOCX output.
   - New `CodeHighlightOptions` and `CodeHighlightTheme` types exported from the package root.
   - Built-in GitHub-light default theme. Users can override any subset via a partial `theme` map. Reserved keys `default`, `background`, `border`, and `languageLabel` style the code block chrome.
   - `languages` whitelist (defaults to the lowlight `common` bundle of ~37 popular languages) controls which grammars get loaded; unknown or excluded languages transparently fall back to the plain rendering path so conversion never fails on an unsupported fence.
@@ -24,7 +24,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tests
 
-- Added `tests/code-highlighting.test.ts` (10 cases) covering default-off behavior, default-theme coloring for keyword/number/string tokens, custom theme overrides, unknown-language fallback, missing-language fallback, `showLanguageLabel: false`, language whitelist filtering, and newline preservation across multi-line highlighted blocks. Full suite: 45/45 passing.
+- Consolidated the test suite from 10 files / ~1,813 lines / ~24 mostly-smoke tests into 4 focused files / ~912 lines / 45 tests that make real semantic assertions against the generated Word XML instead of only checking `blob.size > 0`.
+  - New `tests/rendering.test.ts` replaces eight old files (`index`, `heading-alignment`, `text-alignment`, `list-formatting`, `newline`, `image-size`, `style-system-v2`, `table`). Each test inspects `word/document.xml` via JSZip to verify alignment attributes, `<w:b/>`/`<w:i/>`/`<w:u/>`/`<w:strike/>` run properties, `<w:numPr>` numbering references, `<pic:pic>` image embedding, TOC fields, and `<w:br w:type="page"/>` page breaks.
+  - New `tests/helpers.ts` shared utilities: `getDocumentXml(blob)`, `getZip(blob)`, and `saveBlobForDebug(blob, name)` — the latter gated behind `DEBUG_DOCX=1` so the `test-output/` directory no longer accumulates stale `.docx` artifacts on every run.
+  - `tests/sections.test.ts` trimmed from 292 to 194 lines: merged overlapping "section type variants" and "advanced section properties" cases, collapsed the four invalid-config throws into a single `it.each` table.
+  - `tests/cli.test.ts` trimmed from 286 to 232 lines: failure modes collapsed into two `it.each` tables (simple cases plus options-file parse errors); happy-path cases kept individual.
+  - Eliminated all network-dependent image tests (previously hit `picsum.photos` and `raw.githubusercontent.com` with 30s timeouts). Image rendering is now exercised via an inline base64 PNG, so the suite runs offline and deterministically.
+- Added `tests/code-highlighting.test.ts` (10 cases) covering default-off behavior, default-theme coloring for keyword/number/string tokens, custom theme overrides, unknown-language fallback, missing-language fallback, `showLanguageLabel: false`, language whitelist filtering, and newline preservation across multi-line highlighted blocks.
+- Added `tsconfig.test.json` (and pointed `ts-jest` at it via `jest.config.mjs`) so test files can import shared helpers without violating the `rootDir: ./src` constraint used for library builds.
+- Added `jszip@^3.10.1` as an explicit `devDependency` (previously pulled in only transitively via `docx`).
+- Removed the stale `test:alignment` npm script (pointed at a long-gone path).
+
+Full suite: 45/45 passing in ~2s.
 
 ## [2.9.1] - 2026-04-17
 

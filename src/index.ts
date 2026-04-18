@@ -49,6 +49,8 @@ const defaultOptions: Options = {
 };
 
 export {
+  CodeHighlightOptions,
+  CodeHighlightTheme,
   DocumentSection,
   HeaderFooterContent,
   HeaderFooterGroup,

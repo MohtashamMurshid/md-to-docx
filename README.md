@@ -1,80 +1,110 @@
-# Markdown to DOCX Converter
+# @mohtasham/md-to-docx
 
-A powerful TypeScript library and CLI that converts Markdown to Microsoft Word (.docx) documents. Works in Node.js and browser environments.
-[![npm version](https://img.shields.io/npm/v/%40mohtasham%2Fmd-to-docx)](https://www.npmjs.com/package/@mohtasham/md-to-docx)
-[![npm downloads](https://img.shields.io/npm/dt/%40mohtasham%2Fmd-to-docx)](https://www.npmjs.com/package/@mohtasham/md-to-docx)
+> Convert Markdown to Microsoft Word (`.docx`) documents — in Node.js, in the browser, or straight from your terminal.
 
-## GitHub Repo (Open Source)
+[npm version](https://www.npmjs.com/package/@mohtasham/md-to-docx)
+[npm downloads](https://www.npmjs.com/package/@mohtasham/md-to-docx)
+[license](./LICENSE)
+[types](https://www.npmjs.com/package/@mohtasham/md-to-docx)
+[node](https://nodejs.org)
 
-[https://github.com/MohtashamMurshid/md-to-docx](https://github.com/MohtashamMurshid/md-to-docx)
+A TypeScript-first library and CLI that turns Markdown into production-ready Word documents: headings, tables, lists, images, code blocks with optional syntax highlighting, multi-section templates, per-section headers/footers, page numbering, TOC, and fine-grained style control.
 
-## Features
+---
 
-- Convert Markdown to DOCX format
-- **Standalone CLI** — convert files directly from your terminal
-- Table of Contents generation with clickable links (`[TOC]`)
-- Page break support (`\pagebreak`)
-- Automatic page numbering (centered in footer)
-- Template + sections API for multi-part documents
-- Per-section headers/footers and page-numbering resets
-- Section-specific style overrides (solve custom first-page + mid-doc style shifts)
-- Headings (H1–H5), bold, italic, ++underline++, ~~strikethrough~~
-- Bullet points and numbered lists with rich formatting
-- Tables with headers and auto-fit column widths
-- Blockquotes, comments, links, and embedded images
-- Code blocks (inline and multi-line)
-- Customizable styling (font sizes, spacing, alignment, font family)
-- Report and document modes
-- RTL/LTR direction control
-- Text find-and-replace functionality
-- Browser and Node.js support
-- Comprehensive test coverage
+## Table of contents
+
+- [Highlights](#highlights)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [CLI](#cli)
+- [Programmatic usage](#programmatic-usage)
+  - [Browser](#browser)
+  - [Node.js](#nodejs)
+  - [React](#react)
+- [Features](#features)
+  - [Multi-section documents (template + sections)](#multi-section-documents-template--sections)
+  - [Syntax-highlighted code blocks](#syntax-highlighted-code-blocks)
+  - [Custom heading and paragraph alignment](#custom-heading-and-paragraph-alignment)
+  - [Table of Contents styling](#table-of-contents-styling)
+  - [Text find-and-replace](#text-find-and-replace)
+  - [RTL / bidirectional text](#rtl--bidirectional-text)
+- [Supported Markdown](#supported-markdown)
+- [API reference](#api-reference)
+- [Requirements](#requirements)
+- [Install as an agent skill](#install-as-an-agent-skill)
+- [Development](#development)
+- [Changelog](#changelog)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
+## Highlights
+
+- **Zero-config defaults** — pass any Markdown string, get a valid `.docx` Blob back.
+- **First-class CLI** — `npx @mohtasham/md-to-docx input.md output.docx`.
+- **TypeScript-native** — fully typed options surface, including `CodeHighlightTheme`, `Options`, and `DocumentSection`.
+- **Multi-section documents** — cover pages, per-section headers/footers, page numbering resets, mixed orientations, style overrides.
+- **Optional syntax highlighting** — opt-in, powered by `[lowlight](https://github.com/wooorm/lowlight)`; ships a GitHub-light theme and lets you override any token color.
+- **Works everywhere** — Node.js (18+) and modern browsers; the package ships ESM with type declarations.
+- **Small public surface, stable API** — only the root entrypoint is exported via `package.json#exports`.
 
 ## Installation
 
 ```bash
 npm install @mohtasham/md-to-docx
+# or
+pnpm add @mohtasham/md-to-docx
+# or
+yarn add @mohtasham/md-to-docx
 ```
 
-## Install as a Skill
+## Quick start
 
-Install this repository as an agent skill with the `skills` CLI:
+```typescript
+import { convertMarkdownToDocx } from "@mohtasham/md-to-docx";
+import fs from "node:fs/promises";
+
+const markdown = `
+# Hello, Word
+
+This document was generated from **Markdown** in TypeScript.
+
+- Supports lists
+- **Bold**, *italic*, ++underline++, ~~strikethrough~~
+- Tables, blockquotes, images, and code blocks
+
+\`\`\`ts
+const greet = (name: string) => \`Hello, \${name}!\`;
+\`\`\`
+`;
+
+const blob = await convertMarkdownToDocx(markdown);
+await fs.writeFile("hello.docx", Buffer.from(await blob.arrayBuffer()));
+```
+
+## CLI
+
+Convert files without writing any code:
 
 ```bash
-# Install from GitHub (recommended)
-npx skills add MohtashamMurshid/md-to-docx --skill md-to-docx --agent cursor --yes --full-depth
-```
-
-# Install from local clone
-npx skills add . --skill md-to-docx --agent cursor --yes --full-depth
-```
-
-You can list discoverable skills before installing:
-
-```bash
-npx skills add MohtashamMurshid/md-to-docx --list --full-depth
-```
-
-## CLI Usage
-
-Convert Markdown files to DOCX directly from your terminal — no code required.
-
-```bash
-# Using npx (no install needed)
+# Run without installing
 npx @mohtasham/md-to-docx input.md output.docx
 
-# If installed globally
+# Or install globally
+npm install -g @mohtasham/md-to-docx
 md-to-docx input.md output.docx
 
-# With a JSON options file for custom styling
+# Apply styling or multi-section config from a JSON file
 md-to-docx input.md output.docx --options options.json
 md-to-docx input.md output.docx -o options.json
 
-# Show help
+# Help
 md-to-docx --help
 ```
 
-The options JSON file accepts the same options as the programmatic API. For example:
+The `--options` JSON file accepts the same shape as the programmatic `Options` argument. Example:
 
 ```json
 {
@@ -82,13 +112,13 @@ The options JSON file accepts the same options as the programmatic API. For exam
   "style": {
     "fontFamily": "Trebuchet MS",
     "heading1Alignment": "CENTER",
-    "paragraphAlignment": "JUSTIFIED",
-    "direction": "LTR"
-  }
+    "paragraphAlignment": "JUSTIFIED"
+  },
+  "codeHighlighting": { "enabled": true }
 }
 ```
 
-For template + multi-section documents, pass the same structure through `--options`:
+For a multi-section document, use `template` + `sections` (the CLI ignores the positional markdown argument when `sections` is provided):
 
 ```json
 {
@@ -97,12 +127,12 @@ For template + multi-section documents, pass the same structure through `--optio
   },
   "sections": [
     {
-      "markdown": "# Cover\n\nGenerated from CLI",
+      "markdown": "# Cover\n\nPrepared for ACME",
       "footers": { "default": null },
       "pageNumbering": { "display": "none" }
     },
     {
-      "markdown": "# Body\n\nContent starts here",
+      "markdown": "[TOC]\n\n# Body\n\nMain content…",
       "headers": { "default": { "text": "Main Section", "alignment": "RIGHT" } },
       "pageNumbering": { "start": 1, "formatType": "decimal" }
     }
@@ -110,470 +140,396 @@ For template + multi-section documents, pass the same structure through `--optio
 }
 ```
 
-## Programmatic Usage
+## Programmatic usage
 
-### Basic Usage
+### Browser
 
 ```typescript
 import { convertMarkdownToDocx, downloadDocx } from "@mohtasham/md-to-docx";
 
-const markdown = `
-# Title
-## Subtitle
-This is a paragraph with **bold** and *italic* text.
+const blob = await convertMarkdownToDocx("# Hello\n\nWorld.");
+downloadDocx(blob, "hello.docx");
+```
 
-- Bullet point with **bold text** inside
-- Another point with *italic* and \`code\`
-  **Bold text on next line**
+### Node.js
 
-1. Numbered item with **bold** formatting
-2. Another item with mixed **bold** and *italic*
+```typescript
+import { convertMarkdownToDocx } from "@mohtasham/md-to-docx";
+import fs from "node:fs/promises";
 
-> This is a blockquote
+const blob = await convertMarkdownToDocx(await fs.readFile("input.md", "utf8"));
+await fs.writeFile("output.docx", Buffer.from(await blob.arrayBuffer()));
+```
 
-| Header 1 | Header 2 |
-|----------|----------|
-| Cell 1   | Cell 2   |
-| Cell 3   | Cell 4   |
+### React
 
-\`\`\`typescript
-function hello(name: string): string {
-  return \`Hello, \${name}!\`;
+```tsx
+import { useState } from "react";
+import { convertMarkdownToDocx, downloadDocx } from "@mohtasham/md-to-docx";
+
+export function MarkdownExporter() {
+  const [markdown, setMarkdown] = useState("");
+
+  const exportDocx = async () => {
+    const blob = await convertMarkdownToDocx(markdown);
+    downloadDocx(blob, "export.docx");
+  };
+
+  return (
+    <>
+      <textarea value={markdown} onChange={(e) => setMarkdown(e.target.value)} />
+      <button onClick={exportDocx}>Export as DOCX</button>
+    </>
+  );
 }
-\`\`\`
-
-![Test Image](https://picsum.photos/200/200)
-
-COMMENT: This is a comment
-`;
-
-// Convert to DOCX
-const blob = await convertMarkdownToDocx(markdown);
-
-// Download in browser
-downloadDocx(blob, "output.docx");
 ```
 
-### With Custom Options
+## Features
+
+### Multi-section documents (template + sections)
+
+Use `template` for shared section defaults and `sections` for explicit parts with their own markdown, headers, footers, page numbering, orientation, and style overrides.
 
 ```typescript
-const options = {
-  documentType: "report", // or 'document'
-  style: {
-    fontFamily: "Trebuchet MS",
-    titleSize: 32,
-    headingSpacing: 240,
-    paragraphSpacing: 240,
-    lineSpacing: 1.15,
-    heading1Size: 32,
-    heading2Size: 28,
-    heading3Size: 24,
-    heading4Size: 20,
-    heading5Size: 18,
-    paragraphSize: 24,
-    listItemSize: 24,
-    codeBlockSize: 20,
-    blockquoteSize: 24,
-    tocFontSize: 22, // Custom font size for TOC entries
-    paragraphAlignment: "JUSTIFIED",
-    blockquoteAlignment: "CENTER",
-    direction: "RTL", // Set document direction to Right-to-Left
-  },
-};
-
-const blob = await convertMarkdownToDocx(markdown, options);
-```
-
-### Template + Sections (cover page, per-section header/footer, numbering reset)
-
-Use `template` for shared section defaults and `sections` for explicit
-document parts with their own markdown and overrides.
-
-```typescript
-const options = {
-  style: {
-    fontFamily: "Trebuchet MS",
-    paragraphSize: 24
-  },
+const blob = await convertMarkdownToDocx("", {
+  style: { fontFamily: "Trebuchet MS", paragraphSize: 24 },
   template: {
     page: {
-      margin: {
-        top: 1440,
-        right: 1080,
-        bottom: 1440,
-        left: 1080
-      }
+      margin: { top: 1440, right: 1080, bottom: 1440, left: 1080 },
     },
-    pageNumbering: {
-      display: "current",
-      alignment: "CENTER"
-    }
+    pageNumbering: { display: "current", alignment: "CENTER" },
   },
   sections: [
     {
-      markdown: `# My Report\n\nPrepared for ACME Corp`,
-      // cover page without footer numbering
+      markdown: "# My Report\n\nPrepared for ACME",
       footers: { default: null },
       pageNumbering: { display: "none" },
-      style: {
-        paragraphAlignment: "CENTER",
-        paragraphSize: 28
-      }
+      style: { paragraphAlignment: "CENTER", paragraphSize: 28 },
     },
     {
-      markdown: `[TOC]\n\n# Executive Summary\n\nContent...`,
+      markdown: "[TOC]\n\n# Executive Summary\n\n…",
       titlePage: true,
       type: "NEXT_PAGE",
       headers: {
         default: { text: "Executive Summary", alignment: "RIGHT" },
         first: { text: "Executive Summary (First)", alignment: "RIGHT" },
-        even: { text: "Executive Summary (Even)", alignment: "LEFT" }
       },
       footers: {
         default: {
           text: "Page",
           pageNumberDisplay: "currentAndSectionTotal",
-          alignment: "RIGHT"
-        }
+          alignment: "RIGHT",
+        },
       },
-      pageNumbering: {
-        start: 1,
-        formatType: "decimal",
-        separator: "hyphen"
-      },
-      page: {
-        size: {
-          orientation: "PORTRAIT"
-        }
-      },
-      style: {
-        paragraphAlignment: "JUSTIFIED"
-      }
+      pageNumbering: { start: 1, formatType: "decimal" },
+      style: { paragraphAlignment: "JUSTIFIED" },
     },
     {
-      markdown: `# Appendix\n\nAdditional details...`,
-      headers: {
-        default: { text: "Appendix", alignment: "LEFT" }
-      },
+      markdown: "# Appendix\n\n…",
       type: "ODD_PAGE",
-      pageNumbering: {
-        start: 1,
-        formatType: "upperRoman"
-      },
-      page: {
-        size: {
-          orientation: "LANDSCAPE"
-        }
-      },
-      style: {
-        paragraphSize: 22
-      }
-    }
-  ]
-};
-
-const blob = await convertMarkdownToDocx("", options);
+      page: { size: { orientation: "LANDSCAPE" } },
+      pageNumbering: { start: 1, formatType: "upperRoman" },
+      style: { paragraphSize: 22 },
+    },
+  ],
+});
 ```
 
-Precedence and merge behavior:
-- Global `style` applies first.
-- `template.style` is applied next for shared section defaults.
-- Per-section `style` wins last.
-- For `headers`/`footers`, each slot (`default`, `first`, `even`) can inherit, override, or be disabled with `null`.
+**Precedence (last wins):** global `style` → `template.style` → per-section `style`. For `headers` / `footers`, each slot (`default`, `first`, `even`) can inherit, override, or be explicitly disabled with `null`.
 
-### Custom Table of Contents Styling
+### Syntax-highlighted code blocks
+
+Highlighting is **opt-in**; when disabled (the default) output is byte-identical to pre-highlighting versions. When enabled, each token becomes its own colored `TextRun`.
 
 ```typescript
-const options = {
-  documentType: "document",
-  style: {
-    // Regular document styling
-    titleSize: 32,
-    headingSpacing: 240,
-    paragraphSpacing: 240,
-
-    // Custom TOC styling for each heading level
-    tocHeading1FontSize: 28,
-    tocHeading1Bold: true,
-    tocHeading1Italic: false,
-
-    tocHeading2FontSize: 24,
-    tocHeading2Bold: true,
-    tocHeading2Italic: false,
-
-    tocHeading3FontSize: 22,
-    tocHeading3Bold: false,
-    tocHeading3Italic: false,
-
-    tocHeading4FontSize: 20,
-    tocHeading4Bold: false,
-    tocHeading4Italic: true,
-
-    tocHeading5FontSize: 18,
-    tocHeading5Bold: false,
-    tocHeading5Italic: true,
+await convertMarkdownToDocx(markdown, {
+  codeHighlighting: {
+    enabled: true,
+    showLanguageLabel: true,
+    languages: ["typescript", "javascript", "python", "bash"],
+    theme: {
+      background: "0D1117",
+      border: "30363D",
+      default: "C9D1D9",
+      languageLabel: "8B949E",
+      keyword: "FF7B72",
+      string: "A5D6FF",
+      number: "79C0FF",
+      comment: "8B949E",
+      "title.function": "D2A8FF",
+    },
   },
-};
-
-const blob = await convertMarkdownToDocx(markdownWithToc, options);
+});
 ```
 
-### Text Alignment Example
+Theme keys map 1:1 to `hljs-*` token classes (without the `hljs-` prefix); values are RRGGBB hex strings without `#`. Reserved keys: `default`, `background`, `border`, `languageLabel`. Unknown or non-whitelisted languages fall back to the plain rendering path, so conversion never throws on an unsupported fence.
+
+### Custom heading and paragraph alignment
+
+Each heading level and block type can be aligned independently:
 
 ```typescript
-const markdownWithAlignment = `
-# Left-Aligned Heading 1
-
-## Left-Aligned Heading 2
-
-This is a justified paragraph that demonstrates how text can be spread evenly across the width of the page. This creates a clean, professional look with straight edges on both the left and right margins.
-
-> This is a centered blockquote that stands out from the regular text.
-
-This is a left-aligned paragraph (default alignment) that shows the standard text positioning.
-`;
-
-const alignmentOptions = {
-  documentType: "document",
+await convertMarkdownToDocx(markdown, {
   style: {
+    heading1Alignment: "CENTER",
+    heading2Alignment: "RIGHT",
+    heading3Alignment: "JUSTIFIED",
     paragraphAlignment: "JUSTIFIED",
     blockquoteAlignment: "CENTER",
-    direction: "LTR", // Default; set to "RTL" for right-to-left languages
-    // All headings default to LEFT alignment
   },
-};
-
-const blob = await convertMarkdownToDocx(
-  markdownWithAlignment,
-  alignmentOptions
-);
+});
 ```
 
-### Custom Heading Alignments
+Set `headingAlignment` to provide a fallback for any level without its own override.
 
-You can customize the alignment for each heading level individually:
+### Table of Contents styling
+
+Drop `[TOC]` on its own line in your markdown to render a clickable, auto-populated table of contents. Every TOC level is individually styleable:
 
 ```typescript
-const customHeadingOptions = {
-  documentType: "document",
+await convertMarkdownToDocx(markdown, {
   style: {
-    // Individual heading alignments
-    heading1Alignment: "CENTER", // H1 will be centered
-    heading2Alignment: "RIGHT", // H2 will be right-aligned
-    heading3Alignment: "JUSTIFIED", // H3 will be justified
-    heading4Alignment: "LEFT", // H4 will be left-aligned
-    heading5Alignment: "CENTER", // H5 will be centered
-
-    // Other style options
-    paragraphAlignment: "LEFT", // Paragraphs will be left-aligned
-    blockquoteAlignment: "LEFT", // Blockquotes will be left-aligned
-    direction: "RTL", // Example: apply RTL flow with per-heading alignments
+    tocFontSize: 22,
+    tocHeading1FontSize: 28, tocHeading1Bold: true,
+    tocHeading2FontSize: 24, tocHeading2Bold: true,
+    tocHeading3FontSize: 22,
+    tocHeading4FontSize: 20, tocHeading4Italic: true,
+    tocHeading5FontSize: 18, tocHeading5Italic: true,
   },
-};
-
-const markdown = `
-# This will be centered
-## This will be right-aligned
-### This will be justified
-#### This will be left-aligned
-##### This will be centered
-`;
-
-const blob = await convertMarkdownToDocx(markdown, customHeadingOptions);
+});
 ```
 
-### Text Find-and-Replace
+### Text find-and-replace
 
-You can apply text replacements to the markdown before conversion:
+Run string, regex, or functional replacements over the Markdown AST before conversion — they apply across every element type (headings, paragraphs, list items, table cells, etc.):
 
 ```typescript
-const markdown = `
-# Document Title
-Hello oldText world. Company Name is great.
-`;
-
-const options = {
-  documentType: "document",
+await convertMarkdownToDocx(markdown, {
   textReplacements: [
-    // Replace using RegExp
-    { find: /oldText/g, replace: 'newText' },
-    // Replace using string literal
-    { find: 'Company Name', replace: 'Acme Corp' },
-    // Replace with function
-    { find: /(\d+)/g, replace: (match) => `Number: ${match}` }
+    { find: /oldText/g, replace: "newText" },
+    { find: "Company Name", replace: "Acme Corp" },
+    { find: /(\d+)/g, replace: (match) => `Number: ${match}` },
   ],
-};
-
-const blob = await convertMarkdownToDocx(markdown, options);
+});
 ```
 
-The replacements are applied to the markdown AST before conversion, so they work across all markdown elements (headings, paragraphs, lists, etc.).
-
-### React Example
+### RTL / bidirectional text
 
 ```typescript
-import { useState } from "react";
-import { convertMarkdownToDocx, downloadDocx } from "@mohtasham/md-to-docx";
+await convertMarkdownToDocx(markdown, {
+  style: {
+    direction: "RTL",
+    paragraphAlignment: "RIGHT",
+  },
+});
+```
 
-function MarkdownConverter() {
-  const [markdown, setMarkdown] = useState("");
+## Supported Markdown
 
-  const handleConvert = async () => {
-    try {
-      const blob = await convertMarkdownToDocx(markdown);
-      downloadDocx(blob, "converted.docx");
-    } catch (error) {
-      console.error("Conversion failed:", error);
-    }
-  };
 
-  return (
-    <div>
-      <textarea
-        value={markdown}
-        onChange={(e) => setMarkdown(e.target.value)}
-      />
-      <button onClick={handleConvert}>Convert to DOCX</button>
-    </div>
-  );
+| Feature           | Syntax                 | Notes                                                |
+| ----------------- | ---------------------- | ---------------------------------------------------- |
+| Headings          | `# … #####`            | H1–H5, individually styleable                        |
+| Bold / italic     | `**bold**`, `*italic*` |                                                      |
+| Underline         | `++underline++`        | Custom marker                                        |
+| Strikethrough     | `~~text~~`             | GFM                                                  |
+| Inline code       | ``code``               |                                                      |
+| Code blocks       | ````` fenced           | Optional syntax highlighting per block               |
+| Lists             | `-`, `*`, `1.`         | Bullet, numbered, nested, rich formatting inside     |
+| Tables            | `| a | b |`            | GFM — headers, alignment markers, inline formatting  |
+| Blockquotes       | `> text`               |                                                      |
+| Links             | `[text](url)`          |                                                      |
+| Images            | `![alt](url)`          | HTTP(S) and `data:` URLs; supports `#w=…&h=…` sizing |
+| Horizontal rule   | `---`                  | Skipped during conversion                            |
+| Table of Contents | `[TOC]`                | Clickable, auto-populated                            |
+| Page break        | `\pagebreak`           | Place on its own line                                |
+| Comments          | `COMMENT: text`        | Rendered as Word comments                            |
+
+
+## API reference
+
+### `convertMarkdownToDocx(markdown, options?): Promise<Blob>`
+
+Converts Markdown text (or a multi-section template) to a DOCX Blob.
+
+
+| Argument   | Type       | Description                                                 |
+| ---------- | ---------- | ----------------------------------------------------------- |
+| `markdown` | `string`   | Markdown source. Ignored if `options.sections` is provided. |
+| `options`  | `Options?` | See below.                                                  |
+
+
+### `downloadDocx(blob, filename?): void`
+
+Browser-only helper that triggers a file download. Throws in non-browser environments. `filename` defaults to `"document.docx"`.
+
+### `Options`
+
+```typescript
+interface Options {
+  documentType?: "document" | "report";
+  style?: Style;
+  template?: DocumentSection;
+  sections?: DocumentSection[];
+  codeHighlighting?: CodeHighlightOptions;
+  textReplacements?: TextReplacement[];
 }
 ```
 
-## API
+#### `Style`
 
-### `convertMarkdownToDocx(markdown: string, options?: Options): Promise<Blob>`
+Text sizes
 
-Converts Markdown text to a DOCX document.
 
-#### Parameters
+| Option                                        | Type                  | Description                              |
+| --------------------------------------------- | --------------------- | ---------------------------------------- |
+| `fontFamily`                                  | `string`              | Base font family                         |
+| `fontFamilly`                                 | `string` (deprecated) | Alias for `fontFamily`                   |
+| `titleSize`                                   | `number`              | Title size (half-points)                 |
+| `heading1Size` … `heading5Size`               | `number`              | Per-level heading sizes                  |
+| `paragraphSize`                               | `number`              | Paragraph size                           |
+| `listItemSize`                                | `number`              | List item size                           |
+| `codeBlockSize`                               | `number`              | Code block size                          |
+| `blockquoteSize`                              | `number`              | Blockquote size                          |
+| `tocFontSize`                                 | `number`              | TOC entry size (fallback for all levels) |
+| `tocHeading1FontSize` … `tocHeading5FontSize` | `number`              | Per-level TOC entry size                 |
+| `tocHeading1Bold` … `tocHeading5Bold`         | `boolean`             | Per-level TOC entry bold flag            |
+| `tocHeading1Italic` … `tocHeading5Italic`     | `boolean`             | Per-level TOC entry italic flag          |
 
-- `markdown` (string): The Markdown text to convert
-- `options` (object, optional): Configuration options
-  - `documentType` (string): Either 'document' or 'report'
-  - `template` (object): Shared section defaults for multi-section documents
-    - `style` (object): Default style overrides for every section
-    - `headers` / `footers` (object): Default header/footer slots (`default`, `first`, `even`)
-    - `pageNumbering` (object): Default page numbering behavior for sections
-      - `display`: `"none" | "current" | "currentAndTotal" | "currentAndSectionTotal"`
-      - `alignment`: `"LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED"`
-      - `start`: Start page number for the section (>= 1)
-      - `formatType`: `"decimal" | "upperRoman" | "lowerRoman" | "upperLetter" | "lowerLetter"`
-      - `separator`: `"hyphen" | "period" | "colon" | "emDash" | "endash"`
-  - `sections` (array): Explicit section list (if omitted, markdown input is a single section)
-    - `markdown` (string): Markdown content for that section
-    - `style` (object): Section-local style overrides
-    - `headers` / `footers` (object): Section-local header/footer slots (`default`, `first`, `even`)
-      - Each slot can be:
-        - `null` to disable that slot
-        - `{ text?, alignment?, pageNumberDisplay? }`
-    - `pageNumbering` (object): Section-local numbering/reset behavior
-    - `page` (object): Section page options (`margin`, `size`, `orientation`)
-    - `titlePage` (boolean): Enables first-page header/footer behavior for that section
-    - `type` (string): Section break type (`NEXT_PAGE`, `CONTINUOUS`, etc.)
-  - `style` (object): Styling options
-    - Text Sizes:
-      - `fontFamily` (string): Base font family for regular document text
-      - `fontFamilly` (string): Deprecated alias for `fontFamily`
-      - `titleSize` (number): Font size for titles
-      - `heading1Size` through `heading5Size` (number): Font sizes for H1-H5
-      - `paragraphSize` (number): Font size for paragraphs
-      - `listItemSize` (number): Font size for list items
-      - `codeBlockSize` (number): Font size for code blocks
-      - `blockquoteSize` (number): Font size for blockquotes
-      - `tocFontSize` (number): Font size for Table of Contents entries
-      - `tocHeading1FontSize` through `tocHeading5FontSize` (number): Font sizes for specific heading levels in TOC
-      - `tocHeading1Bold` through `tocHeading5Bold` (boolean): Whether specific heading levels in TOC should be bold
-      - `tocHeading1Italic` through `tocHeading5Italic` (boolean): Whether specific heading levels in TOC should be italic
-    - Spacing:
-      - `headingSpacing` (number): Spacing before/after headings
-      - `paragraphSpacing` (number): Spacing before/after paragraphs
-      - `lineSpacing` (number): Line spacing multiplier
-    - Alignment:
-      - `paragraphAlignment` (string): "LEFT" | "RIGHT" | "CENTER" | "JUSTIFIED"
-      - `headingAlignment` (string): "LEFT" | "RIGHT" | "CENTER" | "JUSTIFIED" (fallback for all headings)
-      - `heading1Alignment` through `heading5Alignment` (string): Individual heading level alignments
-      - `blockquoteAlignment` (string): "LEFT" | "RIGHT" | "CENTER" | "JUSTIFIED"
-    - Direction:
-      - `direction` (string): "LTR" | "RTL". Applies bidirectional layout for paragraphs and runs. Combine with `paragraphAlignment: "RIGHT"` for typical RTL layouts.
-    - Text Replacements:
-      - `textReplacements` (array, optional): Array of `TextReplacement` objects for pattern-based text replacement
-        - `find` (string | RegExp): The pattern to find
-        - `replace` (string | function): The replacement (string or function that returns string or array of nodes)
 
-#### Returns
 
-Promise that resolves to a Blob containing the DOCX file.
 
-### `downloadDocx(blob: Blob, filename?: string): void`
+Spacing & layout
 
-Downloads a DOCX file in the browser environment.
 
-#### Parameters
+| Option             | Type                  | Description                           |
+| ------------------ | --------------------- | ------------------------------------- |
+| `headingSpacing`   | `number`              | Space before/after headings           |
+| `paragraphSpacing` | `number`              | Space before/after paragraphs         |
+| `lineSpacing`      | `number`              | Line spacing multiplier (e.g. `1.15`) |
+| `tableLayout`      | `"autofit" | "fixed"` | Table layout algorithm                |
 
-- `blob` (Blob): The Blob containing the DOCX file data
-- `filename` (string, optional): The name to save the file as (defaults to "document.docx")
 
-#### Throws
 
-- Error if called outside browser environment
-- Error if invalid blob or filename is provided
-- Error if file save fails
 
-## Markdown Support
+Alignment & direction
 
-The module supports the following Markdown features:
 
-- Table of Contents: `[TOC]` (place on its own line where TOC should appear)
-- Page Breaks: `\pagebreak` (place on its own line to force a page break)
-- Headings: `#`, `##`, `###`, `####`, `#####`
-- Lists: `-`, `*`, `1.`, `2.`, etc.
-- Bold: `**text**`
-- Italic: `*text*`
-- Underline: `++text++`
-- Strikethrough: `~~text~~`
-- Blockquotes: `> text`
-- Tables: `| Header | Header |`
-- Comments: `COMMENT: text`
-- Images: `![alt text](image-url)`
-- Code blocks: `code`
-- Inline code: `code`
-- Links: `[text](url)`
-- Markdown Separators: `---` (horizontal rule, skipped during conversion)
+| Option                                    | Type                                        | Description                    |
+| ----------------------------------------- | ------------------------------------------- | ------------------------------ |
+| `paragraphAlignment`                      | `"LEFT" | "RIGHT" | "CENTER" | "JUSTIFIED"` | Paragraphs                     |
+| `blockquoteAlignment`                     | `"LEFT" | "RIGHT" | "CENTER" | "JUSTIFIED"` | Blockquotes                    |
+| `headingAlignment`                        | `"LEFT" | "RIGHT" | "CENTER" | "JUSTIFIED"` | Fallback for any heading level |
+| `heading1Alignment` … `heading5Alignment` | Same                                        | Overrides per level            |
+| `direction`                               | `"LTR" | "RTL"`                             | Bidirectional flow             |
 
-### TOC and Page Breaks
 
-```typescript
-import { convertMarkdownToDocx, downloadDocx } from "@mohtasham/md-to-docx";
 
-const markdown = `
-[TOC]
 
-# Section 1
+#### `DocumentSection` (for `template` and each entry in `sections`)
 
-This is the first section.
 
-## Subsection 1.1
+| Field           | Type                                                    | Description                                                                                  |
+| --------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `markdown`      | `string`                                                | Section-local markdown (required on entries in `sections`).                                  |
+| `style`         | `Style`                                                 | Section-local style overrides.                                                               |
+| `headers`       | `{ default?, first?, even? }`                           | Header slots. Each can be `null` to disable, or `{ text?, alignment?, pageNumberDisplay? }`. |
+| `footers`       | Same as `headers`                                       | Footer slots.                                                                                |
+| `pageNumbering` | See below                                               | Section-local numbering and reset behavior.                                                  |
+| `page`          | `{ margin?, size? }`                                    | Section page geometry (margins, size, `orientation: "PORTRAIT" | "LANDSCAPE"`).              |
+| `titlePage`     | `boolean`                                               | Enables first-page header/footer behavior.                                                   |
+| `type`          | `"NEXT_PAGE" | "CONTINUOUS" | "ODD_PAGE" | "EVEN_PAGE"` | Section break type.                                                                          |
 
-Content for subsection 1.1.
 
-\pagebreak
+`**pageNumbering`:**
 
-# Section 2
 
-This is the second section, appearing after a page break.
+| Field        | Type                                                                      |
+| ------------ | ------------------------------------------------------------------------- |
+| `display`    | `"none" | "current" | "currentAndTotal" | "currentAndSectionTotal"`       |
+| `alignment`  | `"LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED"`                               |
+| `start`      | `number` (≥ 1)                                                            |
+| `formatType` | `"decimal" | "upperRoman" | "lowerRoman" | "upperLetter" | "lowerLetter"` |
+| `separator`  | `"hyphen" | "period" | "colon" | "emDash" | "endash"`                     |
 
-- Item A
-- Item B
-`;
 
-const blob = await convertMarkdownToDocx(markdown);
-downloadDocx(blob, "output_with_toc.docx");
+#### `CodeHighlightOptions`
+
+
+| Option              | Type                          | Default      | Description                                                                            |
+| ------------------- | ----------------------------- | ------------ | -------------------------------------------------------------------------------------- |
+| `enabled`           | `boolean`                     | `false`      | Turn syntax highlighting on.                                                           |
+| `theme`             | `Partial<CodeHighlightTheme>` | GitHub-light | Partial override merged over the default theme. Values are RRGGBB hex.                 |
+| `languages`         | `string[]`                    | `common`     | Whitelist of language grammars to load. Excluded/unknown languages fall back to plain. |
+| `showLanguageLabel` | `boolean`                     | `true`       | Render the language name as a bold label above the block.                              |
+
+
+#### `TextReplacement`
+
+
+| Field     | Type                                                                                    |
+| --------- | --------------------------------------------------------------------------------------- |
+| `find`    | `string | RegExp`                                                                       |
+| `replace` | `string | ((match: string, ...groups: string[]) => string | mdast.Node | mdast.Node[])` |
+
+
+### Errors
+
+All conversion failures throw `MarkdownConversionError` (exported from the root). The error exposes a typed `context` field (e.g. `{ orientation, sectionIndex }`) to make debugging easier.
+
+## Requirements
+
+- **Node.js** ≥ 18 (ESM-only package)
+- **Browsers:** any evergreen browser that supports ES2020 + Blobs
+
+## Install as an agent skill
+
+For use in agent environments that speak the `skills` CLI:
+
+```bash
+# Quick add from GitHub URL
+npx skills add https://github.com/mohtashammurshid/md-to-docx --skill md-to-docx
+
+# From GitHub shorthand, pinned to an agent
+npx skills add MohtashamMurshid/md-to-docx --skill md-to-docx --agent cursor --yes --full-depth
+
+# From a local clone
+npx skills add . --skill md-to-docx --agent cursor --yes --full-depth
+
+# Discover before installing
+npx skills add MohtashamMurshid/md-to-docx --list --full-depth
 ```
 
-## License
+## Development
 
-MIT
+```bash
+git clone https://github.com/MohtashamMurshid/md-to-docx.git
+cd md-to-docx
+npm install
+
+npm run build   # compile TypeScript to dist/
+npm test        # run the Jest suite (4 suites, 45 tests)
+```
+
+Tests run offline against generated Word XML using JSZip. Set `DEBUG_DOCX=1` to have tests also write `.docx` artifacts under `test-output/` for manual inspection.
+
+## Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md) for a detailed history.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+PRs and issues are welcome. A few guidelines:
+
+1. Open an issue to discuss non-trivial changes before sending a patch.
+2. Add or update tests under `tests/` — the suite uses XML-level assertions on the generated DOCX, so changes to rendering should be verified at that level.
+3. Keep the public API surface stable; internal refactors should not require bumping the major version.
+4. Run `npm run build && npm test` before pushing.
+
+## License
+
+[MIT](./LICENSE) © Mohtasham Murshid Madani
+
+---
+
+Built on top of `[docx](https://www.npmjs.com/package/docx)`, `[unified](https://unifiedjs.com)`, `[remark](https://github.com/remarkjs/remark)`, and `[lowlight](https://github.com/wooorm/lowlight)`.

@@ -111,7 +111,12 @@ export async function modelToDocx(
 
       case "codeBlock": {
         return [
-          processCodeBlock(node.value, node.language, style),
+          processCodeBlock(
+            node.value,
+            node.language,
+            style,
+            options.codeHighlighting
+          ),
         ];
       }
 
@@ -255,7 +260,14 @@ export async function modelToDocx(
   }
 
   // Process all top-level nodes
+  let previousNodeType: string | undefined;
   for (const node of model.children) {
+    // Insert a blank spacer paragraph between back-to-back code blocks so
+    // Word doesn't collapse the shared borders into a single visual block.
+    if (node.type === "codeBlock" && previousNodeType === "codeBlock") {
+      children.push(new Paragraph({ children: [], spacing: { before: 0, after: 0 } }));
+    }
+
     if (node.type === "image") {
       // Handle images asynchronously
       try {
@@ -281,6 +293,8 @@ export async function modelToDocx(
       const rendered = renderBlockNode(node);
       children.push(...rendered);
     }
+
+    previousNodeType = node.type;
   }
 
   return { children, headings, maxSequenceId };

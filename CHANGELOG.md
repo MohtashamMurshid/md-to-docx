@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.10.0] - 2026-04-17
+
+### Added
+
+- Optional syntax highlighting for fenced code blocks, powered by `[lowlight](https://github.com/wooorm/lowlight)`. Enable via `options.codeHighlighting.enabled` and each token is rendered as a colored `TextRun` in the DOCX output.
+  - New `CodeHighlightOptions` and `CodeHighlightTheme` types exported from the package root.
+  - Built-in GitHub-light default theme. Users can override any subset via a partial `theme` map. Reserved keys `default`, `background`, `border`, and `languageLabel` style the code block chrome.
+  - `languages` whitelist (defaults to the lowlight `common` bundle of ~37 popular languages) controls which grammars get loaded; unknown or excluded languages transparently fall back to the plain rendering path so conversion never fails on an unsupported fence.
+  - `showLanguageLabel` (default `true`) toggles the bold language label above the code.
+- New `src/utils/codeHighlight.ts` module containing the theme, the cached lowlight instance factory, and the hast-tree tokenizer.
+
+### Changed
+
+- `processCodeBlock` in `src/renderers/codeRenderer.ts` now accepts an optional fourth `CodeHighlightOptions` argument. When highlighting is disabled (the default), output is byte-identical to 2.9.1.
+- `modelToDocx` threads `options.codeHighlighting` through to the code block renderer.
+- `modelToDocx` now inserts a blank spacer paragraph between two immediately-adjacent fenced code blocks so Word does not collapse their shared borders into a single visual block.
+
+### Fixed
+
+- `codeHighlighting.languages` now honors alias spellings. Previously, user-supplied aliases like `js`, `sh`, `yml`, `c++`, or `ts` were silently dropped because the grammar selector only accepted canonical keys from the lowlight `common` bundle; this disagreed with the documented contract ("those languages plus aliases are highlighted") and meant `languages: ["js"]` disabled highlighting entirely while `languages: ["javascript"]` worked. Aliases are now resolved to their canonical grammar before registration, so `["js"]`, `["sh"]`, `["yml"]`, `["c++"]`, and `["ts"]` all register the underlying grammar and highlight both alias and canonical fences. A new exported `canonicalLanguageName` helper in `src/utils/codeHighlight.ts` provides the resolution, memoized per process to avoid repeated probing.
+
+### Tests
+
+- Consolidated the test suite from 10 files / ~1,813 lines / ~24 mostly-smoke tests into 4 focused files / ~912 lines / 45 tests that make real semantic assertions against the generated Word XML instead of only checking `blob.size > 0`.
+  - New `tests/rendering.test.ts` replaces eight old files (`index`, `heading-alignment`, `text-alignment`, `list-formatting`, `newline`, `image-size`, `style-system-v2`, `table`). Each test inspects `word/document.xml` via JSZip to verify alignment attributes, `<w:b/>`/`<w:i/>`/`<w:u/>`/`<w:strike/>` run properties, `<w:numPr>` numbering references, `<pic:pic>` image embedding, TOC fields, and `<w:br w:type="page"/>` page breaks.
+  - New `tests/helpers.ts` shared utilities: `getDocumentXml(blob)`, `getZip(blob)`, and `saveBlobForDebug(blob, name)` — the latter gated behind `DEBUG_DOCX=1` so the `test-output/` directory no longer accumulates stale `.docx` artifacts on every run.
+  - `tests/sections.test.ts` trimmed from 292 to 194 lines: merged overlapping "section type variants" and "advanced section properties" cases, collapsed the four invalid-config throws into a single `it.each` table.
+  - `tests/cli.test.ts` trimmed from 286 to 232 lines: failure modes collapsed into two `it.each` tables (simple cases plus options-file parse errors); happy-path cases kept individual.
+  - Eliminated all network-dependent image tests (previously hit `picsum.photos` and `raw.githubusercontent.com` with 30s timeouts). Image rendering is now exercised via an inline base64 PNG, so the suite runs offline and deterministically.
+- Added `tests/code-highlighting.test.ts` covering default-off behavior, default-theme coloring for keyword/number/string tokens, custom theme overrides, unknown-language fallback, missing-language fallback, `showLanguageLabel: false`, language whitelist filtering, alias-valued whitelists (`js`, `sh`, `yml`, `c++`, `ts`), silent drop of unknown names, and newline preservation across multi-line highlighted blocks.
+- Added `tsconfig.test.json` (and pointed `ts-jest` at it via `jest.config.mjs`) so test files can import shared helpers without violating the `rootDir: ./src` constraint used for library builds.
+- Added `jszip@^3.10.1` as an explicit `devDependency` (previously pulled in only transitively via `docx`).
+- Removed the stale `test:alignment` npm script (pointed at a long-gone path).
+
+Full suite: 53/53 passing in ~2s.
+
 ## [2.9.1] - 2026-04-17
 
 ### Added

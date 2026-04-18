@@ -1,3 +1,11 @@
+## [2.10.1](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.10.0...v2.10.1) (2026-04-18)
+
+### Bug Fixes
+
+* bump release workflow to node 22 for semantic-release 25 ([3a0c7ab](https://github.com/MohtashamMurshid/md-to-docx/commit/3a0c7ab047f2d22dd7a5a1c418ac2e8fa5875b0e))
+* drop registry-url from setup-node so semantic-release owns npm auth ([3e31bad](https://github.com/MohtashamMurshid/md-to-docx/commit/3e31bade2f96bb70ab7fca837d4f74e6818aa76c))
+* verify automated release pipeline ([5d1ecab](https://github.com/MohtashamMurshid/md-to-docx/commit/5d1ecab2499b6755876c4a80d436191eb3c674e7))
+
 # Changelog
 
 All notable changes to this project will be documented in this file.

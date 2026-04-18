@@ -1,0 +1,51 @@
+---
+description: Release workflow conventions for md-to-docx (semantic-release)
+alwaysApply: false
+---
+# Releases
+
+This repo uses `semantic-release` on push to `main`. The agent MUST NOT do any of these manually:
+
+- Bump `version` in `package.json` / `package-lock.json`
+- Edit `CHANGELOG.md` (other than historical entries that already exist)
+- Create git tags (`git tag v*`)
+- Create GitHub Releases (`gh release create`)
+- Run `npm publish`
+
+All of the above happen automatically from `.github/workflows/release.yml` driven by `.releaserc.json`.
+
+## Commit messages
+
+Every commit merged to `main` MUST follow [Conventional Commits](https://www.conventionalcommits.org/):
+
+| Prefix | Effect |
+|---|---|
+| `fix:` | patch bump (x.y.**Z**) |
+| `feat:` | minor bump (x.**Y**.0) |
+| `feat!:` or body with `BREAKING CHANGE:` | major bump (**X**.0.0) |
+| `chore:` `docs:` `style:` `refactor:` `perf:` `test:` `ci:` `build:` | no release |
+
+Examples:
+
+```
+feat: add syntax highlighting option to code blocks
+fix(code-highlight): honor alias spellings in languages whitelist
+chore: bump dev dependencies
+```
+
+## Workflow facts
+
+- `release.yml` runs on Node 22 (semantic-release 25 requires Node ≥22.14).
+- `setup-node` in `release.yml` MUST NOT set `registry-url` — semantic-release manages npm auth itself via `NPM_TOKEN`. Setting `registry-url` causes a 401 on whoami.
+- `ci.yml` runs the test matrix on Node 18 + 20 to match downstream users.
+- Commits authored by the release bot end with `[skip ci]` and are filtered out by the `if:` guard in `release.yml`.
+
+## When the user asks to "cut a release" or "bump version"
+
+Do NOT run `npm version`, edit `package.json`, or tag. Instead:
+
+1. Verify there are releasable commits since the last `v*` tag (`git log $(git describe --tags --abbrev=0)..HEAD --oneline`).
+2. If none, tell the user no `fix:`/`feat:` commits exist yet and ask what change they want to ship.
+3. If releasable commits already exist on `main`, the release has either already happened or will on next push — no action needed.
+
+See `[RELEASING.md](../../RELEASING.md)` for the full process and one-time repo setup.

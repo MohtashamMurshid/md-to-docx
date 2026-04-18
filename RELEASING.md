@@ -46,6 +46,31 @@ These need to be configured once in GitHub / npm; they are not captured in the r
   - Check **"Allow GitHub Actions to create and approve pull requests"**.
 - Branch protection on `main` (optional but recommended): allow the `github-actions[bot]` (or your release bot) to push tag and `[skip ci]` commits, or disable "Require linear history" / "Require PR before merging" for the bot. The simplest setup is to allow administrators to bypass branch protection and have the workflow use the default `GITHUB_TOKEN`.
 
+## Troubleshooting
+
+### `[semantic-release]: node version ^22.14.0 || >= 24.10.0 is required`
+
+semantic-release 25+ needs Node 22.14+. The `release.yml` workflow pins `node-version: "22"` for this reason. If you bump the major of `semantic-release`, check its engines field and raise the workflow's Node version accordingly.
+
+### `EINVALIDNPMTOKEN Invalid npm token` / `401 Unauthorized - GET /-/whoami`
+
+Two common causes:
+
+1. The `NPM_TOKEN` secret is a Publish or Read-only token. Only **Automation** classic tokens or **Granular** tokens with "Bypass 2FA" work in CI. On npmjs.com → Access Tokens, the token must show a green check under the "Bypass 2FA" column.
+2. The `setup-node` step has `registry-url:` set. Do not set it — semantic-release writes its own `.npmrc` from `NPM_TOKEN`, and `setup-node` writing a second `.npmrc` expecting `NODE_AUTH_TOKEN` causes npm to use the wrong auth header.
+
+### `OIDC token exchange error - package not found`
+
+Informational only. semantic-release tries OIDC first, and because this package is not configured as a Trusted Publisher on npmjs.com, it falls back to `NPM_TOKEN`. This is expected; no action needed.
+
+### Release bot commit triggered another release run
+
+The bot commit must end with `[skip ci]`. The `if:` guard on the `release` job in `release.yml` filters on `github.event.head_commit.message`. If this ever loops, check the `message` template in `.releaserc.json` still contains `[skip ci]`.
+
+### Workflow didn't fire after push
+
+Sometimes GitHub delays the first run for a newly-added workflow by up to a minute. If it never fires: check Settings → Actions → General → Workflow permissions is "Read and write permissions" and that Actions are enabled.
+
 ## Running a release manually (not normally needed)
 
 ```bash

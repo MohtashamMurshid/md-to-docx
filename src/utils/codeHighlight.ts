@@ -67,6 +67,7 @@ export const DEFAULT_CODE_HIGHLIGHT_THEME: CodeHighlightTheme = {
 };
 
 type LowlightInstance = ReturnType<typeof createLowlight>;
+type CommonGrammar = (typeof common)[keyof typeof common];
 
 /**
  * Cache of configured lowlight instances keyed by the list of language
@@ -76,10 +77,50 @@ type LowlightInstance = ReturnType<typeof createLowlight>;
 const instanceCache = new Map<string, LowlightInstance>();
 
 /**
+ * Memoized alias -> canonical-grammar-name lookups. Populated lazily the
+ * first time a non-canonical user input is seen so repeated config
+ * builds (common path: one instance per distinct whitelist) don't pay
+ * the probe cost more than once per alias.
+ */
+const aliasToCanonical = new Map<string, string>();
+
+/**
+ * Resolve a user-supplied language name to the canonical lowlight
+ * grammar key it belongs to, handling alias spellings like `js`, `sh`,
+ * `yml`, `c++`, `ts`. Returns `null` if the name is not part of the
+ * `common` bundle under any alias.
+ *
+ * Uses lowlight's own `registered()` as the source of truth by probing
+ * one-grammar instances -- highlight.js stores aliases inside each
+ * grammar factory and there's no public API to enumerate them without
+ * actually registering. Results are memoized so the O(N) probe only
+ * runs the first time a given alias is encountered.
+ */
+export function canonicalLanguageName(name: string): string | null {
+  if (name in common) {
+    return name;
+  }
+  const cached = aliasToCanonical.get(name);
+  if (cached) {
+    return cached;
+  }
+  const lookup = common as Record<string, CommonGrammar>;
+  for (const canonical of Object.keys(lookup)) {
+    const probe = createLowlight({ [canonical]: lookup[canonical] });
+    if (probe.registered(name)) {
+      aliasToCanonical.set(name, canonical);
+      return canonical;
+    }
+  }
+  return null;
+}
+
+/**
  * Returns (and lazily creates) a lowlight instance configured with the
- * requested languages. Unknown language names are tolerated and simply
- * not registered, in which case callers must fall back to plain
- * rendering.
+ * requested languages. User-supplied names are canonicalized first so
+ * alias spellings (e.g. `js` for `javascript`) register the right
+ * grammar; unknown names are tolerated and simply not registered, in
+ * which case callers must fall back to plain rendering.
  */
 export function getLowlightInstance(languages?: string[]): LowlightInstance {
   if (!languages || languages.length === 0) {
@@ -91,17 +132,27 @@ export function getLowlightInstance(languages?: string[]): LowlightInstance {
     return instance;
   }
 
-  const key = [...languages].sort().join("|");
+  // Canonicalize before hashing so ["js"] and ["javascript"] share a
+  // single cached instance and both end up highlighting the same
+  // fences. Duplicates after canonicalization are also collapsed.
+  const lookup = common as Record<string, CommonGrammar>;
+  const canonicalSet = new Set<string>();
+  for (const name of languages) {
+    const canonical = canonicalLanguageName(name);
+    if (canonical) {
+      canonicalSet.add(canonical);
+    }
+  }
+
+  const key = [...canonicalSet].sort().join("|") || "__empty__";
   let instance = instanceCache.get(key);
   if (instance) {
     return instance;
   }
 
-  const grammars: Record<string, (typeof common)[keyof typeof common]> = {};
-  for (const name of languages) {
-    if (name in common) {
-      grammars[name] = (common as Record<string, (typeof common)[keyof typeof common]>)[name];
-    }
+  const grammars: Record<string, CommonGrammar> = {};
+  for (const canonical of canonicalSet) {
+    grammars[canonical] = lookup[canonical];
   }
   instance = createLowlight(grammars);
   instanceCache.set(key, instance);

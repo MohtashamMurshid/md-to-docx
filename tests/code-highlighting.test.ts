@@ -179,4 +179,58 @@ def greet(name):
     expect(xml).not.toContain('w:val="D73A49"');
     expect(xml).toContain('w:val="24292E"');
   });
+
+  // Regression coverage: aliases in the user-supplied whitelist must
+  // register the underlying canonical grammar so lowlight can still
+  // resolve both the alias fence and the canonical fence.
+  it.each([
+    { whitelist: ["js"], fence: "javascript", code: "const x = 1;" },
+    { whitelist: ["js"], fence: "js", code: "const x = 1;" },
+    { whitelist: ["sh"], fence: "bash", code: "echo hello" },
+    { whitelist: ["sh"], fence: "sh", code: "echo hello" },
+    { whitelist: ["yml"], fence: "yaml", code: "key: value" },
+    { whitelist: ["ts"], fence: "typescript", code: "const n: number = 1;" },
+    { whitelist: ["c++"], fence: "cpp", code: "int main() { return 0; }" },
+  ])(
+    "accepts alias $whitelist in whitelist and highlights a ```$fence fence",
+    async ({ whitelist, fence, code }) => {
+      const markdown = `\`\`\`${fence}\n${code}\n\`\`\``;
+
+      const xml = await render(markdown, {
+        codeHighlighting: {
+          enabled: true,
+          languages: whitelist,
+        },
+      });
+
+      // If canonicalization works, lowlight tokenizes the snippet and at
+      // least one run gets a themed color outside the default/label pair
+      // (default=24292E, languageLabel=6A737D). If aliases are silently
+      // dropped, the whole block falls back to the default color only.
+      const colorMatches = [
+        ...xml.matchAll(/<w:color w:val="([0-9A-Fa-f]{6})"\s*\/>/g),
+      ].map((m) => m[1].toUpperCase());
+      const themed = colorMatches.filter(
+        (c) => c !== "24292E" && c !== "6A737D"
+      );
+      expect(themed.length).toBeGreaterThan(0);
+    }
+  );
+
+  it("silently drops unknown names from the whitelist", async () => {
+    const markdown = `\`\`\`javascript
+const x = 1;
+\`\`\``;
+
+    const xml = await render(markdown, {
+      codeHighlighting: {
+        enabled: true,
+        languages: ["doesnotexist", "also-fake", "javascript"],
+      },
+    });
+
+    // javascript is still registered, so the keyword color is present and
+    // no error is thrown on the unknown names.
+    expect(xml).toContain('w:val="D73A49"');
+  });
 });

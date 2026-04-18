@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.10.0] - 2026-04-17
+
 ### Added
 
 - Optional syntax highlighting for fenced code blocks, powered by `[lowlight](https://github.com/wooorm/lowlight)`. Enable via `options.codeHighlighting.enabled` and each token is rendered as a colored `TextRun` in the DOCX output.

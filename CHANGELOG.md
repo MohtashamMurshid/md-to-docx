@@ -1,3 +1,9 @@
+## [2.10.2](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.10.1...v2.10.2) (2026-04-29)
+
+### Bug Fixes
+
+* **cli:** run packaged bin through npx ([056d335](https://github.com/MohtashamMurshid/md-to-docx/commit/056d3356049583ab9bfdaa51aa4102c5cb927917))
+
 ## [2.10.1](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.10.0...v2.10.1) (2026-04-18)
 
 ### Bug Fixes

@@ -127,11 +127,37 @@ export async function runCli(
   }
 }
 
+export async function isDirectCliInvocation(
+  invokedFilePath: string,
+  currentFilePath: string,
+  realpath: (filePath: string) => Promise<string> = fs.realpath
+): Promise<boolean> {
+  if (!invokedFilePath) {
+    return false;
+  }
+
+  const resolvedInvokedFilePath = path.resolve(invokedFilePath);
+  const resolvedCurrentFilePath = path.resolve(currentFilePath);
+
+  try {
+    return (
+      (await realpath(resolvedInvokedFilePath)) ===
+      (await realpath(resolvedCurrentFilePath))
+    );
+  } catch {
+    return resolvedInvokedFilePath === resolvedCurrentFilePath;
+  }
+}
+
 const currentFilePath = fileURLToPath(import.meta.url);
 const invokedFilePath = process.argv[1] ? path.resolve(process.argv[1]) : "";
 
-if (invokedFilePath === path.resolve(currentFilePath)) {
+isDirectCliInvocation(invokedFilePath, currentFilePath).then((isDirect) => {
+  if (!isDirect) {
+    return;
+  }
+
   runCli(process.argv.slice(2)).then((exitCode) => {
     process.exitCode = exitCode;
   });
-}
+});

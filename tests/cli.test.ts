@@ -3,7 +3,7 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { CliOutput, runCli } from "../src/cli";
+import { CliOutput, isDirectCliInvocation, runCli } from "../src/cli";
 
 function captureOutput(): CliOutput & { logs: string[]; errors: string[] } {
   const logs: string[] = [];
@@ -126,6 +126,18 @@ describe("standalone CLI", () => {
 
     expect(exitCode).toBe(0);
     expect((await fsp.stat(outputPath)).size).toBeGreaterThan(0);
+  });
+
+  it("recognizes npm bin symlinks as direct CLI invocations", async () => {
+    const cliPath = path.join(tempDir, "dist", "cli.js");
+    const binPath = path.join(tempDir, "node_modules", ".bin", "md-to-docx");
+
+    await fsp.mkdir(path.dirname(cliPath), { recursive: true });
+    await fsp.mkdir(path.dirname(binPath), { recursive: true });
+    await fsp.writeFile(cliPath, "#!/usr/bin/env node\n");
+    await fsp.symlink(cliPath, binPath);
+
+    await expect(isDirectCliInvocation(binPath, cliPath)).resolves.toBe(true);
   });
 
   it.each([["--help"], ["-h"]])(

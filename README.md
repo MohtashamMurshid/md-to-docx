@@ -333,10 +333,10 @@ await convertMarkdownToDocx(markdown, {
 | Bold / italic     | `**bold**`, `*italic*` |                                                      |
 | Underline         | `++underline++`        | Custom marker                                        |
 | Strikethrough     | `~~text~~`             | GFM                                                  |
-| Inline code       | ``code``               |                                                      |
+| Inline code       | `code`                 |                                                      |
 | Code blocks       | ````` fenced           | Optional syntax highlighting per block               |
 | Lists             | `-`, `*`, `1.`         | Bullet, numbered, nested, rich formatting inside     |
-| Tables            | `| a | b |`            | GFM — headers, alignment markers, inline formatting  |
+| Tables            | `                      | a                                                    |
 | Blockquotes       | `> text`               |                                                      |
 | Links             | `[text](url)`          |                                                      |
 | Images            | `![alt](url)`          | HTTP(S) and `data:` URLs; supports `#w=…&h=…` sizing |
@@ -397,60 +397,54 @@ Text sizes
 | `tocHeading1Italic` … `tocHeading5Italic`     | `boolean`             | Per-level TOC entry italic flag          |
 
 
-
-
 Spacing & layout
 
 
-| Option             | Type                  | Description                           |
-| ------------------ | --------------------- | ------------------------------------- |
-| `headingSpacing`   | `number`              | Space before/after headings           |
-| `paragraphSpacing` | `number`              | Space before/after paragraphs         |
-| `lineSpacing`      | `number`              | Line spacing multiplier (e.g. `1.15`) |
-| `tableLayout`      | `"autofit" | "fixed"` | Table layout algorithm                |
-
-
+| Option             | Type       | Description                           |
+| ------------------ | ---------- | ------------------------------------- |
+| `headingSpacing`   | `number`   | Space before/after headings           |
+| `paragraphSpacing` | `number`   | Space before/after paragraphs         |
+| `lineSpacing`      | `number`   | Line spacing multiplier (e.g. `1.15`) |
+| `tableLayout`      | `"autofit" | "fixed"`                              |
 
 
 Alignment & direction
 
 
-| Option                                    | Type                                        | Description                    |
-| ----------------------------------------- | ------------------------------------------- | ------------------------------ |
-| `paragraphAlignment`                      | `"LEFT" | "RIGHT" | "CENTER" | "JUSTIFIED"` | Paragraphs                     |
-| `blockquoteAlignment`                     | `"LEFT" | "RIGHT" | "CENTER" | "JUSTIFIED"` | Blockquotes                    |
-| `headingAlignment`                        | `"LEFT" | "RIGHT" | "CENTER" | "JUSTIFIED"` | Fallback for any heading level |
-| `heading1Alignment` … `heading5Alignment` | Same                                        | Overrides per level            |
-| `direction`                               | `"LTR" | "RTL"`                             | Bidirectional flow             |
-
-
+| Option                                    | Type    | Description         |
+| ----------------------------------------- | ------- | ------------------- |
+| `paragraphAlignment`                      | `"LEFT" | "RIGHT"             |
+| `blockquoteAlignment`                     | `"LEFT" | "RIGHT"             |
+| `headingAlignment`                        | `"LEFT" | "RIGHT"             |
+| `heading1Alignment` … `heading5Alignment` | Same    | Overrides per level |
+| `direction`                               | `"LTR"  | "RTL"`              |
 
 
 #### `DocumentSection` (for `template` and each entry in `sections`)
 
 
-| Field           | Type                                                    | Description                                                                                  |
-| --------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `markdown`      | `string`                                                | Section-local markdown (required on entries in `sections`).                                  |
-| `style`         | `Style`                                                 | Section-local style overrides.                                                               |
-| `headers`       | `{ default?, first?, even? }`                           | Header slots. Each can be `null` to disable, or `{ text?, alignment?, pageNumberDisplay? }`. |
-| `footers`       | Same as `headers`                                       | Footer slots.                                                                                |
-| `pageNumbering` | See below                                               | Section-local numbering and reset behavior.                                                  |
-| `page`          | `{ margin?, size? }`                                    | Section page geometry (margins, size, `orientation: "PORTRAIT" | "LANDSCAPE"`).              |
-| `titlePage`     | `boolean`                                               | Enables first-page header/footer behavior.                                                   |
-| `type`          | `"NEXT_PAGE" | "CONTINUOUS" | "ODD_PAGE" | "EVEN_PAGE"` | Section break type.                                                                          |
+| Field           | Type                          | Description                                                                                  |
+| --------------- | ----------------------------- | -------------------------------------------------------------------------------------------- |
+| `markdown`      | `string`                      | Section-local markdown (required on entries in `sections`).                                  |
+| `style`         | `Style`                       | Section-local style overrides.                                                               |
+| `headers`       | `{ default?, first?, even? }` | Header slots. Each can be `null` to disable, or `{ text?, alignment?, pageNumberDisplay? }`. |
+| `footers`       | Same as `headers`             | Footer slots.                                                                                |
+| `pageNumbering` | See below                     | Section-local numbering and reset behavior.                                                  |
+| `page`          | `{ margin?, size? }`          | Section page geometry (margins, size, `orientation: "PORTRAIT"                               |
+| `titlePage`     | `boolean`                     | Enables first-page header/footer behavior.                                                   |
+| `type`          | `"NEXT_PAGE"                  | "CONTINUOUS"                                                                                 |
 
 
 `**pageNumbering`:**
 
 
-| Field        | Type                                                                      |
-| ------------ | ------------------------------------------------------------------------- |
-| `display`    | `"none" | "current" | "currentAndTotal" | "currentAndSectionTotal"`       |
-| `alignment`  | `"LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED"`                               |
-| `start`      | `number` (≥ 1)                                                            |
-| `formatType` | `"decimal" | "upperRoman" | "lowerRoman" | "upperLetter" | "lowerLetter"` |
-| `separator`  | `"hyphen" | "period" | "colon" | "emDash" | "endash"`                     |
+| Field        | Type           |
+| ------------ | -------------- |
+| `display`    | `"none"        |
+| `alignment`  | `"LEFT"        |
+| `start`      | `number` (≥ 1) |
+| `formatType` | `"decimal"     |
+| `separator`  | `"hyphen"      |
 
 
 #### `CodeHighlightOptions`
@@ -467,10 +461,10 @@ Alignment & direction
 #### `TextReplacement`
 
 
-| Field     | Type                                                                                    |
-| --------- | --------------------------------------------------------------------------------------- |
-| `find`    | `string | RegExp`                                                                       |
-| `replace` | `string | ((match: string, ...groups: string[]) => string | mdast.Node | mdast.Node[])` |
+| Field     | Type    |
+| --------- | ------- |
+| `find`    | `string |
+| `replace` | `string |
 
 
 ### Errors

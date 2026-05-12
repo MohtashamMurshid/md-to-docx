@@ -13,7 +13,10 @@ import { processTable } from "./renderers/tableRenderer.js";
 import { processCodeBlock } from "./renderers/codeRenderer.js";
 import { processBlockquote } from "./renderers/blockquoteRenderer.js";
 import { processComment } from "./renderers/commentRenderer.js";
-import { processImage } from "./renderers/imageRenderer.js";
+import {
+  processImage,
+  resolveImageHandlingOptions,
+} from "./renderers/imageRenderer.js";
 import { processParagraph } from "./renderers/paragraphRenderer.js";
 import {
   processFormattedText,
@@ -39,6 +42,8 @@ export async function modelToDocx(
   const headings: { text: string; level: number; bookmarkId: string }[] = [];
   const documentType = options.documentType || "document";
   const sequenceIdOffset = renderOptions.sequenceIdOffset || 0;
+  const imageHandling = resolveImageHandlingOptions(options.imageHandling);
+  let processedImageCount = 0;
 
   // Track numbering sequences for nested lists
   let maxSequenceId = 0;
@@ -271,10 +276,18 @@ export async function modelToDocx(
     if (node.type === "image") {
       // Handle images asynchronously
       try {
-        const imageParagraphs = await processImage(node.alt, node.url, style);
+        processedImageCount++;
+        if (processedImageCount > imageHandling.maxImages) {
+          throw new Error("Document exceeds maximum image count");
+        }
+        const imageParagraphs = await processImage(
+          node.alt,
+          node.url,
+          style,
+          imageHandling
+        );
         children.push(...imageParagraphs);
-      } catch (error) {
-        console.error(`Error processing image: ${error}`);
+      } catch {
         children.push(
           new Paragraph({
             children: [
@@ -299,4 +312,3 @@ export async function modelToDocx(
 
   return { children, headings, maxSequenceId };
 }
-

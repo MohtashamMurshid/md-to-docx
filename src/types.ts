@@ -212,6 +212,55 @@ export interface Options {
    * emit colored runs in the DOCX output. Disabled by default.
    */
   codeHighlighting?: CodeHighlightOptions;
+  /**
+   * Controls image loading and embedding. Remote images are disabled by
+   * default so server-side conversion of untrusted markdown cannot be used
+   * to fetch internal network resources.
+   */
+  imageHandling?: ImageHandlingOptions;
+}
+
+export interface RemoteImageHandlingOptions {
+  /**
+   * Allow fetching remote images. Defaults to false.
+   */
+  enabled?: boolean;
+  /**
+   * Optional exact host allowlist. Host names are compared case-insensitively.
+   */
+  allowedHosts?: string[];
+}
+
+export interface DataUrlImageHandlingOptions {
+  /**
+   * Allow embedded data URL images. Defaults to true.
+   */
+  enabled?: boolean;
+}
+
+export interface ImageHandlingOptions {
+  remote?: RemoteImageHandlingOptions;
+  dataUrls?: DataUrlImageHandlingOptions;
+  /**
+   * Maximum number of image nodes to process in one document. Defaults to 50.
+   */
+  maxImages?: number;
+  /**
+   * Maximum decoded/fetched image size in bytes. Defaults to 5 MiB.
+   */
+  maxImageBytes?: number;
+  /**
+   * Timeout for each remote image fetch in milliseconds. Defaults to 10000.
+   */
+  fetchTimeoutMs?: number;
+  /**
+   * Maximum number of remote redirects to follow. Defaults to 3.
+   */
+  maxRedirects?: number;
+  /**
+   * Maximum remote image URL length. Defaults to 2048.
+   */
+  maxUrlLength?: number;
 }
 
 /**
@@ -305,4 +354,3 @@ export interface TextReplacement {
   find: string | RegExp;
   replace: string | ((match: string, ...args: any[]) => string | any);
 }
-

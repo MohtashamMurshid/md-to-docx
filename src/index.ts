@@ -51,10 +51,13 @@ const defaultOptions: Options = {
 export {
   CodeHighlightOptions,
   CodeHighlightTheme,
+  DataUrlImageHandlingOptions,
   DocumentSection,
   HeaderFooterContent,
   HeaderFooterGroup,
+  ImageHandlingOptions,
   Options,
+  RemoteImageHandlingOptions,
   SectionConfig,
   SectionTemplate,
   Style,
@@ -541,6 +544,7 @@ function validateInput(markdown: string, options: Options): void {
   }
 
   validateStyleInput(normalizeStyleInput(options.style), "options.style");
+  validateImageHandlingInput(options.imageHandling);
 
   const normalizedTemplate = normalizeSectionConfig(options.template);
   if (normalizedTemplate) {
@@ -565,6 +569,63 @@ function validateInput(markdown: string, options: Options): void {
       const normalizedSection = normalizeSectionConfig(section) as DocumentSection;
       validateSectionConfigInput(normalizedSection, `options.sections[${index}]`);
     });
+  }
+}
+
+function validatePositiveIntegerOption(
+  value: number | undefined,
+  name: string
+): void {
+  if (
+    value !== undefined &&
+    (!Number.isInteger(value) || !Number.isFinite(value) || value <= 0)
+  ) {
+    throw new MarkdownConversionError(`${name} must be a positive integer`, {
+      value,
+    });
+  }
+}
+
+function validateNonNegativeIntegerOption(
+  value: number | undefined,
+  name: string
+): void {
+  if (
+    value !== undefined &&
+    (!Number.isInteger(value) || !Number.isFinite(value) || value < 0)
+  ) {
+    throw new MarkdownConversionError(
+      `${name} must be a non-negative integer`,
+      {
+        value,
+      }
+    );
+  }
+}
+
+function validateImageHandlingInput(
+  imageHandling: Options["imageHandling"]
+): void {
+  if (!imageHandling) {
+    return;
+  }
+
+  validatePositiveIntegerOption(imageHandling.maxImages, "maxImages");
+  validatePositiveIntegerOption(imageHandling.maxImageBytes, "maxImageBytes");
+  validatePositiveIntegerOption(imageHandling.fetchTimeoutMs, "fetchTimeoutMs");
+  validateNonNegativeIntegerOption(imageHandling.maxRedirects, "maxRedirects");
+  validatePositiveIntegerOption(imageHandling.maxUrlLength, "maxUrlLength");
+
+  if (
+    imageHandling.remote?.allowedHosts !== undefined &&
+    (!Array.isArray(imageHandling.remote.allowedHosts) ||
+      imageHandling.remote.allowedHosts.some(
+        (host) => typeof host !== "string" || host.trim().length === 0
+      ))
+  ) {
+    throw new MarkdownConversionError(
+      "Invalid imageHandling.remote.allowedHosts: must be non-empty strings"
+    );
   }
 }
 

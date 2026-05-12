@@ -1,6 +1,60 @@
 import { Paragraph, TextRun, AlignmentType, ImageRun } from "docx";
-import { Style } from "../types.js";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
+import { ImageHandlingOptions, Style } from "../types.js";
 import { resolveFontFamily } from "../utils/styleUtils.js";
+
+export interface ResolvedImageHandlingOptions {
+  remote: {
+    enabled: boolean;
+    allowedHosts?: string[];
+  };
+  dataUrls: {
+    enabled: boolean;
+  };
+  maxImages: number;
+  maxImageBytes: number;
+  fetchTimeoutMs: number;
+  maxRedirects: number;
+  maxUrlLength: number;
+}
+
+export const DEFAULT_IMAGE_HANDLING: ResolvedImageHandlingOptions = {
+  remote: {
+    enabled: false,
+  },
+  dataUrls: {
+    enabled: true,
+  },
+  maxImages: 50,
+  maxImageBytes: 5 * 1024 * 1024,
+  fetchTimeoutMs: 10_000,
+  maxRedirects: 3,
+  maxUrlLength: 2048,
+};
+
+export function resolveImageHandlingOptions(
+  options?: ImageHandlingOptions
+): ResolvedImageHandlingOptions {
+  return {
+    remote: {
+      enabled: options?.remote?.enabled === true,
+      allowedHosts: options?.remote?.allowedHosts?.map((host) =>
+        host.trim().toLowerCase()
+      ),
+    },
+    dataUrls: {
+      enabled: options?.dataUrls?.enabled !== false,
+    },
+    maxImages: options?.maxImages ?? DEFAULT_IMAGE_HANDLING.maxImages,
+    maxImageBytes:
+      options?.maxImageBytes ?? DEFAULT_IMAGE_HANDLING.maxImageBytes,
+    fetchTimeoutMs:
+      options?.fetchTimeoutMs ?? DEFAULT_IMAGE_HANDLING.fetchTimeoutMs,
+    maxRedirects: options?.maxRedirects ?? DEFAULT_IMAGE_HANDLING.maxRedirects,
+    maxUrlLength: options?.maxUrlLength ?? DEFAULT_IMAGE_HANDLING.maxUrlLength,
+  };
+}
 
 /**
  * Computes output image dimensions preserving aspect ratio.
@@ -92,6 +146,236 @@ function readIntrinsicDimensions(
   return { width, height };
 }
 
+function isPrivateIPv4(address: string): boolean {
+  const parts = address.split(".").map((part) => Number(part));
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part))) {
+    return true;
+  }
+  const [a, b] = parts;
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 198 && (b === 18 || b === 19)) ||
+    a >= 224
+  );
+}
+
+function isPrivateIPv6(address: string): boolean {
+  const normalized = address.toLowerCase();
+  return (
+    normalized === "::" ||
+    normalized === "::1" ||
+    normalized.startsWith("::ffff:127.") ||
+    normalized.startsWith("::ffff:10.") ||
+    normalized.startsWith("fe80:") ||
+    normalized.startsWith("fc") ||
+    normalized.startsWith("fd") ||
+    normalized.startsWith("ff")
+  );
+}
+
+function isBlockedIpAddress(address: string): boolean {
+  const family = isIP(address);
+  if (family === 4) {
+    return isPrivateIPv4(address);
+  }
+  if (family === 6) {
+    return isPrivateIPv6(address);
+  }
+  return true;
+}
+
+async function assertRemoteUrlAllowed(
+  url: URL,
+  options: ResolvedImageHandlingOptions
+): Promise<void> {
+  if (!options.remote.enabled) {
+    throw new Error("Remote image fetching is disabled");
+  }
+  if (url.protocol !== "https:") {
+    throw new Error("Remote image URLs must use https");
+  }
+  if (url.href.length > options.maxUrlLength) {
+    throw new Error("Remote image URL exceeds maximum length");
+  }
+
+  const allowedHosts = options.remote.allowedHosts;
+  if (allowedHosts && allowedHosts.length > 0) {
+    const hostname = url.hostname.toLowerCase();
+    if (!allowedHosts.includes(hostname)) {
+      throw new Error("Remote image host is not allowed");
+    }
+  }
+
+  const literalFamily = isIP(url.hostname);
+  const addresses =
+    literalFamily === 0
+      ? await lookup(url.hostname, { all: true, verbatim: true })
+      : [{ address: url.hostname, family: literalFamily }];
+
+  if (addresses.length === 0) {
+    throw new Error("Remote image host did not resolve");
+  }
+
+  if (addresses.some((entry) => isBlockedIpAddress(entry.address))) {
+    throw new Error("Remote image host resolves to a blocked network address");
+  }
+}
+
+function parseContentLength(value: string | null): number | undefined {
+  if (!value || !/^\d+$/.test(value)) {
+    return undefined;
+  }
+  return Number(value);
+}
+
+async function readResponseBytes(
+  response: Response,
+  maxImageBytes: number
+): Promise<Uint8Array> {
+  const contentLength = parseContentLength(response.headers.get("content-length"));
+  if (contentLength !== undefined && contentLength > maxImageBytes) {
+    throw new Error("Remote image exceeds maximum size");
+  }
+
+  if (!response.body) {
+    const arrayBuffer = await response.arrayBuffer();
+    if (arrayBuffer.byteLength > maxImageBytes) {
+      throw new Error("Remote image exceeds maximum size");
+    }
+    return new Uint8Array(arrayBuffer);
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    if (!value) {
+      continue;
+    }
+    total += value.byteLength;
+    if (total > maxImageBytes) {
+      throw new Error("Remote image exceeds maximum size");
+    }
+    chunks.push(value);
+  }
+
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
+function detectImageType(
+  bytes: Uint8Array,
+  contentType: string,
+  imageUrl: string
+): "png" | "jpg" | "gif" {
+  const isPng =
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a;
+  const isJpg =
+    bytes.length >= 3 &&
+    bytes[0] === 0xff &&
+    bytes[1] === 0xd8 &&
+    bytes[2] === 0xff;
+  const isGif =
+    bytes.length >= 6 &&
+    ((bytes[0] === 0x47 &&
+      bytes[1] === 0x49 &&
+      bytes[2] === 0x46 &&
+      bytes[3] === 0x38 &&
+      bytes[4] === 0x37 &&
+      bytes[5] === 0x61) ||
+      (bytes[0] === 0x47 &&
+        bytes[1] === 0x49 &&
+        bytes[2] === 0x46 &&
+        bytes[3] === 0x38 &&
+        bytes[4] === 0x39 &&
+        bytes[5] === 0x61));
+
+  if (isPng) return "png";
+  if (isJpg) return "jpg";
+  if (isGif) return "gif";
+
+  throw new Error(
+    `Unsupported or invalid image data (${contentType || imageUrl})`
+  );
+}
+
+async function fetchRemoteImage(
+  initialUrl: string,
+  options: ResolvedImageHandlingOptions
+): Promise<{ bytes: Uint8Array; contentType: string; finalUrl: string }> {
+  let currentUrl = new URL(initialUrl);
+  let redirects = 0;
+
+  while (true) {
+    await assertRemoteUrlAllowed(currentUrl, options);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      options.fetchTimeoutMs
+    );
+    let response: Response;
+    try {
+      response = await fetch(currentUrl.href, {
+        redirect: "manual",
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (
+      response.status >= 300 &&
+      response.status < 400 &&
+      response.headers.has("location")
+    ) {
+      if (redirects >= options.maxRedirects) {
+        throw new Error("Remote image exceeded redirect limit");
+      }
+      const location = response.headers.get("location");
+      currentUrl = new URL(location!, currentUrl);
+      redirects++;
+      continue;
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch image: ${response.status} ${response.statusText}`
+      );
+    }
+
+    const bytes = await readResponseBytes(response, options.maxImageBytes);
+    return {
+      bytes,
+      contentType: response.headers.get("content-type") || "",
+      finalUrl: currentUrl.href,
+    };
+  }
+}
+
 /**
  * Processes an image and returns appropriate paragraph
  * @param altText - The alt text
@@ -102,9 +386,11 @@ function readIntrinsicDimensions(
 export async function processImage(
   altText: string,
   imageUrl: string,
-  style: Style
+  style: Style,
+  imageHandling?: ImageHandlingOptions
 ): Promise<Paragraph[]> {
   try {
+    const resolvedImageHandling = resolveImageHandlingOptions(imageHandling);
     let widthHint: number | undefined;
     let heightHint: number | undefined;
     let urlWithoutFragment = imageUrl;
@@ -129,8 +415,12 @@ export async function processImage(
 
     let data: Uint8Array | Buffer;
     let contentType = "";
+    let urlForTypeDetection = imageUrl;
 
     if (/^data:/i.test(urlWithoutFragment)) {
+      if (!resolvedImageHandling.dataUrls.enabled) {
+        throw new Error("Data URL images are disabled");
+      }
       const match = urlWithoutFragment.match(/^data:([^;,]*)(;base64)?,(.*)$/i);
       if (!match) {
         throw new Error(`Invalid data URL for image: ${urlWithoutFragment.substring(0, 100)}...`);
@@ -138,6 +428,12 @@ export async function processImage(
       contentType = match[1] || "";
       const isBase64 = !!match[2];
       const dataPart = match[3];
+      const estimatedBytes = isBase64
+        ? Math.floor((dataPart.replace(/\s/g, "").length * 3) / 4)
+        : decodeURIComponent(dataPart).length;
+      if (estimatedBytes > resolvedImageHandling.maxImageBytes) {
+        throw new Error("Data URL image exceeds maximum size");
+      }
 
       try {
         const binary = isBase64
@@ -152,38 +448,23 @@ export async function processImage(
         if (!data || data.length === 0) {
           throw new Error("Data URL produced empty image data");
         }
+        if (data.length > resolvedImageHandling.maxImageBytes) {
+          throw new Error("Data URL image exceeds maximum size");
+        }
       } catch (error) {
         throw new Error(`Failed to decode data URL: ${error instanceof Error ? error.message : String(error)}`);
       }
     } else {
-      const response = await fetch(urlWithoutFragment);
-
-      if (!response.ok) {
-        throw new Error(
-          `Failed to fetch image: ${response.status} ${response.statusText}`
-        );
-      }
-
-      const arrayBuffer = await response.arrayBuffer();
+      const remoteImage = await fetchRemoteImage(
+        urlWithoutFragment,
+        resolvedImageHandling
+      );
       data =
         typeof Buffer !== "undefined"
-          ? Buffer.from(arrayBuffer)
-          : new Uint8Array(arrayBuffer);
-
-      contentType = response.headers.get("content-type") || "";
-    }
-
-    let imageType: "png" | "jpg" | "gif" = "png";
-    const urlForTypeDetection = imageUrl;
-
-    if (/jpeg|jpg/i.test(contentType) || /\.(jpe?g)(\?|#|$)/i.test(urlForTypeDetection)) {
-      imageType = "jpg";
-    } else if (/png/i.test(contentType) || /\.(png)(\?|#|$)/i.test(urlForTypeDetection)) {
-      imageType = "png";
-    } else if (/gif/i.test(contentType) || /\.(gif)(\?|#|$)/i.test(urlForTypeDetection)) {
-      imageType = "gif";
-    } else {
-      imageType = "png";
+          ? Buffer.from(remoteImage.bytes)
+          : remoteImage.bytes;
+      contentType = remoteImage.contentType;
+      urlForTypeDetection = remoteImage.finalUrl;
     }
 
     if (!data || data.length === 0) {
@@ -191,6 +472,7 @@ export async function processImage(
     }
 
     const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+    const imageType = detectImageType(bytes, contentType, urlForTypeDetection);
     const { width: intrinsicWidth, height: intrinsicHeight } = readIntrinsicDimensions(
       imageType,
       bytes
@@ -232,13 +514,7 @@ export async function processImage(
         },
       }),
     ];
-  } catch (error) {
-    console.error("Error in processImage:", error);
-    console.error(
-      "Error stack:",
-      error instanceof Error ? error.stack : "No stack available"
-    );
-
+  } catch {
     return [
       new Paragraph({
         children: [

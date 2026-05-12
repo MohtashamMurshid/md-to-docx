@@ -1,3 +1,18 @@
+## [2.11.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.10.2...v2.11.0) (2026-05-12)
+
+### Features
+
+* **imageHandling:** treat maxImages as successful embed cap only ([bc7caee](https://github.com/MohtashamMurshid/md-to-docx/commit/bc7caee274f07b1588602d861557e5672335b5f8))
+
+### Bug Fixes
+
+* address image and workflow review comments ([7ef440b](https://github.com/MohtashamMurshid/md-to-docx/commit/7ef440b98615a44333bbfd3923e32e4972e929cd))
+* broaden IPv4-mapped IPv6 blocking and mute CodeRabbit docstring gate ([e5a98ab](https://github.com/MohtashamMurshid/md-to-docx/commit/e5a98ab423af893b98ee1f6c6b005286e842f178))
+* **ci:** polyfill global File for Jest on Node 18 ([c58ba46](https://github.com/MohtashamMurshid/md-to-docx/commit/c58ba46a198393f86064f991eaceeac3f47477f6))
+* finish PR review items for image SSRF timeout and tests ([f24c6f2](https://github.com/MohtashamMurshid/md-to-docx/commit/f24c6f2f10193732efd7955eee34f8b098889449))
+* harden image fetching and workflow actions ([8d28121](https://github.com/MohtashamMurshid/md-to-docx/commit/8d28121032916c78800c6fce689d08dbf003094b))
+* **images:** pin HTTPS connections and harden redirect/stream handling ([b2ba489](https://github.com/MohtashamMurshid/md-to-docx/commit/b2ba489c09f17a2435a1a4d92aaf38f84f9dccf3))
+
 ## [2.10.2](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.10.1...v2.10.2) (2026-04-29)
 
 ### Bug Fixes

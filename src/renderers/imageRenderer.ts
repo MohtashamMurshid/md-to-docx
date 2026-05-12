@@ -167,11 +167,14 @@ function isPrivateIPv4(address: string): boolean {
 
 function isPrivateIPv6(address: string): boolean {
   const normalized = address.toLowerCase();
+  const mappedV4 = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (mappedV4) {
+    return isPrivateIPv4(mappedV4[1]);
+  }
+
   return (
     normalized === "::" ||
     normalized === "::1" ||
-    normalized.startsWith("::ffff:127.") ||
-    normalized.startsWith("::ffff:10.") ||
     normalized.startsWith("fe80:") ||
     normalized.startsWith("fc") ||
     normalized.startsWith("fd") ||

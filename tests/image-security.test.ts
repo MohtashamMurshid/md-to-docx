@@ -52,6 +52,16 @@ describe("Image security", () => {
     expect(xml).toContain("Image could not be displayed");
   });
 
+  it("rejects IPv4-mapped IPv6 private addresses before fetch", async () => {
+    const fetchSpy = jest.spyOn(globalThis, "fetch");
+    const xml = await render("![remote](https://[::ffff:192.168.1.10]/image.png)", {
+      imageHandling: { remote: { enabled: true } },
+    });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(xml).toContain("Image could not be displayed");
+  });
+
   it("rejects oversized data URLs before embedding", async () => {
     const oversizedPayload = "A".repeat(128);
     const xml = await render(

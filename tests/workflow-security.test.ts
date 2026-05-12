@@ -11,7 +11,9 @@ describe("Workflow security", () => {
 
     for (const workflow of workflows) {
       const contents = fs.readFileSync(path.join(workflowDir, workflow), "utf8");
-      expect(contents).not.toMatch(/uses:\s*actions\/[^@\s]+@v\d+\b/);
+      expect(contents).not.toMatch(
+        /^\s*uses:\s*(?!docker:\/\/)[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+@v\d+\b/m
+      );
     }
   });
 });

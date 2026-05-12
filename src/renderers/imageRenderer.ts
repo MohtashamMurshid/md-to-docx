@@ -165,11 +165,48 @@ function isPrivateIPv4(address: string): boolean {
   );
 }
 
+function ipv6HextetsToIpv4(hiHex: string, loHex: string): string | undefined {
+  const hi = parseInt(hiHex, 16);
+  const lo = parseInt(loHex, 16);
+  if (
+    Number.isNaN(hi) ||
+    Number.isNaN(lo) ||
+    hi < 0 ||
+    hi > 65535 ||
+    lo < 0 ||
+    lo > 65535
+  ) {
+    return undefined;
+  }
+  return `${(hi >> 8) & 255}.${hi & 255}.${(lo >> 8) & 255}.${lo & 255}`;
+}
+
+/**
+ * True when `address` is IPv4-in-IPv6 (RFC 4291 §2.5.5.2): 80 zero bits + 16
+ * bits 0xffff + 32-bit IPv4 encoded as dotted decimal or final two hextets.
+ */
+function ipv4EmbeddedInIpv4MappedAddress(address: string): string | undefined {
+  const n = address.toLowerCase().split("%")[0];
+
+  const dotted = n.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (dotted) return dotted[1];
+
+  const hexTail = n.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (hexTail) return ipv6HextetsToIpv4(hexTail[1], hexTail[2]);
+
+  const hexLong = n.match(
+    /^(?:0:){5}ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/
+  );
+  if (hexLong) return ipv6HextetsToIpv4(hexLong[1], hexLong[2]);
+
+  return undefined;
+}
+
 function isPrivateIPv6(address: string): boolean {
-  const normalized = address.toLowerCase();
-  const mappedV4 = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  const normalized = address.toLowerCase().split("%")[0];
+  const mappedV4 = ipv4EmbeddedInIpv4MappedAddress(normalized);
   if (mappedV4) {
-    return isPrivateIPv4(mappedV4[1]);
+    return isPrivateIPv4(mappedV4);
   }
 
   return (

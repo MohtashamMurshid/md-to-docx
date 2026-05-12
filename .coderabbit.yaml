@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# Docs: https://docs.coderabbit.ai/pr-reviews/pre-merge-checks/
+#
+# This codebase documents the public surface in README / types; enforcing 80%
+# docstrings on internal helpers skews contributor load without improving safety.
+reviews:
+  pre_merge_checks:
+    docstrings:
+      mode: off

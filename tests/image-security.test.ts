@@ -74,6 +74,33 @@ describe("Image security", () => {
     expect(xml).toContain("Image could not be displayed");
   });
 
+  it("rejects hex IPv4-mapped IPv6 hostnames before fetch", async () => {
+    const fetchSpy = jest
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("unexpected fetch"));
+    const xml = await render("![remote](https://[::ffff:c0a8:010a]/image.png)", {
+      imageHandling: { remote: { enabled: true } },
+    });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(xml).toContain("Image could not be displayed");
+  });
+
+  it("rejects uncompressed IPv6-mapped private addresses before fetch", async () => {
+    const fetchSpy = jest
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("unexpected fetch"));
+    const xml = await render(
+      "![remote](https://[0:0:0:0:0:ffff:c0a8:010a]/image.png)",
+      {
+        imageHandling: { remote: { enabled: true } },
+      }
+    );
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(xml).toContain("Image could not be displayed");
+  });
+
   it("rejects oversized data URLs before embedding", async () => {
     const oversizedPayload = "A".repeat(128);
     const xml = await render(

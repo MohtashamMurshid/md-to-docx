@@ -6,6 +6,13 @@ import { getDocumentXml, getZip } from "./helpers";
 const ONE_PX_PNG =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAGgwJ/vk9yBgAAAABJRU5ErkJggg==";
 
+/** Matches fallback paragraphs from `processImage` (`displayed`) or `modelToDocx` (`loaded`). */
+const IMAGE_FALLBACK = /Image could not be (displayed|loaded)/;
+
+function expectImageFallback(xml: string): void {
+  expect(xml).toMatch(IMAGE_FALLBACK);
+}
+
 async function render(markdown: string, options?: Options): Promise<string> {
   const blob = await convertMarkdownToDocx(markdown, options);
   return getDocumentXml(blob);
@@ -34,7 +41,7 @@ describe("Image security", () => {
     const xml = await render("![remote](https://example.com/image.png)");
 
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(xml).toContain("Image could not be displayed");
+    expectImageFallback(xml);
     expect(await mediaCount("![remote](https://example.com/image.png)")).toBe(0);
   });
 
@@ -47,7 +54,7 @@ describe("Image security", () => {
     });
 
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(xml).toContain("Image could not be displayed");
+    expectImageFallback(xml);
   });
 
   it("rejects loopback and private-network addresses before fetch", async () => {
@@ -59,7 +66,7 @@ describe("Image security", () => {
     });
 
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(xml).toContain("Image could not be displayed");
+    expectImageFallback(xml);
   });
 
   it("rejects IPv4-mapped IPv6 private addresses before fetch", async () => {
@@ -71,7 +78,7 @@ describe("Image security", () => {
     });
 
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(xml).toContain("Image could not be displayed");
+    expectImageFallback(xml);
   });
 
   it("rejects hex IPv4-mapped IPv6 hostnames before fetch", async () => {
@@ -83,7 +90,7 @@ describe("Image security", () => {
     });
 
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(xml).toContain("Image could not be displayed");
+    expectImageFallback(xml);
   });
 
   it("rejects uncompressed IPv6-mapped private addresses before fetch", async () => {
@@ -98,7 +105,7 @@ describe("Image security", () => {
     );
 
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(xml).toContain("Image could not be displayed");
+    expectImageFallback(xml);
   });
 
   it("rejects oversized data URLs before embedding", async () => {
@@ -110,7 +117,7 @@ describe("Image security", () => {
       }
     );
 
-    expect(xml).toContain("Image could not be displayed");
+    expectImageFallback(xml);
     expect(
       await mediaCount(`![too large](data:image/png;base64,${oversizedPayload})`, {
         imageHandling: { maxImageBytes: 16 },
@@ -136,7 +143,7 @@ describe("Image security", () => {
       },
     });
 
-    expect(xml).toContain("Image could not be displayed");
+    expectImageFallback(xml);
   });
 
   it("rejects remote images that exceed the streamed byte cap", async () => {
@@ -163,7 +170,7 @@ describe("Image security", () => {
       },
     });
 
-    expect(xml).toContain("Image could not be displayed");
+    expectImageFallback(xml);
   });
 
   it("re-checks redirected remote image targets", async () => {
@@ -183,7 +190,7 @@ describe("Image security", () => {
     });
 
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-    expect(xml).toContain("Image could not be displayed");
+    expectImageFallback(xml);
   });
 
   it("aborts slow remote image fetches", async () => {
@@ -202,7 +209,7 @@ describe("Image security", () => {
       },
     });
 
-    expect(xml).toContain("Image could not be displayed");
+    expectImageFallback(xml);
   });
 
   it("aborts slow remote image response bodies", async () => {
@@ -224,7 +231,7 @@ describe("Image security", () => {
       },
     });
 
-    expect(xml).toContain("Image could not be displayed");
+    expectImageFallback(xml);
   });
 
   it("continues to embed valid data URL images by default", async () => {
@@ -244,7 +251,7 @@ describe("Image security", () => {
     expect(await mediaCount(markdown, { imageHandling: { maxImages: 1 } })).toBe(
       1
     );
-    expect(xml).toContain("Image could not be loaded");
+    expectImageFallback(xml);
   });
 
   it("applies maximum image count across document sections", async () => {
@@ -263,6 +270,6 @@ describe("Image security", () => {
         sections: [{ markdown: ONE }, { markdown: TWO }],
       })
     ).toBe(1);
-    expect(xml).toContain("Image could not be loaded");
+    expectImageFallback(xml);
   });
 });

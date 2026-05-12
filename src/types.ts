@@ -242,7 +242,9 @@ export interface ImageHandlingOptions {
   remote?: RemoteImageHandlingOptions;
   dataUrls?: DataUrlImageHandlingOptions;
   /**
-   * Maximum number of image nodes to process in one document. Defaults to 50.
+   * Maximum markdown image nodes handled per document (including failures).
+   * Each `![alt](src)` counts toward this limit even when embedding fails,
+   * so conversion cost stays bounded. Defaults to 50.
    */
   maxImages?: number;
   /**

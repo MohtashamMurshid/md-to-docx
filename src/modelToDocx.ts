@@ -13,7 +13,10 @@ import { processTable } from "./renderers/tableRenderer.js";
 import { processCodeBlock } from "./renderers/codeRenderer.js";
 import { processBlockquote } from "./renderers/blockquoteRenderer.js";
 import { processComment } from "./renderers/commentRenderer.js";
-import { processImage } from "./renderers/imageRenderer.js";
+import {
+  processImage,
+  resolveImageHandlingOptions,
+} from "./renderers/imageRenderer.js";
 import { processParagraph } from "./renderers/paragraphRenderer.js";
 import {
   processFormattedText,
@@ -29,7 +32,11 @@ export async function modelToDocx(
   model: DocxDocumentModel,
   style: Style,
   options: Options,
-  renderOptions: { sequenceIdOffset?: number } = {}
+  renderOptions: {
+    sequenceIdOffset?: number;
+    /** When set by `parseToDocxOptions`, ties `maxImages` to the whole document across sections. */
+    processedImageCounter?: { count: number };
+  } = {}
 ): Promise<{
   children: (Paragraph | Table)[];
   headings: { text: string; level: number; bookmarkId: string }[];
@@ -39,6 +46,10 @@ export async function modelToDocx(
   const headings: { text: string; level: number; bookmarkId: string }[] = [];
   const documentType = options.documentType || "document";
   const sequenceIdOffset = renderOptions.sequenceIdOffset || 0;
+  const imageHandling = resolveImageHandlingOptions(options.imageHandling);
+  const processedImageCounter = renderOptions.processedImageCounter ?? {
+    count: 0,
+  };
 
   // Track numbering sequences for nested lists
   let maxSequenceId = 0;
@@ -134,8 +145,6 @@ export async function modelToDocx(
       }
 
       case "image": {
-        // processImage returns Promise<Paragraph[]>, so we need to handle it specially
-        // For now, return empty array and handle images separately
         return [];
       }
 
@@ -259,6 +268,20 @@ export async function modelToDocx(
     return paragraphs;
   }
 
+  function imageCouldNotLoadParagraph(alt: string): Paragraph {
+    return new Paragraph({
+      children: [
+        new TextRun({
+          text: `[Image could not be loaded: ${alt}]`,
+          italics: true,
+          color: "FF0000",
+        }),
+      ],
+      alignment: AlignmentType.CENTER,
+      bidirectional: style.direction === "RTL",
+    });
+  }
+
   // Process all top-level nodes
   let previousNodeType: string | undefined;
   for (const node of model.children) {
@@ -269,25 +292,23 @@ export async function modelToDocx(
     }
 
     if (node.type === "image") {
-      // Handle images asynchronously
       try {
-        const imageParagraphs = await processImage(node.alt, node.url, style);
-        children.push(...imageParagraphs);
-      } catch (error) {
-        console.error(`Error processing image: ${error}`);
-        children.push(
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: `[Image could not be loaded: ${node.alt}]`,
-                italics: true,
-                color: "FF0000",
-              }),
-            ],
-            alignment: AlignmentType.CENTER,
-            bidirectional: style.direction === "RTL",
-          })
-        );
+        if (processedImageCounter.count >= imageHandling.maxImages) {
+          children.push(imageCouldNotLoadParagraph(node.alt));
+        } else {
+          const { embedded, paragraphs } = await processImage(
+            node.alt,
+            node.url,
+            style,
+            imageHandling
+          );
+          children.push(...paragraphs);
+          if (embedded) {
+            processedImageCounter.count++;
+          }
+        }
+      } catch {
+        children.push(imageCouldNotLoadParagraph(node.alt));
       }
     } else {
       const rendered = renderBlockNode(node);
@@ -299,4 +320,3 @@ export async function modelToDocx(
 
   return { children, headings, maxSequenceId };
 }
-

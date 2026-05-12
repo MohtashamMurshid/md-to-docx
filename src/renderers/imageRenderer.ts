@@ -237,9 +237,43 @@ function parseContentLength(value: string | null): number | undefined {
   return Number(value);
 }
 
+/** Races `promise` with `signal`'s abort so slow body reads honour the fetch timeout. */
+async function abortablePromise<T>(
+  promise: Promise<T>,
+  signal?: AbortSignal
+): Promise<T> {
+  if (!signal) {
+    return promise;
+  }
+  if (signal.aborted) {
+    throw abortErrorFromSignal(signal);
+  }
+
+  let onAbort!: () => void;
+  const abortPromise = new Promise<never>((_, reject) => {
+    onAbort = () => reject(abortErrorFromSignal(signal));
+    signal.addEventListener("abort", onAbort);
+  });
+
+  try {
+    return await Promise.race([promise, abortPromise]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
+function abortErrorFromSignal(signal: AbortSignal): Error {
+  const reason = signal.reason;
+  if (reason instanceof Error) {
+    return reason;
+  }
+  return new DOMException("The operation was aborted", "AbortError");
+}
+
 async function readResponseBytes(
   response: Response,
-  maxImageBytes: number
+  maxImageBytes: number,
+  signal?: AbortSignal
 ): Promise<Uint8Array> {
   const contentLength = parseContentLength(response.headers.get("content-length"));
   if (contentLength !== undefined && contentLength > maxImageBytes) {
@@ -247,7 +281,7 @@ async function readResponseBytes(
   }
 
   if (!response.body) {
-    const arrayBuffer = await response.arrayBuffer();
+    const arrayBuffer = await abortablePromise(response.arrayBuffer(), signal);
     if (arrayBuffer.byteLength > maxImageBytes) {
       throw new Error("Remote image exceeds maximum size");
     }
@@ -258,7 +292,7 @@ async function readResponseBytes(
   const chunks: Uint8Array[] = [];
   let total = 0;
   while (true) {
-    const { done, value } = await reader.read();
+    const { done, value } = await abortablePromise(reader.read(), signal);
     if (done) {
       break;
     }
@@ -340,42 +374,46 @@ async function fetchRemoteImage(
       () => controller.abort(),
       options.fetchTimeoutMs
     );
-    let response: Response;
     try {
-      response = await fetch(currentUrl.href, {
+      const response = await fetch(currentUrl.href, {
         redirect: "manual",
         signal: controller.signal,
       });
+
+      if (
+        response.status >= 300 &&
+        response.status < 400 &&
+        response.headers.has("location")
+      ) {
+        clearTimeout(timeout);
+        if (redirects >= options.maxRedirects) {
+          throw new Error("Remote image exceeded redirect limit");
+        }
+        const location = response.headers.get("location");
+        currentUrl = new URL(location!, currentUrl);
+        redirects++;
+        continue;
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to fetch image: ${response.status} ${response.statusText}`
+        );
+      }
+
+      const bytes = await readResponseBytes(
+        response,
+        options.maxImageBytes,
+        controller.signal
+      );
+      return {
+        bytes,
+        contentType: response.headers.get("content-type") || "",
+        finalUrl: currentUrl.href,
+      };
     } finally {
       clearTimeout(timeout);
     }
-
-    if (
-      response.status >= 300 &&
-      response.status < 400 &&
-      response.headers.has("location")
-    ) {
-      if (redirects >= options.maxRedirects) {
-        throw new Error("Remote image exceeded redirect limit");
-      }
-      const location = response.headers.get("location");
-      currentUrl = new URL(location!, currentUrl);
-      redirects++;
-      continue;
-    }
-
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch image: ${response.status} ${response.statusText}`
-      );
-    }
-
-    const bytes = await readResponseBytes(response, options.maxImageBytes);
-    return {
-      bytes,
-      contentType: response.headers.get("content-type") || "",
-      finalUrl: currentUrl.href,
-    };
   }
 }
 

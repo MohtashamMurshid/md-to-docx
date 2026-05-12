@@ -32,7 +32,11 @@ export async function modelToDocx(
   model: DocxDocumentModel,
   style: Style,
   options: Options,
-  renderOptions: { sequenceIdOffset?: number } = {}
+  renderOptions: {
+    sequenceIdOffset?: number;
+    /** When set by `parseToDocxOptions`, ties `maxImages` to the whole document across sections. */
+    processedImageCounter?: { count: number };
+  } = {}
 ): Promise<{
   children: (Paragraph | Table)[];
   headings: { text: string; level: number; bookmarkId: string }[];
@@ -43,7 +47,9 @@ export async function modelToDocx(
   const documentType = options.documentType || "document";
   const sequenceIdOffset = renderOptions.sequenceIdOffset || 0;
   const imageHandling = resolveImageHandlingOptions(options.imageHandling);
-  let processedImageCount = 0;
+  const processedImageCounter = renderOptions.processedImageCounter ?? {
+    count: 0,
+  };
 
   // Track numbering sequences for nested lists
   let maxSequenceId = 0;
@@ -276,8 +282,8 @@ export async function modelToDocx(
     if (node.type === "image") {
       // Handle images asynchronously
       try {
-        processedImageCount++;
-        if (processedImageCount > imageHandling.maxImages) {
+        processedImageCounter.count++;
+        if (processedImageCounter.count > imageHandling.maxImages) {
           throw new Error("Document exceeds maximum image count");
         }
         const imageParagraphs = await processImage(

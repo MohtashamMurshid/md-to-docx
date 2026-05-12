@@ -250,7 +250,8 @@ export interface ImageHandlingOptions {
    */
   maxImageBytes?: number;
   /**
-   * Timeout for each remote image fetch in milliseconds. Defaults to 10000.
+   * Timeout for each remote image request, including reading the response body.
+   * Defaults to 10000.
    */
   fetchTimeoutMs?: number;
   /**

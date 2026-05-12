@@ -14,8 +14,12 @@ async function render(markdown: string, options?: Options): Promise<string> {
 async function mediaCount(markdown: string, options?: Options): Promise<number> {
   const blob = await convertMarkdownToDocx(markdown, options);
   const zip = await getZip(blob);
-  return Object.keys(zip.files).filter((path) => path.startsWith("word/media/"))
-    .length;
+  return Object.keys(zip.files).filter(
+    (p) =>
+      p.startsWith("word/media/") &&
+      !zip.files[p].dir &&
+      !p.endsWith("/")
+  ).length;
 }
 
 afterEach(() => {
@@ -24,7 +28,9 @@ afterEach(() => {
 
 describe("Image security", () => {
   it("rejects remote images by default", async () => {
-    const fetchSpy = jest.spyOn(globalThis, "fetch");
+    const fetchSpy = jest
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("unexpected fetch"));
     const xml = await render("![remote](https://example.com/image.png)");
 
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -33,7 +39,9 @@ describe("Image security", () => {
   });
 
   it("rejects http URLs even when remote image fetching is enabled", async () => {
-    const fetchSpy = jest.spyOn(globalThis, "fetch");
+    const fetchSpy = jest
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("unexpected fetch"));
     const xml = await render("![remote](http://93.184.216.34/image.png)", {
       imageHandling: { remote: { enabled: true } },
     });
@@ -43,7 +51,9 @@ describe("Image security", () => {
   });
 
   it("rejects loopback and private-network addresses before fetch", async () => {
-    const fetchSpy = jest.spyOn(globalThis, "fetch");
+    const fetchSpy = jest
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("unexpected fetch"));
     const xml = await render("![remote](https://127.0.0.1/image.png)", {
       imageHandling: { remote: { enabled: true } },
     });
@@ -53,7 +63,9 @@ describe("Image security", () => {
   });
 
   it("rejects IPv4-mapped IPv6 private addresses before fetch", async () => {
-    const fetchSpy = jest.spyOn(globalThis, "fetch");
+    const fetchSpy = jest
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("unexpected fetch"));
     const xml = await render("![remote](https://[::ffff:192.168.1.10]/image.png)", {
       imageHandling: { remote: { enabled: true } },
     });
@@ -166,6 +178,28 @@ describe("Image security", () => {
     expect(xml).toContain("Image could not be displayed");
   });
 
+  it("aborts slow remote image response bodies", async () => {
+    jest.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start() {
+            /* never enqueue — reader.read() blocks until aborted */
+          },
+        }),
+        { status: 200, headers: { "content-type": "image/png" } }
+      ) as never
+    );
+
+    const xml = await render("![remote](https://93.184.216.34/image.png)", {
+      imageHandling: {
+        remote: { enabled: true },
+        fetchTimeoutMs: 80,
+      },
+    });
+
+    expect(xml).toContain("Image could not be displayed");
+  });
+
   it("continues to embed valid data URL images by default", async () => {
     const xml = await render(`![one px](${ONE_PX_PNG})`);
 
@@ -180,6 +214,28 @@ describe("Image security", () => {
 
     const xml = await render(markdown, { imageHandling: { maxImages: 1 } });
     expect(xml.match(/<w:drawing>/g)).toHaveLength(1);
+    expect(await mediaCount(markdown, { imageHandling: { maxImages: 1 } })).toBe(
+      1
+    );
+    expect(xml).toContain("Image could not be loaded");
+  });
+
+  it("applies maximum image count across document sections", async () => {
+    const ONE = `![one](${ONE_PX_PNG})`;
+    const TWO = `![two](${ONE_PX_PNG})`;
+
+    const xml = await render("", {
+      imageHandling: { maxImages: 1 },
+      sections: [{ markdown: ONE }, { markdown: TWO }],
+    });
+
+    expect(xml.match(/<w:drawing>/g)).toHaveLength(1);
+    expect(
+      await mediaCount("", {
+        imageHandling: { maxImages: 1 },
+        sections: [{ markdown: ONE }, { markdown: TWO }],
+      })
+    ).toBe(1);
     expect(xml).toContain("Image could not be loaded");
   });
 });

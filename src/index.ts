@@ -1094,6 +1094,7 @@ export async function parseToDocxOptions (
     }[] = [];
     const headings: TocHeadingEntry[] = [];
     let maxSequenceId = 0;
+    const processedImageCounter = { count: 0 };
 
     for (const section of resolvedSections) {
       const ast = await parseMarkdownToAst(section.markdown);
@@ -1105,6 +1106,7 @@ export async function parseToDocxOptions (
       const model = mdastToDocxModel(ast, section.style, options);
       const renderedModel = await modelToDocx(model, section.style, options, {
         sequenceIdOffset: maxSequenceId,
+        processedImageCounter,
       });
 
       maxSequenceId = Math.max(maxSequenceId, renderedModel.maxSequenceId);

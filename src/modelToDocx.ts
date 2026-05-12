@@ -145,8 +145,6 @@ export async function modelToDocx(
       }
 
       case "image": {
-        // processImage returns Promise<Paragraph[]>, so we need to handle it specially
-        // For now, return empty array and handle images separately
         return [];
       }
 
@@ -270,6 +268,20 @@ export async function modelToDocx(
     return paragraphs;
   }
 
+  function imageCouldNotLoadParagraph(alt: string): Paragraph {
+    return new Paragraph({
+      children: [
+        new TextRun({
+          text: `[Image could not be loaded: ${alt}]`,
+          italics: true,
+          color: "FF0000",
+        }),
+      ],
+      alignment: AlignmentType.CENTER,
+      bidirectional: style.direction === "RTL",
+    });
+  }
+
   // Process all top-level nodes
   let previousNodeType: string | undefined;
   for (const node of model.children) {
@@ -280,33 +292,23 @@ export async function modelToDocx(
     }
 
     if (node.type === "image") {
-      // Handle images asynchronously
       try {
-        processedImageCounter.count++;
-        if (processedImageCounter.count > imageHandling.maxImages) {
-          throw new Error("Document exceeds maximum image count");
+        if (processedImageCounter.count >= imageHandling.maxImages) {
+          children.push(imageCouldNotLoadParagraph(node.alt));
+        } else {
+          const { embedded, paragraphs } = await processImage(
+            node.alt,
+            node.url,
+            style,
+            imageHandling
+          );
+          children.push(...paragraphs);
+          if (embedded) {
+            processedImageCounter.count++;
+          }
         }
-        const imageParagraphs = await processImage(
-          node.alt,
-          node.url,
-          style,
-          imageHandling
-        );
-        children.push(...imageParagraphs);
       } catch {
-        children.push(
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: `[Image could not be loaded: ${node.alt}]`,
-                italics: true,
-                color: "FF0000",
-              }),
-            ],
-            alignment: AlignmentType.CENTER,
-            bidirectional: style.direction === "RTL",
-          })
-        );
+        children.push(imageCouldNotLoadParagraph(node.alt));
       }
     } else {
       const rendered = renderBlockNode(node);

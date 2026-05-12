@@ -234,6 +234,26 @@ describe("Image security", () => {
     expectImageFallback(xml);
   });
 
+  it("does not count failed images toward maxImages", async () => {
+    const fetchSpy = jest
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("unexpected fetch"));
+
+    const markdown = `![blocked](https://127.0.0.1/a.png)
+
+![blocked](https://127.0.0.1/b.png)
+
+![ok](${ONE_PX_PNG})`;
+
+    const xml = await render(markdown, {
+      imageHandling: { remote: { enabled: true }, maxImages: 1 },
+    });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(xml.match(/<w:drawing>/g)).toHaveLength(1);
+    expect(xml.match(/Image could not be displayed/g)).toHaveLength(2);
+  });
+
   it("continues to embed valid data URL images by default", async () => {
     const xml = await render(`![one px](${ONE_PX_PNG})`);
 

@@ -242,9 +242,9 @@ export interface ImageHandlingOptions {
   remote?: RemoteImageHandlingOptions;
   dataUrls?: DataUrlImageHandlingOptions;
   /**
-   * Maximum markdown image nodes handled per document (including failures).
-   * Each `![alt](src)` counts toward this limit even when embedding fails,
-   * so conversion cost stays bounded. Defaults to 50.
+   * Maximum raster images successfully embedded per document. Failed images do
+   * not consume this budget; once the limit is reached, further images render
+   * as placeholders without fetching or decoding. Defaults to 50.
    */
   maxImages?: number;
   /**

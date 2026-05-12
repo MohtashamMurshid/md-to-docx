@@ -454,19 +454,21 @@ async function fetchRemoteImage(
   }
 }
 
+export interface ProcessImageResult {
+  /** True when an image run was embedded in the document output. */
+  embedded: boolean;
+  paragraphs: Paragraph[];
+}
+
 /**
- * Processes an image and returns appropriate paragraph
- * @param altText - The alt text
- * @param imageUrl - The image URL
- * @param style - The style configuration
- * @returns The processed paragraph
+ * Processes an image and returns paragraphs plus whether a raster was embedded.
  */
 export async function processImage(
   altText: string,
   imageUrl: string,
   style: Style,
   imageHandling?: ImageHandlingOptions
-): Promise<Paragraph[]> {
+): Promise<ProcessImageResult> {
   try {
     const resolvedImageHandling = resolveImageHandlingOptions(imageHandling);
     let widthHint: number | undefined;
@@ -573,38 +575,44 @@ export async function processImage(
     // Fallback height if neither hints nor intrinsic dimensions provided one
     const finalHeight = outHeight || (outWidth ? Math.round(outWidth * 0.75) : 200);
 
-    return [
-      new Paragraph({
-        children: [
-          new ImageRun({
-            data: imageData,
-            transformation: {
-              width: outWidth,
-              height: finalHeight,
-            },
-            type: imageType,
-          }),
-        ],
-        alignment: AlignmentType.CENTER,
-        spacing: {
-          before: style.paragraphSpacing,
-          after: style.paragraphSpacing,
-        },
-      }),
-    ];
+    return {
+      embedded: true,
+      paragraphs: [
+        new Paragraph({
+          children: [
+            new ImageRun({
+              data: imageData,
+              transformation: {
+                width: outWidth,
+                height: finalHeight,
+              },
+              type: imageType,
+            }),
+          ],
+          alignment: AlignmentType.CENTER,
+          spacing: {
+            before: style.paragraphSpacing,
+            after: style.paragraphSpacing,
+          },
+        }),
+      ],
+    };
   } catch {
-    return [
-      new Paragraph({
-        children: [
-          new TextRun({
-            text: `[Image could not be displayed: ${altText}]`,
-            italics: true,
-            color: "FF0000",
-            font: resolveFontFamily(style),
-          }),
-        ],
-        alignment: AlignmentType.CENTER,
-      }),
-    ];
+    return {
+      embedded: false,
+      paragraphs: [
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: `[Image could not be displayed: ${altText}]`,
+              italics: true,
+              color: "FF0000",
+              font: resolveFontFamily(style),
+            }),
+          ],
+          alignment: AlignmentType.CENTER,
+        }),
+      ],
+    };
   }
 }

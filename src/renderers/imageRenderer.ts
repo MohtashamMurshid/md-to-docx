@@ -1,6 +1,7 @@
 import { Paragraph, TextRun, AlignmentType, ImageRun } from "docx";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import { Agent, buildConnector } from "undici";
 import { ImageHandlingOptions, Style } from "../types.js";
 import { resolveFontFamily } from "../utils/styleUtils.js";
 
@@ -230,10 +231,11 @@ function isBlockedIpAddress(address: string): boolean {
   return true;
 }
 
-async function assertRemoteUrlAllowed(
-  url: URL,
-  options: ResolvedImageHandlingOptions
-): Promise<void> {
+function usePinnedHttpsConnections(): boolean {
+  return typeof process !== "undefined" && process.versions?.node != null;
+}
+
+function enforceRemoteHttpsPolicy(url: URL, options: ResolvedImageHandlingOptions): void {
   if (!options.remote.enabled) {
     throw new Error("Remote image fetching is disabled");
   }
@@ -251,20 +253,104 @@ async function assertRemoteUrlAllowed(
       throw new Error("Remote image host is not allowed");
     }
   }
+}
 
-  const literalFamily = isIP(url.hostname);
-  const addresses =
-    literalFamily === 0
-      ? await lookup(url.hostname, { all: true, verbatim: true })
-      : [{ address: url.hostname, family: literalFamily }];
+async function lookupWithTimeout(
+  hostname: string,
+  timeoutMs: number
+): Promise<{ address: string; family: number }[]> {
+  const ms = Math.max(1, timeoutMs);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      lookup(hostname, { all: true, verbatim: true }),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error("DNS lookup timed out"));
+        }, ms);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
+}
 
+async function resolveVerifiedAddresses(
+  hostname: string,
+  dnsTimeoutMs: number
+): Promise<{ address: string; family: number }[]> {
+  const addresses = await lookupWithTimeout(hostname, dnsTimeoutMs);
   if (addresses.length === 0) {
     throw new Error("Remote image host did not resolve");
   }
-
   if (addresses.some((entry) => isBlockedIpAddress(entry.address))) {
     throw new Error("Remote image host resolves to a blocked network address");
   }
+  return addresses;
+}
+
+function buildPinnedHttpsAgent(
+  tlsServerName: string,
+  connectAddress: string,
+  port: number
+): Agent {
+  const connector = buildConnector({});
+  return new Agent({
+    connect(opts, callback) {
+      connector(
+        {
+          ...opts,
+          hostname: connectAddress,
+          host: connectAddress,
+          port: String(port),
+          protocol: "https:",
+          servername: tlsServerName,
+        },
+        callback
+      );
+    },
+  });
+}
+
+/**
+ * Validates policy + DNS/IP rules. On Node, returns an Undici Agent that pins TLS
+ * to the resolved address so fetch cannot reconnect via a second DNS lookup (rebinding).
+ * In browser-like runtimes without process.versions.node, returns undefined and callers use plain fetch after validation.
+ */
+async function preparePinnedAgentIfNeeded(
+  url: URL,
+  options: ResolvedImageHandlingOptions,
+  dnsTimeoutMs: number
+): Promise<Agent | undefined> {
+  enforceRemoteHttpsPolicy(url, options);
+
+  const literalFamily = isIP(url.hostname);
+  const port = Number(url.port) || 443;
+  const tlsServerName = url.hostname;
+
+  if (!usePinnedHttpsConnections()) {
+    if (literalFamily !== 0) {
+      if (isBlockedIpAddress(url.hostname)) {
+        throw new Error("Remote image host resolves to a blocked network address");
+      }
+      return undefined;
+    }
+    await resolveVerifiedAddresses(url.hostname, dnsTimeoutMs);
+    return undefined;
+  }
+
+  if (literalFamily !== 0) {
+    if (isBlockedIpAddress(url.hostname)) {
+      throw new Error("Remote image host resolves to a blocked network address");
+    }
+    return buildPinnedHttpsAgent(tlsServerName, url.hostname, port);
+  }
+
+  const addresses = await resolveVerifiedAddresses(url.hostname, dnsTimeoutMs);
+  const pick = addresses[0];
+  return buildPinnedHttpsAgent(tlsServerName, pick.address, port);
 }
 
 function parseContentLength(value: string | null): number | undefined {
@@ -307,6 +393,14 @@ function abortErrorFromSignal(signal: AbortSignal): Error {
   return new DOMException("The operation was aborted", "AbortError");
 }
 
+async function cancelReadableBody(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel?.();
+  } catch {
+    /* ignore */
+  }
+}
+
 async function readResponseBytes(
   response: Response,
   maxImageBytes: number,
@@ -326,30 +420,39 @@ async function readResponseBytes(
   }
 
   const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await abortablePromise(reader.read(), signal);
-    if (done) {
-      break;
+  try {
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    while (true) {
+      const { done, value } = await abortablePromise(reader.read(), signal);
+      if (done) {
+        break;
+      }
+      if (!value) {
+        continue;
+      }
+      total += value.byteLength;
+      if (total > maxImageBytes) {
+        throw new Error("Remote image exceeds maximum size");
+      }
+      chunks.push(value);
     }
-    if (!value) {
-      continue;
-    }
-    total += value.byteLength;
-    if (total > maxImageBytes) {
-      throw new Error("Remote image exceeds maximum size");
-    }
-    chunks.push(value);
-  }
 
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return bytes;
+  } catch (error) {
+    try {
+      await reader.cancel();
+    } catch {
+      /* ignore */
+    }
+    throw error;
   }
-  return bytes;
 }
 
 function detectImageType(
@@ -400,57 +503,102 @@ async function fetchRemoteImage(
   initialUrl: string,
   options: ResolvedImageHandlingOptions
 ): Promise<{ bytes: Uint8Array; contentType: string; finalUrl: string }> {
+  const totalBudgetMs = Math.max(1, options.fetchTimeoutMs);
+  const deadline = Date.now() + totalBudgetMs;
   let currentUrl = new URL(initialUrl);
   let redirects = 0;
+  let pinnedAgent: Agent | undefined;
 
-  while (true) {
-    await assertRemoteUrlAllowed(currentUrl, options);
-
-    const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      options.fetchTimeoutMs
-    );
-    try {
-      const response = await fetch(currentUrl.href, {
-        redirect: "manual",
-        signal: controller.signal,
-      });
-
-      if (
-        response.status >= 300 &&
-        response.status < 400 &&
-        response.headers.has("location")
-      ) {
-        clearTimeout(timeout);
-        if (redirects >= options.maxRedirects) {
-          throw new Error("Remote image exceeded redirect limit");
-        }
-        const location = response.headers.get("location");
-        currentUrl = new URL(location!, currentUrl);
-        redirects++;
-        continue;
-      }
-
-      if (!response.ok) {
-        throw new Error(
-          `Failed to fetch image: ${response.status} ${response.statusText}`
-        );
-      }
-
-      const bytes = await readResponseBytes(
-        response,
-        options.maxImageBytes,
-        controller.signal
-      );
-      return {
-        bytes,
-        contentType: response.headers.get("content-type") || "",
-        finalUrl: currentUrl.href,
-      };
-    } finally {
-      clearTimeout(timeout);
+  const closePinned = async (): Promise<void> => {
+    if (!pinnedAgent) {
+      return;
     }
+    try {
+      await pinnedAgent.close();
+    } catch {
+      /* ignore */
+    }
+    pinnedAgent = undefined;
+  };
+
+  try {
+    while (true) {
+      const remainMs = deadline - Date.now();
+      if (remainMs <= 0) {
+        throw new Error("Remote image fetch timed out");
+      }
+
+      const dnsBudgetMs = Math.min(
+        remainMs,
+        Math.max(50, Math.floor(remainMs / 4))
+      );
+
+      await closePinned();
+      pinnedAgent = await preparePinnedAgentIfNeeded(
+        currentUrl,
+        options,
+        dnsBudgetMs
+      );
+
+      const hopRemainMs = deadline - Date.now();
+      if (hopRemainMs <= 0) {
+        throw new Error("Remote image fetch timed out");
+      }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), hopRemainMs);
+
+      try {
+        const fetchInit: RequestInit & { dispatcher?: Agent } = {
+          redirect: "manual",
+          signal: controller.signal,
+          ...(pinnedAgent ? { dispatcher: pinnedAgent } : {}),
+        };
+
+        const response = await fetch(currentUrl.href, fetchInit);
+
+        if (
+          response.status >= 300 &&
+          response.status < 400 &&
+          response.headers.has("location")
+        ) {
+          clearTimeout(timeout);
+          await cancelReadableBody(response);
+
+          if (redirects >= options.maxRedirects) {
+            throw new Error("Remote image exceeded redirect limit");
+          }
+          const location = response.headers.get("location");
+          currentUrl = new URL(location!, currentUrl);
+          redirects++;
+          continue;
+        }
+
+        if (!response.ok) {
+          throw new Error(
+            `Failed to fetch image: ${response.status} ${response.statusText}`
+          );
+        }
+
+        const bytes = await readResponseBytes(
+          response,
+          options.maxImageBytes,
+          controller.signal
+        );
+
+        clearTimeout(timeout);
+
+        return {
+          bytes,
+          contentType: response.headers.get("content-type") || "",
+          finalUrl: currentUrl.href,
+        };
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+  } finally {
+    await closePinned();
   }
 }
 

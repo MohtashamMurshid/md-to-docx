@@ -193,6 +193,32 @@ describe("Image security", () => {
     expectImageFallback(xml);
   });
 
+  it("stops following redirects after maxRedirects", async () => {
+    let fetchCalls = 0;
+    jest.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+      fetchCalls += 1;
+      expect(init?.redirect).toBe("manual");
+      return Promise.resolve(
+        new Response("", {
+          status: 302,
+          headers: {
+            location: `https://93.184.216.34/step-${fetchCalls}.png`,
+          },
+        }) as never
+      );
+    });
+
+    const xml = await render("![remote](https://93.184.216.34/start.png)", {
+      imageHandling: {
+        remote: { enabled: true },
+        maxRedirects: 3,
+      },
+    });
+
+    expect(fetchCalls).toBe(4);
+    expectImageFallback(xml);
+  });
+
   it("aborts slow remote image fetches", async () => {
     jest.spyOn(globalThis, "fetch").mockImplementation((_, init) => {
       return new Promise<Response>((_resolve, reject) => {

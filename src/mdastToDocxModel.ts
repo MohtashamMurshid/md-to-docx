@@ -282,7 +282,7 @@ export function mdastToDocxModel(root: Root, style: Style, options: Options): Do
             code: true,
           });
           break;
-        case "link":
+        case "link": {
           const previous = result[result.length - 1];
           if (
             previous?.type === "text" &&
@@ -302,6 +302,7 @@ export function mdastToDocxModel(root: Root, style: Style, options: Options): Do
             });
           }
           break;
+        }
         case "break":
           result.push({
             type: "text",

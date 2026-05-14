@@ -17,8 +17,8 @@ function isUnsafeRegex(pattern: RegExp): boolean {
 
   // Reject common catastrophic-backtracking shapes such as (a+)+,
   // ([a-z]*)+, and alternations nested inside a quantified group.
-  return /\((?:[^()\\]|\\.)*[*+](?:[^()\\]|\\.)*\)[*+{]/.test(source) ||
-    /\((?:[^()\\]|\\.)*\|(?:[^()\\]|\\.)*\)[*+{]/.test(source);
+  return /\((?:[^()\\]|\\.)*[*+?](?:[^()\\]|\\.)*\)[*+?{]/.test(source) ||
+    /\((?:[^()\\]|\\.)*\|(?:[^()\\]|\\.)*\)[*+?{]/.test(source);
 }
 
 /**

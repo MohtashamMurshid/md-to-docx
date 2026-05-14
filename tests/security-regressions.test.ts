@@ -46,6 +46,14 @@ describe("Security regressions", () => {
     ).rejects.toBeInstanceOf(MarkdownConversionError);
   });
 
+  it("rejects nested optional-quantifier text replacement regexes", async () => {
+    await expect(
+      convertMarkdownToDocx("a".repeat(2000), {
+        textReplacements: [{ find: /(a?)+$/, replace: "safe" }],
+      })
+    ).rejects.toBeInstanceOf(MarkdownConversionError);
+  });
+
   it("bounds link scanning for bracket-heavy fallback rendering", () => {
     const runs = processFormattedText("[".repeat(20_000));
     expect(runs.length).toBeGreaterThan(0);

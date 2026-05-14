@@ -86,6 +86,7 @@ const aliasToCanonical = new Map<string, string>();
 const negativeLanguageLookups = new Set<string>();
 const MAX_LANGUAGE_NAME_LENGTH = 64;
 const MAX_LANGUAGE_WHITELIST_SIZE = 128;
+const MAX_NEGATIVE_LANGUAGE_LOOKUPS = 2048;
 
 let aliasMap: Map<string, string> | undefined;
 
@@ -142,6 +143,16 @@ function getAliasMap(): Map<string, string> {
   return aliasMap;
 }
 
+function cacheNegativeLanguageLookup(name: string): void {
+  if (negativeLanguageLookups.size >= MAX_NEGATIVE_LANGUAGE_LOOKUPS) {
+    const oldest = negativeLanguageLookups.values().next().value;
+    if (oldest) {
+      negativeLanguageLookups.delete(oldest);
+    }
+  }
+  negativeLanguageLookups.add(name);
+}
+
 /**
  * Resolve a user-supplied language name to the canonical lowlight
  * grammar key it belongs to, handling alias spellings like `js`, `sh`,
@@ -174,7 +185,7 @@ export function canonicalLanguageName(name: string): string | null {
     aliasToCanonical.set(normalized, canonical);
     return canonical;
   }
-  negativeLanguageLookups.add(normalized);
+  cacheNegativeLanguageLookup(normalized);
   return null;
 }
 

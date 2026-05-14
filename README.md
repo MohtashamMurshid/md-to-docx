@@ -530,4 +530,4 @@ PRs and issues are welcome. A few guidelines:
 
 ---
 
-Built on top of `[docx](https://www.npmjs.com/package/docx)`, `[unified](https://unifiedjs.com)`, `[remark](https://github.com/remarkjs/remark)`, and `[lowlight](https://github.com/wooorm/lowlight)`.
+Built on top of [docx](https://www.npmjs.com/package/docx), [unified](https://unifiedjs.com), [remark](https://github.com/remarkjs/remark), and [lowlight](https://github.com/wooorm/lowlight).

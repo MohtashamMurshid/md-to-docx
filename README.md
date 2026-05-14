@@ -313,6 +313,10 @@ await convertMarkdownToDocx(markdown, {
 });
 ```
 
+For untrusted input, prefer literal string replacements. Regex replacements are accepted only when they fit bounded safety checks; patterns with nested quantifiers or excessive length are rejected before conversion to avoid ReDoS-style stalls.
+
+Escaped link syntax such as `\[label](https://example.com)` stays plain text in the DOCX. Hyperlinks are emitted only from actual Markdown link nodes.
+
 ### RTL / bidirectional text
 
 ```typescript

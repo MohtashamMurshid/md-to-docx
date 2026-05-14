@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@jest/globals";
+import { afterEach, describe, expect, it, jest } from "@jest/globals";
 import {
   convertMarkdownToDocx,
   MarkdownConversionError,
@@ -13,6 +13,20 @@ async function documentRelationshipsXml(blob: Blob): Promise<string> {
 }
 
 describe("Security regressions", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it("does not write diagnostics to console during library conversion", async () => {
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+    const errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+
+    await convertMarkdownToDocx("# Title\n\n[[toc]]");
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
   it("does not turn escaped link syntax into a DOCX hyperlink", async () => {
     const blob = await convertMarkdownToDocx(
       String.raw`Escaped \[not a link](https://example.com/phish).`

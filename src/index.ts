@@ -1025,10 +1025,6 @@ function replaceTocPlaceholders(
       if (tocContent.length > 0 && !inserted) {
         nextChildren.push(...tocContent);
         inserted = true;
-      } else {
-        console.warn(
-          "TOC placeholder found, but no headings collected or TOC already inserted."
-        );
       }
       return;
     }
@@ -1342,7 +1338,6 @@ export function downloadDocx(
   try {
     saveAs(blob, filename);
   } catch (error) {
-    console.error("Failed to save file:", error);
     throw new Error(
       `Failed to save file: ${
         error instanceof Error ? error.message : "Unknown error"

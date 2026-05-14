@@ -38,6 +38,18 @@ describe("Security regressions", () => {
     expect(relationshipsXml).toContain("https://example.com/docs");
   });
 
+  it("keeps GFM autolinks after text ending in bracket-paren syntax", async () => {
+    const blob = await convertMarkdownToDocx(
+      "See result](https://example.com/autolink) for details."
+    );
+
+    const documentXml = await getDocumentXml(blob);
+    const relationshipsXml = await documentRelationshipsXml(blob);
+
+    expect(documentXml).toContain("<w:hyperlink");
+    expect(relationshipsXml).toContain("https://example.com/autolink");
+  });
+
   it("rejects nested-quantifier text replacement regexes before replacement", async () => {
     await expect(
       convertMarkdownToDocx("a".repeat(2000), {

@@ -286,7 +286,7 @@ export function mdastToDocxModel(root: Root, style: Style, options: Options): Do
           const previous = result[result.length - 1];
           if (
             previous?.type === "text" &&
-            previous.value.endsWith("](") &&
+            /\[[^\]]+\]\($/.test(previous.value) &&
             (node as Link).children.length === 1 &&
             (node as Link).children[0].type === "text" &&
             ((node as Link).children[0] as Text).value === (node as Link).url

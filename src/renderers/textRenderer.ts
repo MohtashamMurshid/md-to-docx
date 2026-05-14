@@ -20,6 +20,20 @@ function hasUnescapedMarker(text: string, marker: string, startIndex: number): b
   return false;
 }
 
+function findUnescaped(text: string, needle: string, startIndex: number): number {
+  const maxIndex = text.length - needle.length;
+  for (let i = startIndex; i <= maxIndex; i++) {
+    if (text[i] === "\\" && i + 1 < text.length) {
+      i++;
+      continue;
+    }
+    if (text.substring(i, i + needle.length) === needle) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 /**
  * Processes inline code and returns a TextRun object
  * @param code - The inline code text
@@ -67,6 +81,7 @@ export function processFormattedText(
   let underlineStart = -1;
   let strikethroughStart = -1;
   const fontFamily = resolveFontFamily(style);
+  let nextPossibleLinkStart = 0;
 
   function createTextRun(value: string): TextRun {
     return new TextRun({
@@ -112,31 +127,13 @@ export function processFormattedText(
     }
 
     // Handle inline links [text](url) - only when not in inline code
-    if (!isInlineCode && line[j] === "[") {
-      let closeBracket = -1;
-      let openParen = -1;
-      let closeParen = -1;
-
-      for (let k = j + 1; k < line.length; k++) {
-        if (line[k] === "\\" && k + 1 < line.length) {
-          k++;
-          continue;
-        }
-        if (line[k] === "]") {
-          closeBracket = k;
-          break;
-        }
-      }
-
-      if (closeBracket > j && closeBracket + 1 < line.length && line[closeBracket + 1] === "(") {
-        openParen = closeBracket + 1;
-        for (let k = openParen + 1; k < line.length; k++) {
-          if (line[k] === ")") {
-            closeParen = k;
-            break;
-          }
-        }
-      }
+    if (!isInlineCode && line[j] === "[" && j >= nextPossibleLinkStart) {
+      const closeBracket = findUnescaped(line, "]", j + 1);
+      const openParen =
+        closeBracket > j && closeBracket + 1 < line.length && line[closeBracket + 1] === "("
+          ? closeBracket + 1
+          : -1;
+      const closeParen = openParen > 0 ? findUnescaped(line, ")", openParen + 1) : -1;
 
       if (closeBracket > j && openParen > closeBracket && closeParen > openParen) {
         flushCurrentText();
@@ -165,6 +162,12 @@ export function processFormattedText(
 
         j = closeParen;
         continue;
+      }
+
+      if (closeBracket === -1) {
+        nextPossibleLinkStart = line.length;
+      } else {
+        nextPossibleLinkStart = closeBracket + 1;
       }
     }
 

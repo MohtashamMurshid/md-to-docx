@@ -5,6 +5,22 @@ import { findAndReplace } from "mdast-util-find-and-replace";
 import type { Root } from "mdast";
 import type { TextReplacement } from "./types.js";
 
+const MAX_REPLACEMENTS = 50;
+const MAX_REPLACEMENT_PATTERN_LENGTH = 256;
+const MAX_REPLACEMENT_TEXT_LENGTH = 4096;
+
+function isUnsafeRegex(pattern: RegExp): boolean {
+  const source = pattern.source;
+  if (source.length > MAX_REPLACEMENT_PATTERN_LENGTH) {
+    return true;
+  }
+
+  // Reject common catastrophic-backtracking shapes such as (a+)+,
+  // ([a-z]*)+, and alternations nested inside a quantified group.
+  return /\((?:[^()\\]|\\.)*[*+?](?:[^()\\]|\\.)*\)[*+?{]/.test(source) ||
+    /\((?:[^()\\]|\\.)*\|(?:[^()\\]|\\.)*\)[*+?{]/.test(source);
+}
+
 /**
  * Parses markdown string into an mdast AST tree
  * @param markdown - The markdown string to parse
@@ -30,7 +46,31 @@ export function applyTextReplacements(
     return ast;
   }
 
-  // Convert replacements to the format expected by mdast-util-find-and-replace
+  if (replacements.length > MAX_REPLACEMENTS) {
+    throw new Error(`textReplacements supports at most ${MAX_REPLACEMENTS} entries`);
+  }
+
+  for (const replacement of replacements) {
+    if (
+      typeof replacement.replace === "string" &&
+      replacement.replace.length > MAX_REPLACEMENT_TEXT_LENGTH
+    ) {
+      throw new Error("textReplacements replacement text is too large");
+    }
+    if (replacement.find instanceof RegExp && isUnsafeRegex(replacement.find)) {
+      throw new Error("Unsafe textReplacements RegExp rejected");
+    }
+    if (
+      typeof replacement.find === "string" &&
+      replacement.find.length > MAX_REPLACEMENT_PATTERN_LENGTH
+    ) {
+      throw new Error("textReplacements string pattern is too large");
+    }
+  }
+
+  // Convert replacements to the format expected by mdast-util-find-and-replace.
+  // RegExp entries are intentionally constrained above; string entries are the
+  // recommended mode for untrusted callers.
   const findReplacePairs: Array<[string | RegExp, string | ((...args: any[]) => any)]> = 
     replacements.map((replacement) => [
       replacement.find,
@@ -42,4 +82,3 @@ export function applyTextReplacements(
 
   return ast;
 }
-

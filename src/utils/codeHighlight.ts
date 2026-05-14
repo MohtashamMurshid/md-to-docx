@@ -83,6 +83,75 @@ const instanceCache = new Map<string, LowlightInstance>();
  * the probe cost more than once per alias.
  */
 const aliasToCanonical = new Map<string, string>();
+const negativeLanguageLookups = new Set<string>();
+const MAX_LANGUAGE_NAME_LENGTH = 64;
+const MAX_LANGUAGE_WHITELIST_SIZE = 128;
+const MAX_NEGATIVE_LANGUAGE_LOOKUPS = 2048;
+
+let aliasMap: Map<string, string> | undefined;
+
+const COMMON_LANGUAGE_ALIASES: Record<string, string> = {
+  cjs: "javascript",
+  hbs: "handlebars",
+  hs: "haskell",
+  js: "javascript",
+  kts: "kotlin",
+  md: "markdown",
+  mjs: "javascript",
+  ps: "powershell",
+  ps1: "powershell",
+  py: "python",
+  rb: "ruby",
+  rs: "rust",
+  sh: "bash",
+  shell: "bash",
+  ts: "typescript",
+  yml: "yaml",
+  "c++": "cpp",
+};
+
+function normalizedLanguageName(name: string): string | null {
+  const normalized = name.trim().toLowerCase();
+  if (
+    normalized.length === 0 ||
+    normalized.length > MAX_LANGUAGE_NAME_LENGTH
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
+function getAliasMap(): Map<string, string> {
+  if (aliasMap) {
+    return aliasMap;
+  }
+
+  aliasMap = new Map();
+  const lookup = common as Record<string, CommonGrammar>;
+  for (const canonical of Object.keys(lookup)) {
+    const probe = createLowlight({ [canonical]: lookup[canonical] });
+    aliasMap.set(canonical, canonical);
+    for (const registered of probe.listLanguages()) {
+      aliasMap.set(registered, canonical);
+    }
+  }
+  for (const [alias, canonical] of Object.entries(COMMON_LANGUAGE_ALIASES)) {
+    if (canonical in lookup) {
+      aliasMap.set(alias, canonical);
+    }
+  }
+  return aliasMap;
+}
+
+function cacheNegativeLanguageLookup(name: string): void {
+  if (negativeLanguageLookups.size >= MAX_NEGATIVE_LANGUAGE_LOOKUPS) {
+    const oldest = negativeLanguageLookups.values().next().value;
+    if (oldest) {
+      negativeLanguageLookups.delete(oldest);
+    }
+  }
+  negativeLanguageLookups.add(name);
+}
 
 /**
  * Resolve a user-supplied language name to the canonical lowlight
@@ -97,21 +166,26 @@ const aliasToCanonical = new Map<string, string>();
  * runs the first time a given alias is encountered.
  */
 export function canonicalLanguageName(name: string): string | null {
-  if (name in common) {
-    return name;
+  const normalized = normalizedLanguageName(name);
+  if (!normalized) {
+    return null;
   }
-  const cached = aliasToCanonical.get(name);
+  if (normalized in common) {
+    return normalized;
+  }
+  const cached = aliasToCanonical.get(normalized);
   if (cached) {
     return cached;
   }
-  const lookup = common as Record<string, CommonGrammar>;
-  for (const canonical of Object.keys(lookup)) {
-    const probe = createLowlight({ [canonical]: lookup[canonical] });
-    if (probe.registered(name)) {
-      aliasToCanonical.set(name, canonical);
-      return canonical;
-    }
+  if (negativeLanguageLookups.has(normalized)) {
+    return null;
   }
+  const canonical = getAliasMap().get(normalized);
+  if (canonical) {
+    aliasToCanonical.set(normalized, canonical);
+    return canonical;
+  }
+  cacheNegativeLanguageLookup(normalized);
   return null;
 }
 
@@ -137,7 +211,8 @@ export function getLowlightInstance(languages?: string[]): LowlightInstance {
   // fences. Duplicates after canonicalization are also collapsed.
   const lookup = common as Record<string, CommonGrammar>;
   const canonicalSet = new Set<string>();
-  for (const name of languages) {
+  const boundedLanguages = languages.slice(0, MAX_LANGUAGE_WHITELIST_SIZE);
+  for (const name of new Set(boundedLanguages)) {
     const canonical = canonicalLanguageName(name);
     if (canonical) {
       canonicalSet.add(canonical);

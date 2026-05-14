@@ -313,6 +313,10 @@ await convertMarkdownToDocx(markdown, {
 });
 ```
 
+For untrusted input, prefer literal string replacements. Regex replacements are accepted only when they fit bounded safety checks; patterns with nested quantifiers or excessive length are rejected before conversion to avoid ReDoS-style stalls.
+
+Escaped link syntax such as `\[label](https://example.com)` stays plain text in the DOCX. Hyperlinks are emitted only from actual Markdown link nodes.
+
 ### RTL / bidirectional text
 
 ```typescript
@@ -526,4 +530,4 @@ PRs and issues are welcome. A few guidelines:
 
 ---
 
-Built on top of `[docx](https://www.npmjs.com/package/docx)`, `[unified](https://unifiedjs.com)`, `[remark](https://github.com/remarkjs/remark)`, and `[lowlight](https://github.com/wooorm/lowlight)`.
+Built on top of [docx](https://www.npmjs.com/package/docx), [unified](https://unifiedjs.com), [remark](https://github.com/remarkjs/remark), and [lowlight](https://github.com/wooorm/lowlight).

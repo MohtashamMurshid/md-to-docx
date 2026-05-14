@@ -1,15 +1,18 @@
 import {
   Paragraph,
   Table,
+  TableRow,
+  TableCell,
   TextRun,
   ExternalHyperlink,
   PageBreak,
   AlignmentType,
+  TableLayoutType,
+  WidthType,
 } from "docx";
-import type { DocxDocumentModel, DocxBlockNode, DocxListNode, DocxListItemNode } from "./docxModel.js";
+import type { DocxDocumentModel, DocxBlockNode, DocxListNode, DocxListItemNode, DocxTextNode } from "./docxModel.js";
 import { Style, Options } from "./types.js";
 import { processHeading } from "./renderers/headingRenderer.js";
-import { processTable } from "./renderers/tableRenderer.js";
 import { processCodeBlock } from "./renderers/codeRenderer.js";
 import { processBlockquote } from "./renderers/blockquoteRenderer.js";
 import { processComment } from "./renderers/commentRenderer.js";
@@ -17,12 +20,8 @@ import {
   processImage,
   resolveImageHandlingOptions,
 } from "./renderers/imageRenderer.js";
-import { processParagraph } from "./renderers/paragraphRenderer.js";
-import {
-  processFormattedText,
-  processLinkParagraph,
-} from "./renderers/textRenderer.js";
-import { processListItem } from "./renderers/listRenderer.js";
+import { processInlineCode } from "./renderers/textRenderer.js";
+import { resolveFontFamily } from "./utils/styleUtils.js";
 
 /**
  * Converts internal docx model to docx Paragraph/Table objects
@@ -82,6 +81,174 @@ export async function modelToDocx(
     return text;
   }
 
+  function textRunFromNode(
+    node: DocxTextNode,
+    overrides: { forceBold?: boolean; size?: number } = {}
+  ): TextRun {
+    if (node.code) {
+      return processInlineCode(node.value, style);
+    }
+
+    return new TextRun({
+      text: node.value,
+      bold: overrides.forceBold || node.bold,
+      italics: node.italic,
+      strike: node.strikethrough,
+      underline: node.underline ? { type: "single" } : undefined,
+      color: node.link ? "0000FF" : "000000",
+      size: overrides.size || style.paragraphSize || 24,
+      font: resolveFontFamily(style),
+      rightToLeft: style.direction === "RTL",
+    });
+  }
+
+  function renderInlineNodes(
+    nodes: DocxTextNode[],
+    overrides: { forceBold?: boolean; size?: number } = {}
+  ): (TextRun | ExternalHyperlink)[] {
+    const out: (TextRun | ExternalHyperlink)[] = [];
+    for (const node of nodes) {
+      if (node.link) {
+        out.push(
+          new ExternalHyperlink({
+            children: [
+              new TextRun({
+                text: node.value,
+                color: "0000FF",
+                underline: { type: "single" },
+                bold: overrides.forceBold || node.bold,
+                italics: node.italic,
+                strike: node.strikethrough,
+                size: overrides.size || style.paragraphSize || 24,
+                font: resolveFontFamily(style),
+                rightToLeft: style.direction === "RTL",
+              }),
+            ],
+            link: node.link,
+          })
+        );
+      } else {
+        out.push(textRunFromNode(node, overrides));
+      }
+    }
+
+    if (out.length === 0) {
+      out.push(textRunFromNode({ type: "text", value: "" }, overrides));
+    }
+    return out;
+  }
+
+  function paragraphFromInlineNodes(nodes: DocxTextNode[]): Paragraph {
+    const alignment = style.paragraphAlignment
+      ? AlignmentType[style.paragraphAlignment]
+      : AlignmentType.LEFT;
+    return new Paragraph({
+      children: renderInlineNodes(nodes),
+      spacing: {
+        before: style.paragraphSpacing,
+        after: style.paragraphSpacing,
+        line: style.lineSpacing * 240,
+      },
+      alignment,
+      indent:
+        style.paragraphAlignment === "JUSTIFIED"
+          ? { left: 0, right: 0 }
+          : undefined,
+      bidirectional: style.direction === "RTL",
+    });
+  }
+
+  function tableFromNode(node: Extract<DocxBlockNode, { type: "table" }>): Table {
+    const layout =
+      style.tableLayout === "fixed" ? TableLayoutType.FIXED : TableLayoutType.AUTOFIT;
+    const getColumnAlignment = (
+      index: number
+    ): (typeof AlignmentType)[keyof typeof AlignmentType] => {
+      const align = node.align?.[index];
+      if (align === "center") return AlignmentType.CENTER;
+      if (align === "right") return AlignmentType.RIGHT;
+      return AlignmentType.LEFT;
+    };
+
+    return new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [
+        new TableRow({
+          tableHeader: true,
+          children: node.headers.map(
+            (cell, index) =>
+              new TableCell({
+                children: [
+                  new Paragraph({
+                    alignment: getColumnAlignment(index),
+                    style: "Strong",
+                    children: renderInlineNodes(cell, { forceBold: true }),
+                  }),
+                ],
+                shading: {
+                  fill: documentType === "report" ? "DDDDDD" : "F2F2F2",
+                },
+              })
+          ),
+        }),
+        ...node.rows.map(
+          (row) =>
+            new TableRow({
+              children: row.map(
+                (cell, index) =>
+                  new TableCell({
+                    children: [
+                      new Paragraph({
+                        alignment: getColumnAlignment(index),
+                        children: renderInlineNodes(cell),
+                      }),
+                    ],
+                  })
+              ),
+            })
+        ),
+      ],
+      layout,
+      margins: {
+        top: 100,
+        bottom: 100,
+        left: 100,
+        right: 100,
+      },
+    });
+  }
+
+  function listParagraphFromInlineNodes(
+    nodes: DocxTextNode[],
+    isOrdered: boolean,
+    level: number,
+    sequenceId: number | undefined
+  ): Paragraph {
+    const base = {
+      children: renderInlineNodes(nodes, { size: style.listItemSize || 24 }),
+      spacing: {
+        before: style.paragraphSpacing / 2,
+        after: style.paragraphSpacing / 2,
+      },
+      bidirectional: style.direction === "RTL",
+    };
+
+    if (isOrdered) {
+      return new Paragraph({
+        ...base,
+        numbering: {
+          reference: `numbered-list-${sequenceId || 1}`,
+          level,
+        },
+      });
+    }
+
+    return new Paragraph({
+      ...base,
+      bullet: { level },
+    });
+  }
+
   function renderBlockNode(
     node: DocxBlockNode,
     listLevel: number = 0
@@ -112,8 +279,7 @@ export async function modelToDocx(
       }
 
       case "paragraph": {
-        const paragraphText = node.children.map((c) => encodeInlineNode(c)).join("");
-        return [processParagraph(paragraphText, style)];
+        return [paragraphFromInlineNodes(node.children)];
       }
 
       case "list": {
@@ -149,16 +315,7 @@ export async function modelToDocx(
       }
 
       case "table": {
-        const tableData = {
-          headers: node.headers.map(
-            (cells) => cells.map((c) => encodeInlineNode(c)).join("")
-          ),
-          rows: node.rows.map((row) =>
-            row.map((cells) => cells.map((c) => encodeInlineNode(c)).join(""))
-          ),
-          align: node.align,
-        };
-        return [processTable(tableData, documentType, style)];
+        return [tableFromNode(node)];
       }
 
       case "comment": {
@@ -227,20 +384,9 @@ export async function modelToDocx(
         const nestedParagraphs = renderList(child as DocxListNode, level + 1);
         paragraphs.push(...nestedParagraphs);
       } else if (child.type === "paragraph") {
-        // Paragraph content - render as list item
-        const paragraphText = child.children
-          .map((c) => encodeInlineNode(c))
-          .join("");
-
-        // Use processListItem helper
-        const listItemConfig = {
-          text: paragraphText,
-          isNumbered: isOrdered,
-          listNumber: itemNumber,
-          sequenceId: sequenceId || 1,
-          level: level,
-        };
-        paragraphs.push(processListItem(listItemConfig, style));
+        paragraphs.push(
+          listParagraphFromInlineNodes(child.children, isOrdered, level, sequenceId)
+        );
       } else {
         // Other block types - render normally but they'll appear as part of list item
         const rendered = renderBlockNode(child, level);
@@ -255,14 +401,9 @@ export async function modelToDocx(
 
     // If no paragraphs were created, create an empty list item
     if (paragraphs.length === 0) {
-      const listItemConfig = {
-        text: "",
-        isNumbered: isOrdered,
-        listNumber: itemNumber,
-        sequenceId: sequenceId || 1,
-        level: level,
-      };
-      paragraphs.push(processListItem(listItemConfig, style));
+      paragraphs.push(
+        listParagraphFromInlineNodes([], isOrdered, level, sequenceId)
+      );
     }
 
     return paragraphs;

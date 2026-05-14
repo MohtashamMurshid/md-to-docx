@@ -224,14 +224,29 @@ export function mdastToDocxModel(root: Root, style: Style, options: Options): Do
 
   function processInlineNodes(nodes: any[]): DocxTextNode[] {
     const result: DocxTextNode[] = [];
+
+    function pushTextWithUnderline(value: string): void {
+      const parts = value.split(/(\+\+[^+\n][\s\S]*?\+\+)/g);
+      for (const part of parts) {
+        if (part.startsWith("++") && part.endsWith("++") && part.length > 4) {
+          result.push({
+            type: "text",
+            value: part.slice(2, -2),
+            underline: true,
+          });
+        } else if (part.length > 0) {
+          result.push({
+            type: "text",
+            value: part,
+          });
+        }
+      }
+    }
     
     for (const node of nodes) {
       switch (node.type) {
         case "text":
-          result.push({
-            type: "text",
-            value: (node as Text).value,
-          });
+          pushTextWithUnderline((node as Text).value);
           break;
         case "emphasis":
           const emphasisChildren = processInlineNodes((node as Emphasis).children);
@@ -267,7 +282,18 @@ export function mdastToDocxModel(root: Root, style: Style, options: Options): Do
             code: true,
           });
           break;
-        case "link":
+        case "link": {
+          const previous = result[result.length - 1];
+          if (
+            previous?.type === "text" &&
+            /\[[^\]]+\]\($/.test(previous.value) &&
+            (node as Link).children.length === 1 &&
+            (node as Link).children[0].type === "text" &&
+            ((node as Link).children[0] as Text).value === (node as Link).url
+          ) {
+            previous.value += (node as Link).url;
+            break;
+          }
           const linkChildren = processInlineNodes((node as Link).children);
           for (const child of linkChildren) {
             result.push({
@@ -276,6 +302,7 @@ export function mdastToDocxModel(root: Root, style: Style, options: Options): Do
             });
           }
           break;
+        }
         case "break":
           result.push({
             type: "text",
@@ -379,4 +406,3 @@ export function mdastToDocxModel(root: Root, style: Style, options: Options): Do
 
   return { children };
 }
-

@@ -1,3 +1,9 @@
+## [2.11.2](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.11.1...v2.11.2) (2026-05-14)
+
+### Bug Fixes
+
+* remove library console diagnostics ([1243553](https://github.com/MohtashamMurshid/md-to-docx/commit/124355312e31664c68587cc7ede353e488dfc159)), closes [#33](https://github.com/MohtashamMurshid/md-to-docx/issues/33)
+
 ## [2.11.1](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.11.0...v2.11.1) (2026-05-14)
 
 ### Bug Fixes

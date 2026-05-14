@@ -1,3 +1,9 @@
+## [2.11.1](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.11.0...v2.11.1) (2026-05-14)
+
+### Bug Fixes
+
+* harden markdown conversion security ([#51](https://github.com/MohtashamMurshid/md-to-docx/issues/51)) ([ef96b5c](https://github.com/MohtashamMurshid/md-to-docx/commit/ef96b5c1a172f7c62280e36622574ece37fc8c2d))
+
 ## [2.11.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.10.2...v2.11.0) (2026-05-12)
 
 ### Features

@@ -349,7 +349,6 @@ export async function modelToDocx(
     currentLevel: number
   ): Paragraph[] {
     const paragraphs: Paragraph[] = [];
-    let itemNumber = 1;
     const adjustedSequenceId = list.sequenceId
       ? list.sequenceId + sequenceIdOffset
       : undefined;
@@ -365,11 +364,9 @@ export async function modelToDocx(
         item,
         list.ordered,
         currentLevel,
-        adjustedSequenceId,
-        itemNumber
+        adjustedSequenceId
       );
       paragraphs.push(...itemParagraphs);
-      itemNumber++;
     }
 
     return paragraphs;
@@ -379,8 +376,7 @@ export async function modelToDocx(
     item: DocxListItemNode,
     isOrdered: boolean,
     level: number,
-    sequenceId: number | undefined,
-    itemNumber: number
+    sequenceId: number | undefined
   ): Paragraph[] {
     const paragraphs: Paragraph[] = [];
 

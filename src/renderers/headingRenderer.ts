@@ -216,7 +216,7 @@ export function processHeading(
   line: string,
   config: HeadingConfig,
   style: Style,
-  documentType: "document" | "report"
+  _documentType: "document" | "report"
 ): { paragraph: Paragraph; bookmarkId: string } {
   const headingText = line.replace(new RegExp(`^#{${config.level}} `), "");
   const headingLevel = config.level;

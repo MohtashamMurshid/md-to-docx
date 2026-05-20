@@ -188,7 +188,7 @@ export interface SectionConfig {
     | "ODD_PAGE";
 }
 
-export interface SectionTemplate extends SectionConfig {}
+export type SectionTemplate = SectionConfig;
 
 export interface DocumentSection extends SectionConfig {
   /**

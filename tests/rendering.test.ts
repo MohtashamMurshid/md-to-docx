@@ -1,5 +1,7 @@
 import { describe, expect, it } from "@jest/globals";
 import {
+  convertMarkdownToArrayBuffer,
+  convertMarkdownToBuffer,
   convertMarkdownToDocx,
   MarkdownConversionError,
 } from "../src/index";
@@ -43,6 +45,38 @@ describe("Rendering: headings and alignment", () => {
     expect(xml).toContain("H5 default-from-fallback");
   });
 
+  it("renders H6 headings with level-specific styling", async () => {
+    const xml = await render("###### H6 custom", {
+      style: {
+        heading6Alignment: "RIGHT",
+        heading6Size: 18,
+      },
+    });
+
+    expect(xml).toContain("H6 custom");
+    expect(xml).toContain("Heading6");
+    expect(xml).toContain('w:val="right"');
+    expect(xml).toContain('w:val="18"');
+  });
+
+  it("generates deterministic unique bookmark names across sections", async () => {
+    const blob = await convertMarkdownToDocx("", {
+      sections: [
+        { markdown: "# Repeat" },
+        { markdown: "# Repeat" },
+      ],
+    });
+    const xml = await getDocumentXml(blob);
+    const bookmarkNames = Array.from(
+      xml.matchAll(/<w:bookmarkStart[^>]+w:name="([^"]+)"/g),
+      (match) => match[1]
+    );
+
+    expect(bookmarkNames).toContain("_Toc_Repeat_1");
+    expect(bookmarkNames).toContain("_Toc_Repeat_2");
+    expect(new Set(bookmarkNames).size).toBe(bookmarkNames.length);
+  });
+
   it("applies paragraph and blockquote alignments", async () => {
     const markdown = `Left paragraph here.
 
@@ -80,6 +114,21 @@ describe("Rendering: inline formatting", () => {
     expect(xml).toContain("underline");
     expect(xml).toContain("strikethrough");
     expect(xml).toContain("inline code");
+  });
+
+  it("applies configurable inline code styling", async () => {
+    const xml = await render("Use `customCode` here.", {
+      style: {
+        inlineCodeSize: 28,
+        inlineCodeColor: "AA00CC",
+        inlineCodeBackground: "EEFFAA",
+      },
+    });
+
+    expect(xml).toContain("customCode");
+    expect(xml).toContain('w:val="28"');
+    expect(xml).toContain('w:val="AA00CC"');
+    expect(xml).toContain('w:fill="EEFFAA"');
   });
 });
 
@@ -239,6 +288,53 @@ More content.`;
     expect(xml).toContain('<w:br w:type="page"');
     expect(xml).toContain("Section 1");
     expect(xml).toContain("Section 2");
+  });
+
+  it("supports custom TOC title and depth filtering", async () => {
+    const markdown = `[TOC]
+
+# Hidden H1
+
+## Included H2
+
+### Included H3
+
+#### Hidden H4`;
+
+    const xml = await render(markdown, {
+      toc: {
+        title: "Contents",
+        minDepth: 2,
+        maxDepth: 3,
+      },
+    });
+
+    expect(xml).toContain("Contents");
+    expect(xml).toContain("Included H2");
+    expect(xml).toContain("Included H3");
+    expect(xml).toContain("Hidden H1");
+    expect(xml).toContain("Hidden H4");
+    expect(xml.indexOf(">Included H2<")).toBeLessThan(
+      xml.lastIndexOf(">Included H2<")
+    );
+    expect(xml.indexOf(">Included H3<")).toBeLessThan(
+      xml.lastIndexOf(">Included H3<")
+    );
+    expect(xml.indexOf(">Hidden H1<")).toBe(xml.lastIndexOf(">Hidden H1<"));
+    expect(xml.indexOf(">Hidden H4<")).toBe(xml.lastIndexOf(">Hidden H4<"));
+  });
+});
+
+describe("Rendering: Node output helpers", () => {
+  it("returns valid DOCX bytes as Buffer and ArrayBuffer", async () => {
+    const buffer = await convertMarkdownToBuffer("# Buffer helper");
+    const arrayBuffer = await convertMarkdownToArrayBuffer("# ArrayBuffer helper");
+
+    expect(Buffer.isBuffer(buffer)).toBe(true);
+    expect(buffer.length).toBeGreaterThan(0);
+    expect(arrayBuffer.byteLength).toBeGreaterThan(0);
+    expect(buffer.subarray(0, 2).toString()).toBe("PK");
+    expect(Buffer.from(arrayBuffer).subarray(0, 2).toString()).toBe("PK");
   });
 });
 

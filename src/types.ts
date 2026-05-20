@@ -20,10 +20,14 @@ export interface Style {
   heading3Size?: number;
   heading4Size?: number;
   heading5Size?: number;
+  heading6Size?: number;
   paragraphSize?: number;
   listItemSize?: number;
   codeBlockSize?: number;
   blockquoteSize?: number;
+  inlineCodeSize?: number;
+  inlineCodeColor?: string;
+  inlineCodeBackground?: string;
   tocFontSize?: number;
   // TOC level-specific styling
   tocHeading1FontSize?: number;
@@ -31,16 +35,19 @@ export interface Style {
   tocHeading3FontSize?: number;
   tocHeading4FontSize?: number;
   tocHeading5FontSize?: number;
+  tocHeading6FontSize?: number;
   tocHeading1Bold?: boolean;
   tocHeading2Bold?: boolean;
   tocHeading3Bold?: boolean;
   tocHeading4Bold?: boolean;
   tocHeading5Bold?: boolean;
+  tocHeading6Bold?: boolean;
   tocHeading1Italic?: boolean;
   tocHeading2Italic?: boolean;
   tocHeading3Italic?: boolean;
   tocHeading4Italic?: boolean;
   tocHeading5Italic?: boolean;
+  tocHeading6Italic?: boolean;
   // Alignment options
   paragraphAlignment?: "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
   headingAlignment?: "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
@@ -49,6 +56,7 @@ export interface Style {
   heading3Alignment?: "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
   heading4Alignment?: "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
   heading5Alignment?: "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
+  heading6Alignment?: "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
   blockquoteAlignment?: "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
   codeBlockAlignment?: "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
   // Table options
@@ -180,7 +188,7 @@ export interface SectionConfig {
     | "ODD_PAGE";
 }
 
-export interface SectionTemplate extends SectionConfig {}
+export type SectionTemplate = SectionConfig;
 
 export interface DocumentSection extends SectionConfig {
   /**
@@ -192,6 +200,7 @@ export interface DocumentSection extends SectionConfig {
 export interface Options {
   documentType?: "document" | "report";
   style?: Partial<Style>;
+  toc?: TocOptions;
   /**
    * Shared defaults applied to each section before per-section overrides.
    */
@@ -218,6 +227,22 @@ export interface Options {
    * to fetch internal network resources.
    */
   imageHandling?: ImageHandlingOptions;
+}
+
+export interface TocOptions {
+  /**
+   * Title paragraph inserted before generated TOC entries. Defaults to
+   * "Table of Contents". Set to "" to omit the title.
+   */
+  title?: string;
+  /**
+   * Minimum heading level to include. Defaults to 1.
+   */
+  minDepth?: number;
+  /**
+   * Maximum heading level to include. Defaults to 6.
+   */
+  maxDepth?: number;
 }
 
 export interface RemoteImageHandlingOptions {
@@ -337,6 +362,7 @@ export interface HeadingConfig {
   size: number;
   style?: string;
   alignment?: any;
+  bookmarkId?: string;
 }
 
 export interface ListItemConfig {

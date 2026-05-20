@@ -154,11 +154,11 @@ downloadDocx(blob, "hello.docx");
 ### Node.js
 
 ```typescript
-import { convertMarkdownToDocx } from "@mohtasham/md-to-docx";
+import { convertMarkdownToBuffer } from "@mohtasham/md-to-docx";
 import fs from "node:fs/promises";
 
-const blob = await convertMarkdownToDocx(await fs.readFile("input.md", "utf8"));
-await fs.writeFile("output.docx", Buffer.from(await blob.arrayBuffer()));
+const buffer = await convertMarkdownToBuffer(await fs.readFile("input.md", "utf8"));
+await fs.writeFile("output.docx", buffer);
 ```
 
 ### React
@@ -288,6 +288,11 @@ Drop `[TOC]` on its own line in your markdown to render a clickable, auto-popula
 
 ```typescript
 await convertMarkdownToDocx(markdown, {
+  toc: {
+    title: "Contents",
+    minDepth: 1,
+    maxDepth: 3,
+  },
   style: {
     tocFontSize: 22,
     tocHeading1FontSize: 28, tocHeading1Bold: true,
@@ -333,7 +338,7 @@ await convertMarkdownToDocx(markdown, {
 
 | Feature           | Syntax                 | Notes                                                |
 | ----------------- | ---------------------- | ---------------------------------------------------- |
-| Headings          | `# … #####`            | H1–H5, individually styleable                        |
+| Headings          | `# … ######`           | H1–H6, individually styleable                        |
 | Bold / italic     | `**bold**`, `*italic*` |                                                      |
 | Underline         | `++underline++`        | Custom marker                                        |
 | Strikethrough     | `~~text~~`             | GFM                                                  |
@@ -363,9 +368,17 @@ Converts Markdown text (or a multi-section template) to a DOCX Blob.
 | `options`  | `Options?` | See below.                                                  |
 
 
-### `downloadDocx(blob, filename?): void`
+### `convertMarkdownToArrayBuffer(markdown, options?): Promise<ArrayBuffer>`
 
-Browser-only helper that triggers a file download. Throws in non-browser environments. `filename` defaults to `"document.docx"`.
+Converts Markdown text to DOCX bytes in any runtime with `ArrayBuffer` support.
+
+### `convertMarkdownToBuffer(markdown, options?): Promise<Buffer>`
+
+Node-friendly helper for writing DOCX output to disk, object storage, or HTTP responses.
+
+### `downloadDocx(blob, filename?): Promise<void>`
+
+Browser-only async helper that triggers a file download. Throws in non-browser environments. `filename` defaults to `"document.docx"`.
 
 ### `Options`
 
@@ -373,6 +386,7 @@ Browser-only helper that triggers a file download. Throws in non-browser environ
 interface Options {
   documentType?: "document" | "report";
   style?: Style;
+  toc?: TocOptions;
   template?: DocumentSection;
   sections?: DocumentSection[];
   codeHighlighting?: CodeHighlightOptions;
@@ -390,15 +404,18 @@ Text sizes
 | `fontFamily`                                  | `string`              | Base font family                         |
 | `fontFamilly`                                 | `string` (deprecated) | Alias for `fontFamily`                   |
 | `titleSize`                                   | `number`              | Title size (half-points)                 |
-| `heading1Size` … `heading5Size`               | `number`              | Per-level heading sizes                  |
+| `heading1Size` … `heading6Size`               | `number`              | Per-level heading sizes                  |
 | `paragraphSize`                               | `number`              | Paragraph size                           |
 | `listItemSize`                                | `number`              | List item size                           |
 | `codeBlockSize`                               | `number`              | Code block size                          |
+| `inlineCodeSize`                              | `number`              | Inline code size                         |
+| `inlineCodeColor`                             | `string`              | Inline code text color, RRGGBB           |
+| `inlineCodeBackground`                        | `string`              | Inline code background, RRGGBB           |
 | `blockquoteSize`                              | `number`              | Blockquote size                          |
 | `tocFontSize`                                 | `number`              | TOC entry size (fallback for all levels) |
-| `tocHeading1FontSize` … `tocHeading5FontSize` | `number`              | Per-level TOC entry size                 |
-| `tocHeading1Bold` … `tocHeading5Bold`         | `boolean`             | Per-level TOC entry bold flag            |
-| `tocHeading1Italic` … `tocHeading5Italic`     | `boolean`             | Per-level TOC entry italic flag          |
+| `tocHeading1FontSize` … `tocHeading6FontSize` | `number`              | Per-level TOC entry size                 |
+| `tocHeading1Bold` … `tocHeading6Bold`         | `boolean`             | Per-level TOC entry bold flag            |
+| `tocHeading1Italic` … `tocHeading6Italic`     | `boolean`             | Per-level TOC entry italic flag          |
 
 
 Spacing & layout
@@ -420,8 +437,16 @@ Alignment & direction
 | `paragraphAlignment`                      | `"LEFT" | "RIGHT"             |
 | `blockquoteAlignment`                     | `"LEFT" | "RIGHT"             |
 | `headingAlignment`                        | `"LEFT" | "RIGHT"             |
-| `heading1Alignment` … `heading5Alignment` | Same    | Overrides per level |
+| `heading1Alignment` … `heading6Alignment` | Same    | Overrides per level |
 | `direction`                               | `"LTR"  | "RTL"`              |
+
+#### `TocOptions`
+
+| Field      | Type     | Description                                  |
+| ---------- | -------- | -------------------------------------------- |
+| `title`    | `string` | TOC title. Defaults to `Table of Contents`.  |
+| `minDepth` | `number` | Minimum included heading level, from 1 to 6. |
+| `maxDepth` | `number` | Maximum included heading level, from 1 to 6. |
 
 
 #### `DocumentSection` (for `template` and each entry in `sections`)

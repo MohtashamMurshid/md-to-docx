@@ -17,7 +17,6 @@ import {
   IPropertiesOptions,
   ISectionOptions,
 } from "docx";
-import saveAs from "file-saver";
 import {
   AlignmentOption,
   DocumentSection,
@@ -28,6 +27,7 @@ import {
   SectionPageNumberDisplay,
   SectionTemplate,
   Style,
+  TocOptions,
 } from "./types.js";
 import { parseMarkdownToAst, applyTextReplacements } from "./markdownAst.js";
 import { mdastToDocxModel } from "./mdastToDocxModel.js";
@@ -62,6 +62,7 @@ export {
   SectionTemplate,
   Style,
   TableData,
+  TocOptions,
 } from "./types.js";
 
 /**
@@ -325,6 +326,64 @@ function validateStyleInput(
       { styleContext, fontFamily: style.fontFamily }
     );
   }
+
+  validateHexColorOption(style.inlineCodeColor, "inlineCodeColor", styleContext);
+  validateHexColorOption(
+    style.inlineCodeBackground,
+    "inlineCodeBackground",
+    styleContext
+  );
+}
+
+function validateHexColorOption(
+  value: string | undefined,
+  name: string,
+  context: string
+): void {
+  if (value !== undefined && !/^[0-9A-Fa-f]{6}$/.test(value)) {
+    throw new MarkdownConversionError(`${name} must be a 6-character hex color`, {
+      context,
+      value,
+    });
+  }
+}
+
+function validateTocOptionsInput(toc: TocOptions | undefined): void {
+  if (!toc) {
+    return;
+  }
+
+  if (toc.title !== undefined && typeof toc.title !== "string") {
+    throw new MarkdownConversionError("Invalid TOC title: Must be a string", {
+      title: toc.title,
+    });
+  }
+
+  for (const [name, value] of [
+    ["minDepth", toc.minDepth],
+    ["maxDepth", toc.maxDepth],
+  ] as const) {
+    if (
+      value !== undefined &&
+      (!Number.isInteger(value) || value < 1 || value > 6)
+    ) {
+      throw new MarkdownConversionError(
+        `Invalid TOC ${name}: Must be an integer between 1 and 6`,
+        { [name]: value }
+      );
+    }
+  }
+
+  if (
+    toc.minDepth !== undefined &&
+    toc.maxDepth !== undefined &&
+    toc.minDepth > toc.maxDepth
+  ) {
+    throw new MarkdownConversionError(
+      "Invalid TOC depth range: minDepth cannot be greater than maxDepth",
+      { minDepth: toc.minDepth, maxDepth: toc.maxDepth }
+    );
+  }
 }
 
 function validatePageNumberingInput(
@@ -544,6 +603,7 @@ function validateInput(markdown: string, options: Options): void {
   }
 
   validateStyleInput(normalizeStyleInput(options.style), "options.style");
+  validateTocOptionsInput(options.toc);
   validateImageHandlingInput(options.imageHandling);
 
   const normalizedTemplate = normalizeSectionConfig(options.template);
@@ -927,24 +987,36 @@ function buildSectionProperties(
   };
 }
 
-function buildTocContent(headings: TocHeadingEntry[], style: Style): Paragraph[] {
+function buildTocContent(
+  headings: TocHeadingEntry[],
+  style: Style,
+  tocOptions: TocOptions = {}
+): Paragraph[] {
   const tocContent: Paragraph[] = [];
+  const minDepth = tocOptions.minDepth ?? 1;
+  const maxDepth = tocOptions.maxDepth ?? 6;
+  const filteredHeadings = headings.filter(
+    (heading) => heading.level >= minDepth && heading.level <= maxDepth
+  );
 
-  if (headings.length === 0) {
+  if (filteredHeadings.length === 0) {
     return tocContent;
   }
 
-  tocContent.push(
-    new Paragraph({
-      text: "Table of Contents",
-      heading: "Heading1",
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 240 },
-      bidirectional: style.direction === "RTL",
-    })
-  );
+  const tocTitle = tocOptions.title ?? "Table of Contents";
+  if (tocTitle.length > 0) {
+    tocContent.push(
+      new Paragraph({
+        text: tocTitle,
+        heading: "Heading1",
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 240 },
+        bidirectional: style.direction === "RTL",
+      })
+    );
+  }
 
-  headings.forEach((heading) => {
+  filteredHeadings.forEach((heading) => {
     let fontSize;
     let isBold = false;
     let isItalic = false;
@@ -976,6 +1048,11 @@ function buildTocContent(headings: TocHeadingEntry[], style: Style): Paragraph[]
         isBold = style.tocHeading5Bold || false;
         isItalic = style.tocHeading5Italic || false;
         break;
+      case 6:
+        fontSize = style.tocHeading6FontSize || style.tocFontSize;
+        isBold = style.tocHeading6Bold || false;
+        isItalic = style.tocHeading6Italic || false;
+        break;
       default:
         fontSize = style.tocFontSize;
     }
@@ -1002,7 +1079,7 @@ function buildTocContent(headings: TocHeadingEntry[], style: Style): Paragraph[]
             ],
           }),
         ],
-        indent: { left: (heading.level - 1) * 400 },
+        indent: { left: (heading.level - minDepth) * 400 },
         spacing: { after: 120 },
         bidirectional: style.direction === "RTL",
       })
@@ -1063,6 +1140,22 @@ export async function convertMarkdownToDocx( markdown: string, options: Options 
     );
   }
 }
+
+export async function convertMarkdownToArrayBuffer(
+  markdown: string,
+  options: Options = defaultOptions
+): Promise<ArrayBuffer> {
+  const blob = await convertMarkdownToDocx(markdown, options);
+  return blob.arrayBuffer();
+}
+
+export async function convertMarkdownToBuffer(
+  markdown: string,
+  options: Options = defaultOptions
+): Promise<Buffer> {
+  return Buffer.from(await convertMarkdownToArrayBuffer(markdown, options));
+}
+
 /**
  * Convert Markdown to Docx options
  * @param markdown - The Markdown string to convert
@@ -1091,6 +1184,7 @@ export async function parseToDocxOptions (
     const headings: TocHeadingEntry[] = [];
     let maxSequenceId = 0;
     const processedImageCounter = { count: 0 };
+    const headingBookmarkCounter = { count: 0 };
 
     for (const section of resolvedSections) {
       const ast = await parseMarkdownToAst(section.markdown);
@@ -1103,6 +1197,7 @@ export async function parseToDocxOptions (
       const renderedModel = await modelToDocx(model, section.style, options, {
         sequenceIdOffset: maxSequenceId,
         processedImageCounter,
+        headingBookmarkCounter,
       });
 
       maxSequenceId = Math.max(maxSequenceId, renderedModel.maxSequenceId);
@@ -1118,7 +1213,7 @@ export async function parseToDocxOptions (
       });
     }
 
-    const tocContent = buildTocContent(headings, style);
+    const tocContent = buildTocContent(headings, style, options.toc);
     let tocInserted = false;
     const docSections: ISectionOptions[] = renderedSections.map((section) => {
       const replacedTocChildren = replaceTocPlaceholders(
@@ -1289,6 +1384,26 @@ export async function parseToDocxOptions (
             },
           },
           {
+            id: "Heading6",
+            name: "Heading 6",
+            basedOn: "Normal",
+            next: "Normal",
+            quickFormat: true,
+            run: {
+              size: Math.max(1, style.heading6Size ?? style.titleSize - 20),
+              bold: true,
+              color: "000000",
+              font: resolveFontFamily(style),
+            },
+            paragraph: {
+              spacing: {
+                before: 200,
+                after: 100,
+              },
+              outlineLevel: 6,
+            },
+          },
+          {
             id: "Strong",
             name: "Strong",
             run: {
@@ -1322,10 +1437,10 @@ export async function parseToDocxOptions (
  * @throws {Error} If invalid blob or filename is provided
  * @throws {Error} If file save fails
  */
-export function downloadDocx(
+export async function downloadDocx(
   blob: Blob,
   filename: string = "document.docx"
-): void {
+): Promise<void> {
   if (typeof window === "undefined") {
     throw new Error("This function can only be used in browser environments");
   }
@@ -1335,7 +1450,9 @@ export function downloadDocx(
   if (!filename || typeof filename !== "string") {
     throw new Error("Invalid filename provided");
   }
+
   try {
+    const { default: saveAs } = await import("file-saver");
     saveAs(blob, filename);
   } catch (error) {
     throw new Error(

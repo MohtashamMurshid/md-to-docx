@@ -1,5 +1,3 @@
-import { Style } from "./types.js";
-
 /**
  * Internal model representing docx-friendly document structure
  * This is an intermediate representation between mdast and docx objects
@@ -91,4 +89,3 @@ export type DocxBlockNode =
 export interface DocxDocumentModel {
   children: DocxBlockNode[];
 }
-

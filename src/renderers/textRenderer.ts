@@ -44,10 +44,10 @@ export function processInlineCode(code: string, style?: Style): TextRun {
   return new TextRun({
     text: code,
     font: "Courier New",
-    size: style?.paragraphSize ? style.paragraphSize - 2 : 20,
-    color: "444444",
+    size: style?.inlineCodeSize || (style?.paragraphSize ? style.paragraphSize - 2 : 20),
+    color: style?.inlineCodeColor || "444444",
     shading: {
-      fill: "F5F5F5",
+      fill: style?.inlineCodeBackground || "F5F5F5",
     },
     rightToLeft: style?.direction === "RTL",
   });

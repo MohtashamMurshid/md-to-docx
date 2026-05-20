@@ -2,7 +2,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { convertMarkdownToDocx } from "./index.js";
+import { convertMarkdownToBuffer } from "./index.js";
 import { Options } from "./types.js";
 
 export interface CliOutput {
@@ -105,11 +105,10 @@ export async function runCli(
     const options = parsedArgs.optionsPath
       ? await readOptionsFile(path.resolve(parsedArgs.optionsPath))
       : undefined;
-    const blob = await convertMarkdownToDocx(markdown, options);
-    const arrayBuffer = await blob.arrayBuffer();
+    const buffer = await convertMarkdownToBuffer(markdown, options);
 
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
-    await fs.writeFile(outputPath, Buffer.from(arrayBuffer));
+    await fs.writeFile(outputPath, buffer);
 
     output.log(`DOCX created at: ${outputPath}`);
     return 0;

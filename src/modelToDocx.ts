@@ -22,6 +22,7 @@ import {
 } from "./renderers/imageRenderer.js";
 import { processInlineCode } from "./renderers/textRenderer.js";
 import { resolveFontFamily } from "./utils/styleUtils.js";
+import { sanitizeForBookmarkId } from "./utils/bookmarkUtils.js";
 
 /**
  * Converts internal docx model to docx Paragraph/Table objects
@@ -35,6 +36,7 @@ export async function modelToDocx(
     sequenceIdOffset?: number;
     /** When set by `parseToDocxOptions`, ties `maxImages` to the whole document across sections. */
     processedImageCounter?: { count: number };
+    headingBookmarkCounter?: { count: number };
   } = {}
 ): Promise<{
   children: (Paragraph | Table)[];
@@ -52,6 +54,9 @@ export async function modelToDocx(
 
   // Track numbering sequences for nested lists
   let maxSequenceId = 0;
+  const headingBookmarkCounter = renderOptions.headingBookmarkCounter ?? {
+    count: 0,
+  };
 
   function encodeInlineNode(node: {
     value: string;
@@ -259,10 +264,12 @@ export async function modelToDocx(
         const headingText = node.children.map((c) => encodeInlineNode(c)).join("");
 
         const headingLine = "#".repeat(node.level) + " " + headingText;
+        headingBookmarkCounter.count++;
         const config = {
           level: node.level,
           size: 0,
           style: node.level === 1 ? "Title" : undefined,
+          bookmarkId: `_Toc_${sanitizeForBookmarkId(headingText)}_${headingBookmarkCounter.count}`,
         };
         const { paragraph, bookmarkId } = processHeading(
           headingLine,

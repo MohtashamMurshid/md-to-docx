@@ -226,9 +226,8 @@ export function processHeading(
     .replace(/\*/g, "")
     .replace(/\+\+/g, "")
     .replace(/~~/g, "");
-  const bookmarkId = `_Toc_${sanitizeForBookmarkId(
-    cleanTextForBookmark
-  )}_${Date.now()}`;
+  const bookmarkId =
+    config.bookmarkId || `_Toc_${sanitizeForBookmarkId(cleanTextForBookmark)}`;
 
   let headingSize = style.titleSize;
 
@@ -242,6 +241,8 @@ export function processHeading(
     headingSize = style.heading4Size;
   } else if (headingLevel === 5 && style.heading5Size) {
     headingSize = style.heading5Size;
+  } else if (headingLevel === 6 && style.heading6Size) {
+    headingSize = style.heading6Size;
   } else if (headingLevel > 1) {
     headingSize = style.titleSize - (headingLevel - 1) * 4;
   }
@@ -257,6 +258,8 @@ export function processHeading(
     alignment = AlignmentType[style.heading4Alignment];
   } else if (headingLevel === 5 && style.heading5Alignment) {
     alignment = AlignmentType[style.heading5Alignment];
+  } else if (headingLevel === 6 && style.heading6Alignment) {
+    alignment = AlignmentType[style.heading6Alignment];
   } else if (style.headingAlignment) {
     alignment = AlignmentType[style.headingAlignment];
   }

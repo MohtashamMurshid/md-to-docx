@@ -1,3 +1,9 @@
+## [2.12.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.11.2...v2.12.0) (2026-05-20)
+
+### Features
+
+* add H6 headings and TOC options ([e01689b](https://github.com/MohtashamMurshid/md-to-docx/commit/e01689b6e442f026511d1d2c1604912786bbe034))
+
 ## [2.11.2](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.11.1...v2.11.2) (2026-05-14)
 
 ### Bug Fixes

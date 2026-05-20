@@ -1390,7 +1390,7 @@ export async function parseToDocxOptions (
             next: "Normal",
             quickFormat: true,
             run: {
-              size: style.titleSize - 20,
+              size: Math.max(1, style.heading6Size ?? style.titleSize - 20),
               bold: true,
               color: "000000",
               font: resolveFontFamily(style),
@@ -1437,7 +1437,7 @@ export async function parseToDocxOptions (
  * @throws {Error} If invalid blob or filename is provided
  * @throws {Error} If file save fails
  */
-export function downloadDocx(
+export async function downloadDocx(
   blob: Blob,
   filename: string = "document.docx"
 ): Promise<void> {
@@ -1450,13 +1450,15 @@ export function downloadDocx(
   if (!filename || typeof filename !== "string") {
     throw new Error("Invalid filename provided");
   }
-  return import("file-saver").then(({ default: saveAs }) => {
+
+  try {
+    const { default: saveAs } = await import("file-saver");
     saveAs(blob, filename);
-  }).catch((error) => {
+  } catch (error) {
     throw new Error(
       `Failed to save file: ${
         error instanceof Error ? error.message : "Unknown error"
       }`
     );
-  });
+  }
 }

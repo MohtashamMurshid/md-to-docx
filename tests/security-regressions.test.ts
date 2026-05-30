@@ -4,7 +4,6 @@ import {
   MarkdownConversionError,
 } from "../src/index";
 import { canonicalLanguageName } from "../src/utils/codeHighlight";
-import { processFormattedText } from "../src/renderers/textRenderer";
 import { getDocumentXml, getZip } from "./helpers";
 
 async function documentRelationshipsXml(blob: Blob): Promise<string> {
@@ -80,9 +79,10 @@ describe("Security regressions", () => {
     ).rejects.toBeInstanceOf(MarkdownConversionError);
   });
 
-  it("bounds link scanning for bracket-heavy fallback rendering", () => {
-    const runs = processFormattedText("[".repeat(20_000));
-    expect(runs.length).toBeGreaterThan(0);
+  it("bounds bracket-heavy input without catastrophic scanning", async () => {
+    const blob = await convertMarkdownToDocx("[".repeat(20_000));
+    const documentXml = await getDocumentXml(blob);
+    expect(documentXml.length).toBeGreaterThan(0);
   });
 
   it("caches and bounds unknown code highlighting language resolution", () => {

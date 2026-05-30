@@ -58,34 +58,6 @@ export async function modelToDocx(
     count: 0,
   };
 
-  function encodeInlineNode(node: {
-    value: string;
-    bold?: boolean;
-    italic?: boolean;
-    underline?: boolean;
-    strikethrough?: boolean;
-    code?: boolean;
-    link?: string;
-  }): string {
-    if (node.code) {
-      return "`" + node.value + "`";
-    }
-
-    let text = node.link ? `[${node.value}](${node.link})` : node.value;
-
-    if (node.strikethrough) {
-      text = `~~${text}~~`;
-    }
-    if (node.underline) {
-      text = `++${text}++`;
-    }
-
-    if (node.bold && node.italic) return "***" + text + "***";
-    if (node.bold) return "**" + text + "**";
-    if (node.italic) return "*" + text + "*";
-    return text;
-  }
-
   function textRunFromNode(
     node: DocxTextNode,
     overrides: { forceBold?: boolean; size?: number } = {}
@@ -260,22 +232,14 @@ export async function modelToDocx(
   ): (Paragraph | Table)[] {
     switch (node.type) {
       case "heading": {
-        // Re-encode inline formatting into markdown-like syntax for helpers.
-        const headingText = node.children.map((c) => encodeInlineNode(c)).join("");
-
-        const headingLine = "#".repeat(node.level) + " " + headingText;
+        const headingText = node.children.map((c) => c.value).join("");
         headingBookmarkCounter.count++;
-        const config = {
-          level: node.level,
-          size: 0,
-          style: node.level === 1 ? "Title" : undefined,
-          bookmarkId: `_Toc_${sanitizeForBookmarkId(headingText)}_${headingBookmarkCounter.count}`,
-        };
-        const { paragraph, bookmarkId } = processHeading(
-          headingLine,
-          config,
+        const bookmarkId = `_Toc_${sanitizeForBookmarkId(headingText)}_${headingBookmarkCounter.count}`;
+        const { paragraph } = processHeading(
+          node.children,
+          { level: node.level, bookmarkId },
           style,
-          documentType
+          (nodes, size) => renderInlineNodes(nodes, { size })
         );
         headings.push({
           text: headingText,

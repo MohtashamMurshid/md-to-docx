@@ -59,6 +59,26 @@ describe("Rendering: headings and alignment", () => {
     expect(xml).toContain('w:val="18"');
   });
 
+  it("renders heading inline formatting, links, and code from the model", async () => {
+    const blob = await convertMarkdownToDocx(
+      "# Head **bold** and [lnk](https://example.com/h) and `code`"
+    );
+    const xml = await getDocumentXml(blob);
+    const rels = await (await getZip(blob))
+      .file("word/_rels/document.xml.rels")
+      ?.async("string");
+
+    // Bold marker inside the heading still renders bold.
+    expect(xml).toMatch(/<w:b\s*\/>/);
+    // Links inside headings become real hyperlinks, not literal text.
+    expect(xml).toContain("<w:hyperlink");
+    expect(rels).toContain("https://example.com/h");
+    expect(xml).not.toContain("[lnk]");
+    // Inline code inside headings renders as a monospace run, not backticks.
+    expect(xml).toContain('w:ascii="Courier New"');
+    expect(xml).not.toContain("`code`");
+  });
+
   it("generates deterministic unique bookmark names across sections", async () => {
     const blob = await convertMarkdownToDocx("", {
       sections: [

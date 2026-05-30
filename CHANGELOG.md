@@ -1,3 +1,9 @@
+## [2.12.1](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.12.0...v2.12.1) (2026-05-30)
+
+### Bug Fixes
+
+* preserve inline formatting in headings & blockquotes (+ internal refactor) ([#63](https://github.com/MohtashamMurshid/md-to-docx/issues/63)) ([d5c6f21](https://github.com/MohtashamMurshid/md-to-docx/commit/d5c6f21a6c3795d4ee38084f767ebe38aece909e))
+
 ## [2.12.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.11.2...v2.12.0) (2026-05-20)
 
 ### Features

@@ -115,6 +115,24 @@ Another paragraph with justified alignment.`;
     expect(xml).toContain('w:val="center"');
     expect(xml).toContain("blockquote");
   });
+
+  it("preserves inline formatting, links, and code inside blockquotes", async () => {
+    const blob = await convertMarkdownToDocx(
+      "> Quote with **bold**, [lnk](https://example.com/q) and `code`."
+    );
+    const xml = await getDocumentXml(blob);
+    const rels = await (await getZip(blob))
+      .file("word/_rels/document.xml.rels")
+      ?.async("string");
+
+    expect(xml).toMatch(/<w:b\s*\/>/);
+    expect(xml).toContain("<w:hyperlink");
+    expect(rels).toContain("https://example.com/q");
+    expect(xml).toContain('w:ascii="Courier New"');
+    expect(xml).not.toContain("**bold**");
+    expect(xml).not.toContain("[lnk]");
+    expect(xml).not.toContain("`code`");
+  });
 });
 
 describe("Rendering: inline formatting", () => {

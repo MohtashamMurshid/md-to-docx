@@ -24,6 +24,13 @@ import { processInlineCode } from "./renderers/textRenderer.js";
 import { resolveFontFamily } from "./utils/styleUtils.js";
 import { sanitizeForBookmarkId } from "./utils/bookmarkUtils.js";
 
+/** Rendering overrides shared across inline-node renderers. */
+interface InlineOverrides {
+  forceBold?: boolean;
+  forceItalic?: boolean;
+  size?: number;
+}
+
 /**
  * Converts internal docx model to docx Paragraph/Table objects
  * Handles nested lists with proper level tracking
@@ -60,7 +67,7 @@ export async function modelToDocx(
 
   function textRunFromNode(
     node: DocxTextNode,
-    overrides: { forceBold?: boolean; size?: number } = {}
+    overrides: InlineOverrides = {}
   ): TextRun {
     if (node.code) {
       return processInlineCode(node.value, style);
@@ -69,7 +76,7 @@ export async function modelToDocx(
     return new TextRun({
       text: node.value,
       bold: overrides.forceBold || node.bold,
-      italics: node.italic,
+      italics: overrides.forceItalic || node.italic,
       strike: node.strikethrough,
       underline: node.underline ? { type: "single" } : undefined,
       color: node.link ? "0000FF" : "000000",
@@ -81,7 +88,7 @@ export async function modelToDocx(
 
   function renderInlineNodes(
     nodes: DocxTextNode[],
-    overrides: { forceBold?: boolean; size?: number } = {}
+    overrides: InlineOverrides = {}
   ): (TextRun | ExternalHyperlink)[] {
     const out: (TextRun | ExternalHyperlink)[] = [];
     for (const node of nodes) {
@@ -94,7 +101,7 @@ export async function modelToDocx(
                 color: "0000FF",
                 underline: { type: "single" },
                 bold: overrides.forceBold || node.bold,
-                italics: node.italic,
+                italics: overrides.forceItalic || node.italic,
                 strike: node.strikethrough,
                 size: overrides.size || style.paragraphSize || 24,
                 font: resolveFontFamily(style),
@@ -269,16 +276,14 @@ export async function modelToDocx(
       }
 
       case "blockquote": {
-        // Combine blockquote children into text
-        const quoteText = node.children
-          .map((child) => {
-            if (child.type === "paragraph") {
-              return child.children.map((c) => c.value).join("");
-            }
-            return "";
-          })
-          .join("\n");
-        return [processBlockquote(quoteText, style)];
+        return [
+          processBlockquote(node.children, style, (nodes) =>
+            renderInlineNodes(nodes, {
+              size: style.blockquoteSize || 24,
+              forceItalic: true,
+            })
+          ),
+        ];
       }
 
       case "image": {

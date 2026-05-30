@@ -131,6 +131,7 @@ export async function parseToDocxOptions(
     let maxSequenceId = 0;
     const processedImageCounter = { count: 0 };
     const headingBookmarkCounter = { count: 0 };
+    const tocPlaceholders = new WeakSet<object>();
 
     for (const section of resolvedSections) {
       const ast = await parseMarkdownToAst(section.markdown);
@@ -144,6 +145,7 @@ export async function parseToDocxOptions(
         sequenceIdOffset: maxSequenceId,
         processedImageCounter,
         headingBookmarkCounter,
+        tocPlaceholders,
       });
 
       maxSequenceId = Math.max(maxSequenceId, renderedModel.maxSequenceId);
@@ -165,7 +167,8 @@ export async function parseToDocxOptions(
       const replacedTocChildren = replaceTocPlaceholders(
         section.children,
         tocContent,
-        tocInserted
+        tocInserted,
+        tocPlaceholders
       );
       tocInserted = replacedTocChildren.tocInserted;
 

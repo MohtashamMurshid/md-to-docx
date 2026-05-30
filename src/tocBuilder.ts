@@ -108,16 +108,14 @@ export function buildTocContent(
 export function replaceTocPlaceholders(
   children: (Paragraph | Table)[],
   tocContent: Paragraph[],
-  tocInserted: boolean
+  tocInserted: boolean,
+  tocPlaceholders: WeakSet<object>
 ): { children: (Paragraph | Table)[]; tocInserted: boolean } {
   const nextChildren: (Paragraph | Table)[] = [];
   let inserted = tocInserted;
 
   children.forEach((child) => {
-    if (
-      (child as unknown as { __isTocPlaceholder?: boolean })
-        .__isTocPlaceholder === true
-    ) {
+    if (tocPlaceholders.has(child)) {
       if (tocContent.length > 0 && !inserted) {
         nextChildren.push(...tocContent);
         inserted = true;

@@ -44,6 +44,8 @@ export async function modelToDocx(
     /** When set by `parseToDocxOptions`, ties `maxImages` to the whole document across sections. */
     processedImageCounter?: { count: number };
     headingBookmarkCounter?: { count: number };
+    /** Records emitted TOC placeholder paragraphs so the caller can splice in TOC content. */
+    tocPlaceholders?: WeakSet<object>;
   } = {}
 ): Promise<{
   children: (Paragraph | Table)[];
@@ -304,7 +306,7 @@ export async function modelToDocx(
 
       case "tocPlaceholder": {
         const placeholder = new Paragraph({});
-        (placeholder as any).__isTocPlaceholder = true;
+        renderOptions.tocPlaceholders?.add(placeholder);
         return [placeholder];
       }
 

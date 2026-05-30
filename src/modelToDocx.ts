@@ -72,7 +72,7 @@ export async function modelToDocx(
     overrides: InlineOverrides = {}
   ): TextRun {
     if (node.code) {
-      return processInlineCode(node.value, style);
+      return processInlineCode(node.value, style, { size: overrides.size });
     }
 
     return new TextRun({

@@ -21,7 +21,7 @@ function resolveHeadingSize(level: number, style: Style): number {
     return override;
   }
   if (level > 1) {
-    return style.titleSize - (level - 1) * 4;
+    return Math.max(1, style.titleSize - (level - 1) * 4);
   }
   return style.titleSize;
 }

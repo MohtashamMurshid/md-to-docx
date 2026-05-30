@@ -82,7 +82,10 @@ describe("Security regressions", () => {
   it("bounds bracket-heavy input without catastrophic scanning", async () => {
     const blob = await convertMarkdownToDocx("[".repeat(20_000));
     const documentXml = await getDocumentXml(blob);
-    expect(documentXml.length).toBeGreaterThan(0);
+    // The bracket payload must actually be rendered (not silently dropped):
+    // every literal "[" should survive into the document body.
+    const bracketCount = (documentXml.match(/\[/g) || []).length;
+    expect(bracketCount).toBe(20_000);
   });
 
   it("caches and bounds unknown code highlighting language resolution", () => {

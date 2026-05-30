@@ -15,7 +15,7 @@ function headingRunSize(level: number, style: Style): number {
   if (level === 6) {
     return Math.max(1, style.heading6Size ?? style.titleSize - 20);
   }
-  return style.titleSize - (level - 1) * 4;
+  return Math.max(1, style.titleSize - (level - 1) * 4);
 }
 
 /**

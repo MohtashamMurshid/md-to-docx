@@ -68,8 +68,9 @@ describe("Rendering: headings and alignment", () => {
       .file("word/_rels/document.xml.rels")
       ?.async("string");
 
-    // Bold marker inside the heading still renders bold.
-    expect(xml).toMatch(/<w:b\s*\/>/);
+    // The **bold** span renders as a bold run wrapping "bold" (not merely the
+    // heading style's inherited boldness elsewhere in the paragraph).
+    expect(xml).toMatch(/<w:b\/>(?:(?!<\/w:r>)[\s\S])*?>bold<\/w:t>/);
     // Links inside headings become real hyperlinks, not literal text.
     expect(xml).toContain("<w:hyperlink");
     expect(rels).toContain("https://example.com/h");
@@ -125,13 +126,25 @@ Another paragraph with justified alignment.`;
       .file("word/_rels/document.xml.rels")
       ?.async("string");
 
-    expect(xml).toMatch(/<w:b\s*\/>/);
+    expect(xml).toMatch(/<w:b\/>(?:(?!<\/w:r>)[\s\S])*?>bold<\/w:t>/);
     expect(xml).toContain("<w:hyperlink");
     expect(rels).toContain("https://example.com/q");
     expect(xml).toContain('w:ascii="Courier New"');
     expect(xml).not.toContain("**bold**");
     expect(xml).not.toContain("[lnk]");
     expect(xml).not.toContain("`code`");
+  });
+
+  it("separates multi-paragraph blockquotes with a line break", async () => {
+    const blob = await convertMarkdownToDocx(
+      "> First quoted paragraph.\n>\n> Second quoted paragraph."
+    );
+    const xml = await getDocumentXml(blob);
+
+    expect(xml).toContain("First quoted paragraph.");
+    expect(xml).toContain("Second quoted paragraph.");
+    // The two child paragraphs are joined by an explicit break run.
+    expect(xml).toContain("<w:br/>");
   });
 });
 

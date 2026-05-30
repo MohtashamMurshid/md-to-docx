@@ -352,28 +352,6 @@ export interface TableData {
   align?: (string | null)[];
 }
 
-export interface ProcessedContent {
-  children: any[];
-  skipLines: number;
-}
-
-export interface HeadingConfig {
-  level: number;
-  size: number;
-  style?: string;
-  alignment?: any;
-  bookmarkId?: string;
-}
-
-export interface ListItemConfig {
-  text: string;
-  boldText?: string;
-  isNumbered?: boolean;
-  listNumber?: number;
-  sequenceId?: number;
-  level?: number;
-}
-
 /**
  * Configuration for text find-and-replace operations
  * @property find - The pattern to find (string or RegExp)

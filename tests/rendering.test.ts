@@ -59,6 +59,27 @@ describe("Rendering: headings and alignment", () => {
     expect(xml).toContain('w:val="18"');
   });
 
+  it("renders heading inline formatting, links, and code from the model", async () => {
+    const blob = await convertMarkdownToDocx(
+      "# Head **bold** and [lnk](https://example.com/h) and `code`"
+    );
+    const xml = await getDocumentXml(blob);
+    const rels = await (await getZip(blob))
+      .file("word/_rels/document.xml.rels")
+      ?.async("string");
+
+    // The **bold** span renders as a bold run wrapping "bold" (not merely the
+    // heading style's inherited boldness elsewhere in the paragraph).
+    expect(xml).toMatch(/<w:b\/>(?:(?!<\/w:r>)[\s\S])*?>bold<\/w:t>/);
+    // Links inside headings become real hyperlinks, not literal text.
+    expect(xml).toContain("<w:hyperlink");
+    expect(rels).toContain("https://example.com/h");
+    expect(xml).not.toContain("[lnk]");
+    // Inline code inside headings renders as a monospace run, not backticks.
+    expect(xml).toContain('w:ascii="Courier New"');
+    expect(xml).not.toContain("`code`");
+  });
+
   it("generates deterministic unique bookmark names across sections", async () => {
     const blob = await convertMarkdownToDocx("", {
       sections: [
@@ -94,6 +115,36 @@ Another paragraph with justified alignment.`;
     expect(xml).toContain('w:val="both"');
     expect(xml).toContain('w:val="center"');
     expect(xml).toContain("blockquote");
+  });
+
+  it("preserves inline formatting, links, and code inside blockquotes", async () => {
+    const blob = await convertMarkdownToDocx(
+      "> Quote with **bold**, [lnk](https://example.com/q) and `code`."
+    );
+    const xml = await getDocumentXml(blob);
+    const rels = await (await getZip(blob))
+      .file("word/_rels/document.xml.rels")
+      ?.async("string");
+
+    expect(xml).toMatch(/<w:b\/>(?:(?!<\/w:r>)[\s\S])*?>bold<\/w:t>/);
+    expect(xml).toContain("<w:hyperlink");
+    expect(rels).toContain("https://example.com/q");
+    expect(xml).toContain('w:ascii="Courier New"');
+    expect(xml).not.toContain("**bold**");
+    expect(xml).not.toContain("[lnk]");
+    expect(xml).not.toContain("`code`");
+  });
+
+  it("separates multi-paragraph blockquotes with a line break", async () => {
+    const blob = await convertMarkdownToDocx(
+      "> First quoted paragraph.\n>\n> Second quoted paragraph."
+    );
+    const xml = await getDocumentXml(blob);
+
+    expect(xml).toContain("First quoted paragraph.");
+    expect(xml).toContain("Second quoted paragraph.");
+    // The two child paragraphs are joined by an explicit break run.
+    expect(xml).toContain("<w:br/>");
   });
 });
 

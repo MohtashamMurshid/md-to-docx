@@ -3,6 +3,24 @@ import type { DocxDocumentModel, DocxBlockNode, DocxTextNode, DocxListItemNode }
 import { Style, Options } from "./types.js";
 
 /**
+ * Classifies a raw HTML node value into a comment or page-break block, or
+ * null when it carries no recognized marker. Shared by the top-level scan
+ * and the nested (blockquote/list) block walker.
+ */
+function classifyHtmlNode(value: string): DocxBlockNode | null {
+  if (value.includes("COMMENT:")) {
+    const match = value.match(/COMMENT:\s*(.+?)(?:-->)?/);
+    if (match) {
+      return { type: "comment", value: match[1].trim() };
+    }
+  }
+  if (value.includes("pagebreak")) {
+    return { type: "pageBreak" };
+  }
+  return null;
+}
+
+/**
  * Converts mdast AST to internal docx-friendly model
  * Handles nested lists properly using AST structure
  */
@@ -28,25 +46,7 @@ export function mdastToDocxModel(root: Root, _style: Style, _options: Options): 
       case "table":
         return processTable(node as Table);
       case "html":
-        // Handle HTML comments and special markers
-        const htmlValue = (node as any).value || "";
-        if (htmlValue.trim() === "<!--COMMENT:") {
-          // This is a comment marker - we'll handle it specially
-          return null; // Will be handled by looking ahead
-        }
-        if (htmlValue.includes("COMMENT:")) {
-          const match = htmlValue.match(/COMMENT:\s*(.+?)(?:-->)?/);
-          if (match) {
-            return {
-              type: "comment",
-              value: match[1].trim(),
-            };
-          }
-        }
-        if (htmlValue.includes("\\pagebreak") || htmlValue.includes("pagebreak")) {
-          return { type: "pageBreak" };
-        }
-        return null;
+        return classifyHtmlNode((node as { value?: string }).value || "");
       case "thematicBreak":
         // Horizontal rule - skip for now
         return null;
@@ -344,24 +344,12 @@ export function mdastToDocxModel(root: Root, _style: Style, _options: Options): 
       }
     }
     
-    // Handle HTML comments for COMMENT: markers
+    // Handle HTML comments and page-break markers.
     if (child.type === "html") {
-      const htmlValue = (child as any).value || "";
-      if (htmlValue.includes("COMMENT:")) {
-        const match = htmlValue.match(/COMMENT:\s*(.+?)(?:-->)?/);
-        if (match) {
-          children.push({
-            type: "comment",
-            value: match[1].trim(),
-          });
-          continue;
-        }
+      const classified = classifyHtmlNode((child as { value?: string }).value || "");
+      if (classified) {
+        children.push(classified);
       }
-      if (htmlValue.includes("pagebreak") || htmlValue.includes("\\pagebreak")) {
-        children.push({ type: "pageBreak" });
-        continue;
-      }
-      // Skip other HTML nodes
       continue;
     }
 

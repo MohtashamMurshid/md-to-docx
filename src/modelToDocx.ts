@@ -24,6 +24,13 @@ import { processInlineCode } from "./renderers/textRenderer.js";
 import { resolveFontFamily } from "./utils/styleUtils.js";
 import { sanitizeForBookmarkId } from "./utils/bookmarkUtils.js";
 
+/** Rendering overrides shared across inline-node renderers. */
+interface InlineOverrides {
+  forceBold?: boolean;
+  forceItalic?: boolean;
+  size?: number;
+}
+
 /**
  * Converts internal docx model to docx Paragraph/Table objects
  * Handles nested lists with proper level tracking
@@ -37,6 +44,8 @@ export async function modelToDocx(
     /** When set by `parseToDocxOptions`, ties `maxImages` to the whole document across sections. */
     processedImageCounter?: { count: number };
     headingBookmarkCounter?: { count: number };
+    /** Records emitted TOC placeholder paragraphs so the caller can splice in TOC content. */
+    tocPlaceholders?: WeakSet<object>;
   } = {}
 ): Promise<{
   children: (Paragraph | Table)[];
@@ -58,46 +67,18 @@ export async function modelToDocx(
     count: 0,
   };
 
-  function encodeInlineNode(node: {
-    value: string;
-    bold?: boolean;
-    italic?: boolean;
-    underline?: boolean;
-    strikethrough?: boolean;
-    code?: boolean;
-    link?: string;
-  }): string {
-    if (node.code) {
-      return "`" + node.value + "`";
-    }
-
-    let text = node.link ? `[${node.value}](${node.link})` : node.value;
-
-    if (node.strikethrough) {
-      text = `~~${text}~~`;
-    }
-    if (node.underline) {
-      text = `++${text}++`;
-    }
-
-    if (node.bold && node.italic) return "***" + text + "***";
-    if (node.bold) return "**" + text + "**";
-    if (node.italic) return "*" + text + "*";
-    return text;
-  }
-
   function textRunFromNode(
     node: DocxTextNode,
-    overrides: { forceBold?: boolean; size?: number } = {}
+    overrides: InlineOverrides = {}
   ): TextRun {
     if (node.code) {
-      return processInlineCode(node.value, style);
+      return processInlineCode(node.value, style, { size: overrides.size });
     }
 
     return new TextRun({
       text: node.value,
       bold: overrides.forceBold || node.bold,
-      italics: node.italic,
+      italics: overrides.forceItalic || node.italic,
       strike: node.strikethrough,
       underline: node.underline ? { type: "single" } : undefined,
       color: node.link ? "0000FF" : "000000",
@@ -109,7 +90,7 @@ export async function modelToDocx(
 
   function renderInlineNodes(
     nodes: DocxTextNode[],
-    overrides: { forceBold?: boolean; size?: number } = {}
+    overrides: InlineOverrides = {}
   ): (TextRun | ExternalHyperlink)[] {
     const out: (TextRun | ExternalHyperlink)[] = [];
     for (const node of nodes) {
@@ -122,7 +103,7 @@ export async function modelToDocx(
                 color: "0000FF",
                 underline: { type: "single" },
                 bold: overrides.forceBold || node.bold,
-                italics: node.italic,
+                italics: overrides.forceItalic || node.italic,
                 strike: node.strikethrough,
                 size: overrides.size || style.paragraphSize || 24,
                 font: resolveFontFamily(style),
@@ -260,22 +241,14 @@ export async function modelToDocx(
   ): (Paragraph | Table)[] {
     switch (node.type) {
       case "heading": {
-        // Re-encode inline formatting into markdown-like syntax for helpers.
-        const headingText = node.children.map((c) => encodeInlineNode(c)).join("");
-
-        const headingLine = "#".repeat(node.level) + " " + headingText;
+        const headingText = node.children.map((c) => c.value).join("");
         headingBookmarkCounter.count++;
-        const config = {
-          level: node.level,
-          size: 0,
-          style: node.level === 1 ? "Title" : undefined,
-          bookmarkId: `_Toc_${sanitizeForBookmarkId(headingText)}_${headingBookmarkCounter.count}`,
-        };
-        const { paragraph, bookmarkId } = processHeading(
-          headingLine,
-          config,
+        const bookmarkId = `_Toc_${sanitizeForBookmarkId(headingText)}_${headingBookmarkCounter.count}`;
+        const { paragraph } = processHeading(
+          node.children,
+          { level: node.level, bookmarkId },
           style,
-          documentType
+          (nodes, size) => renderInlineNodes(nodes, { size })
         );
         headings.push({
           text: headingText,
@@ -305,16 +278,14 @@ export async function modelToDocx(
       }
 
       case "blockquote": {
-        // Combine blockquote children into text
-        const quoteText = node.children
-          .map((child) => {
-            if (child.type === "paragraph") {
-              return child.children.map((c) => c.value).join("");
-            }
-            return "";
-          })
-          .join("\n");
-        return [processBlockquote(quoteText, style)];
+        return [
+          processBlockquote(node.children, style, (nodes) =>
+            renderInlineNodes(nodes, {
+              size: style.blockquoteSize || 24,
+              forceItalic: true,
+            })
+          ),
+        ];
       }
 
       case "image": {
@@ -335,7 +306,7 @@ export async function modelToDocx(
 
       case "tocPlaceholder": {
         const placeholder = new Paragraph({});
-        (placeholder as any).__isTocPlaceholder = true;
+        renderOptions.tocPlaceholders?.add(placeholder);
         return [placeholder];
       }
 

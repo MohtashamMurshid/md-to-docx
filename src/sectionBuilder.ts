@@ -35,6 +35,35 @@ const defaultSectionMargins = {
   left: 1080,
 };
 
+// docx page-size defaults (A4 portrait), expressed in twips.
+const DEFAULT_PAGE_WIDTH_TWIPS = 11906;
+const DEFAULT_PAGE_HEIGHT_TWIPS = 16838;
+
+/**
+ * Computes the usable content width of a section in twips (page width minus
+ * left/right margins), mirroring how docx resolves the displayed page width
+ * (the longer edge is used as the width in landscape orientation).
+ *
+ * Tables are sized with this value using {@link WidthType.DXA} so they emit a
+ * plain integer width. The percentage form produced by docx
+ * (`<w:tblW w:type="pct" w:w="100%"/>`) is rejected as corrupt by Word 2007,
+ * which expects fiftieths of a percent rather than a literal percentage.
+ */
+export function getSectionContentWidthTwips(config: SectionConfig): number {
+  const size = config.page?.size;
+  const width = size?.width ?? DEFAULT_PAGE_WIDTH_TWIPS;
+  const height = size?.height ?? DEFAULT_PAGE_HEIGHT_TWIPS;
+  const orientation = resolvePageOrientation(size?.orientation);
+  const displayedWidth =
+    orientation === PageOrientation.LANDSCAPE ? height : width;
+
+  const margins = { ...defaultSectionMargins, ...(config.page?.margin || {}) };
+  const left = margins.left ?? defaultSectionMargins.left;
+  const right = margins.right ?? defaultSectionMargins.right;
+
+  return Math.max(1, Math.floor(displayedWidth - left - right));
+}
+
 export interface ResolvedSectionInput {
   markdown: string;
   style: Style;

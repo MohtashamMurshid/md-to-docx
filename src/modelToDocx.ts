@@ -46,6 +46,12 @@ export async function modelToDocx(
     headingBookmarkCounter?: { count: number };
     /** Records emitted TOC placeholder paragraphs so the caller can splice in TOC content. */
     tocPlaceholders?: WeakSet<object>;
+    /**
+     * Usable content width of the section in twips. Tables are sized with this
+     * value (as {@link WidthType.DXA}) so they emit a plain integer width,
+     * avoiding the percentage form that Word 2007 treats as corrupt.
+     */
+    tableWidthTwips?: number;
   } = {}
 ): Promise<{
   children: (Paragraph | Table)[];
@@ -60,6 +66,9 @@ export async function modelToDocx(
   const processedImageCounter = renderOptions.processedImageCounter ?? {
     count: 0,
   };
+  // Full-width tables are sized in twips so docx emits a plain integer width.
+  // Defaults to A4 portrait content width (page 11906 - default 1080 margins).
+  const tableWidthTwips = renderOptions.tableWidthTwips ?? 9746;
 
   // Track numbering sequences for nested lists
   let maxSequenceId = 0;
@@ -157,7 +166,7 @@ export async function modelToDocx(
     };
 
     return new Table({
-      width: { size: 100, type: WidthType.PERCENTAGE },
+      width: { size: tableWidthTwips, type: WidthType.DXA },
       rows: [
         new TableRow({
           tableHeader: true,

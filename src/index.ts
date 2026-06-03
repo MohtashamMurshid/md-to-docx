@@ -18,6 +18,7 @@ import {
   buildFooters,
   buildHeaders,
   buildSectionProperties,
+  getSectionContentWidthTwips,
   normalizeStyleInput,
   resolveSections,
 } from "./sectionBuilder.js";
@@ -146,6 +147,7 @@ export async function parseToDocxOptions(
         processedImageCounter,
         headingBookmarkCounter,
         tocPlaceholders,
+        tableWidthTwips: getSectionContentWidthTwips(section.config),
       });
 
       maxSequenceId = Math.max(maxSequenceId, renderedModel.maxSequenceId);

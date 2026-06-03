@@ -297,6 +297,47 @@ describe("Rendering: tables", () => {
     // fixed layout should include tblLayout type="fixed"
     expect(xmlFixed).toMatch(/<w:tblLayout[^>]*w:type="fixed"/);
   });
+
+  it("emits an integer table width that Word 2007 accepts (no percentage form)", async () => {
+    const markdown = `| A | B |
+|---|---|
+| 1 | 2 |`;
+
+    const xml = await render(markdown);
+
+    const match = xml.match(/<w:tblW\b[^>]*\/>/);
+    expect(match).not.toBeNull();
+    const tblW = match![0];
+
+    // Word 2007 rejects the percentage form (e.g. w:w="100%") as corrupt; the
+    // width must be a plain integer. See issue #64.
+    expect(tblW).not.toContain("%");
+    const wValue = tblW.match(/w:w="([^"]+)"/)?.[1];
+    expect(wValue).toBeDefined();
+    expect(wValue).toMatch(/^\d+$/);
+  });
+
+  it("scales table width to the configured page size and margins", async () => {
+    const markdown = `| A | B |
+|---|---|
+| 1 | 2 |`;
+
+    const xml = await render(markdown, {
+      sections: [
+        {
+          markdown,
+          page: {
+            size: { width: 12240, height: 15840 },
+            margin: { left: 1440, right: 1440 },
+          },
+        },
+      ],
+    });
+
+    const wValue = xml.match(/<w:tblW\b[^>]*w:w="([^"]+)"/)?.[1];
+    // 12240 (US Letter) - 1440 - 1440 = 9360 twips of usable width.
+    expect(wValue).toBe("9360");
+  });
 });
 
 describe("Rendering: images", () => {

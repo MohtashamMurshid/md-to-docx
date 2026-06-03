@@ -1,3 +1,9 @@
+## [2.12.2](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.12.1...v2.12.2) (2026-06-03)
+
+### Bug Fixes
+
+* **tables:** emit integer table width to avoid Word 2007 corruption ([#65](https://github.com/MohtashamMurshid/md-to-docx/issues/65)) ([b016ba7](https://github.com/MohtashamMurshid/md-to-docx/commit/b016ba727339475b82c4dd1af3d8aaa2f8693e76))
+
 ## [2.12.1](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.12.0...v2.12.1) (2026-05-30)
 
 ### Bug Fixes

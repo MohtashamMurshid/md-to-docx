@@ -16,6 +16,15 @@ function documentParagraphCount(xml: string): number {
   return xml.match(/<w:p>/g)?.length || 0;
 }
 
+function numberingLevels(xml: string): string[] {
+  return Array.from(
+    xml.matchAll(
+      /<w:numPr>[\s\S]*?<w:ilvl w:val="(\d+)"\/>[\s\S]*?<\/w:numPr>/g,
+    ),
+    (match) => match[1],
+  );
+}
+
 async function render(markdown: string, options?: Options): Promise<string> {
   const blob = await convertMarkdownToDocx(markdown, options);
   expect(blob).toBeInstanceOf(Blob);
@@ -169,6 +178,15 @@ Another paragraph with justified alignment.`;
     expect(xml).toContain("Inner quote");
     expect(documentParagraphCount(xml)).toBeGreaterThanOrEqual(2);
   });
+
+  it("starts quoted lists at quote-local list depth", async () => {
+    const xml = await render(`- outer
+  - > - quoted item`);
+
+    expect(xml).toContain("outer");
+    expect(xml).toContain("quoted item");
+    expect(numberingLevels(xml)).toEqual(["0", "1", "0"]);
+  });
 });
 
 describe("Rendering: inline formatting", () => {
@@ -232,6 +250,13 @@ Interrupting paragraph.
     expect(numberingXml).toBeDefined();
     expect(documentXml).toContain("First bullet");
     expect(documentXml).toContain("Should restart");
+  });
+
+  it("preserves a marker when the first list item child is a block", async () => {
+    const xml = await render(`- > quoted block`);
+
+    expect(xml).toContain("<w:numPr>");
+    expect(xml).toContain("quoted block");
   });
 });
 
@@ -408,6 +433,22 @@ describe("Rendering: images", () => {
     expect(documentXml).toContain("<w:drawing>");
     expect(documentXml).toContain("<w:pBdr>");
     expect(documentXml).toContain("<w:ind");
+    expect(mediaFiles.length).toBeGreaterThan(0);
+  });
+
+  it("preserves images mixed with paragraph text", async () => {
+    const markdown = `Before ![mixed image](${ONE_PX_PNG}) after`;
+
+    const blob = await convertMarkdownToDocx(markdown);
+    const zip = await getZip(blob);
+    const documentXml = await zip.file("word/document.xml")!.async("string");
+    const mediaFiles = Object.keys(zip.files).filter((p) =>
+      p.startsWith("word/media/"),
+    );
+
+    expect(documentXml).toContain("Before ");
+    expect(documentXml).toContain(" after");
+    expect(documentXml).toContain("<w:drawing>");
     expect(mediaFiles.length).toBeGreaterThan(0);
   });
 

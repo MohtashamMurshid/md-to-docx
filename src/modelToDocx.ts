@@ -396,7 +396,7 @@ export async function modelToDocx(
         continue;
       }
 
-      out.push(...(await renderBlockNode(child, listLevel, quoteContext)));
+      out.push(...(await renderBlockNode(child, 0, quoteContext)));
     }
 
     return out;
@@ -464,7 +464,7 @@ export async function modelToDocx(
       } else {
         // Other block types - render normally but they'll appear as part of list item
         const markerContext =
-          child.type === "image" && paragraphs.length === 0
+          paragraphs.length === 0
             ? { isOrdered, level, sequenceId }
             : undefined;
         const rendered = await renderBlockNodeWithListMarker(
@@ -533,6 +533,20 @@ export async function modelToDocx(
   ): Promise<(Paragraph | Table)[]> {
     if (node.type === "image") {
       return renderImageNode(node, context, listMarker);
+    }
+
+    if (listMarker) {
+      const rendered = await renderBlockNode(node, listLevel, context);
+      return [
+        listParagraphFromInlineNodes(
+          [],
+          listMarker.isOrdered,
+          listMarker.level,
+          listMarker.sequenceId,
+          context,
+        ),
+        ...rendered,
+      ];
     }
 
     return renderBlockNode(node, listLevel, context);

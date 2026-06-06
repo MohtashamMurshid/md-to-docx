@@ -91,7 +91,9 @@ export function mdastToDocxModel(
     };
   }
 
-  function processParagraph(paragraph: Paragraph): DocxBlockNode {
+  function processParagraph(
+    paragraph: Paragraph,
+  ): DocxBlockNode | DocxBlockNode[] {
     // If the paragraph consists of a single image, treat it as a block image
     if (
       paragraph.children.length === 1 &&
@@ -103,6 +105,40 @@ export function mdastToDocxModel(
         alt: img.alt || "",
         url: img.url || "",
       };
+    }
+
+    if (paragraph.children.some((child) => (child as any).type === "image")) {
+      const blocks: DocxBlockNode[] = [];
+      let inlineBuffer: typeof paragraph.children = [];
+
+      const flushInlineBuffer = (): void => {
+        if (inlineBuffer.length === 0) {
+          return;
+        }
+
+        blocks.push({
+          type: "paragraph",
+          children: processInlineNodes(inlineBuffer),
+        });
+        inlineBuffer = [];
+      };
+
+      for (const child of paragraph.children) {
+        if ((child as any).type === "image") {
+          flushInlineBuffer();
+          const image = child as Image;
+          blocks.push({
+            type: "image",
+            alt: image.alt || "",
+            url: image.url || "",
+          });
+        } else {
+          inlineBuffer.push(child);
+        }
+      }
+
+      flushInlineBuffer();
+      return blocks;
     }
 
     // Regular paragraph with inline content
@@ -133,7 +169,12 @@ export function mdastToDocxModel(
             itemChildren.push(nestedList);
           }
         } else if (child.type === "paragraph") {
-          itemChildren.push(processParagraph(child as Paragraph));
+          const processedParagraph = processParagraph(child as Paragraph);
+          if (Array.isArray(processedParagraph)) {
+            itemChildren.push(...processedParagraph);
+          } else {
+            itemChildren.push(processedParagraph);
+          }
         } else {
           // Other block content (headings, code blocks, etc.)
           const processed = processNode(child);
@@ -269,7 +310,7 @@ export function mdastToDocxModel(
         case "text":
           pushTextWithUnderline((node as Text).value);
           break;
-        case "emphasis":
+        case "emphasis": {
           const emphasisChildren = processInlineNodes(
             (node as Emphasis).children,
           );
@@ -280,7 +321,8 @@ export function mdastToDocxModel(
             });
           }
           break;
-        case "strong":
+        }
+        case "strong": {
           const strongChildren = processInlineNodes((node as Strong).children);
           for (const child of strongChildren) {
             result.push({
@@ -289,7 +331,8 @@ export function mdastToDocxModel(
             });
           }
           break;
-        case "delete":
+        }
+        case "delete": {
           const strikeChildren = processInlineNodes((node as Delete).children);
           for (const child of strikeChildren) {
             result.push({
@@ -298,6 +341,7 @@ export function mdastToDocxModel(
             });
           }
           break;
+        }
         case "inlineCode":
           result.push({
             type: "text",

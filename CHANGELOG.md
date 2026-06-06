@@ -1,3 +1,9 @@
+## [2.12.3](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.12.2...v2.12.3) (2026-06-06)
+
+### Bug Fixes
+
+* render nested images and blockquote content ([#66](https://github.com/MohtashamMurshid/md-to-docx/issues/66)) ([3dc6ce9](https://github.com/MohtashamMurshid/md-to-docx/commit/3dc6ce918f83d1cf6d494d25d241cdcaec80b226))
+
 ## [2.12.2](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.12.1...v2.12.2) (2026-06-03)
 
 ### Bug Fixes

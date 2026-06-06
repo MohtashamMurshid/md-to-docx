@@ -12,11 +12,15 @@ import { getDocumentXml, getZip, saveBlobForDebug } from "./helpers";
 const ONE_PX_PNG =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAGgwJ/vk9yBgAAAABJRU5ErkJggg==";
 
+function documentParagraphCount(xml: string): number {
+  return xml.match(/<w:p>/g)?.length || 0;
+}
+
 async function render(markdown: string, options?: Options): Promise<string> {
   const blob = await convertMarkdownToDocx(markdown, options);
   expect(blob).toBeInstanceOf(Blob);
   expect(blob.type).toBe(
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   );
   return getDocumentXml(blob);
 }
@@ -61,7 +65,7 @@ describe("Rendering: headings and alignment", () => {
 
   it("renders heading inline formatting, links, and code from the model", async () => {
     const blob = await convertMarkdownToDocx(
-      "# Head **bold** and [lnk](https://example.com/h) and `code`"
+      "# Head **bold** and [lnk](https://example.com/h) and `code`",
     );
     const xml = await getDocumentXml(blob);
     const rels = await (await getZip(blob))
@@ -82,15 +86,12 @@ describe("Rendering: headings and alignment", () => {
 
   it("generates deterministic unique bookmark names across sections", async () => {
     const blob = await convertMarkdownToDocx("", {
-      sections: [
-        { markdown: "# Repeat" },
-        { markdown: "# Repeat" },
-      ],
+      sections: [{ markdown: "# Repeat" }, { markdown: "# Repeat" }],
     });
     const xml = await getDocumentXml(blob);
     const bookmarkNames = Array.from(
       xml.matchAll(/<w:bookmarkStart[^>]+w:name="([^"]+)"/g),
-      (match) => match[1]
+      (match) => match[1],
     );
 
     expect(bookmarkNames).toContain("_Toc_Repeat_1");
@@ -119,7 +120,7 @@ Another paragraph with justified alignment.`;
 
   it("preserves inline formatting, links, and code inside blockquotes", async () => {
     const blob = await convertMarkdownToDocx(
-      "> Quote with **bold**, [lnk](https://example.com/q) and `code`."
+      "> Quote with **bold**, [lnk](https://example.com/q) and `code`.",
     );
     const xml = await getDocumentXml(blob);
     const rels = await (await getZip(blob))
@@ -135,16 +136,38 @@ Another paragraph with justified alignment.`;
     expect(xml).not.toContain("`code`");
   });
 
-  it("separates multi-paragraph blockquotes with a line break", async () => {
+  it("renders multi-paragraph blockquotes as separate quoted paragraphs", async () => {
     const blob = await convertMarkdownToDocx(
-      "> First quoted paragraph.\n>\n> Second quoted paragraph."
+      "> First quoted paragraph.\n>\n> Second quoted paragraph.",
     );
     const xml = await getDocumentXml(blob);
 
     expect(xml).toContain("First quoted paragraph.");
     expect(xml).toContain("Second quoted paragraph.");
-    // The two child paragraphs are joined by an explicit break run.
-    expect(xml).toContain("<w:br/>");
+    expect(documentParagraphCount(xml)).toBeGreaterThanOrEqual(2);
+    expect(xml).not.toContain("<w:br/>");
+  });
+
+  it("renders lists inside blockquotes instead of dropping them", async () => {
+    const xml = await render(`> Quoted intro
+>
+> - list item 1
+> - list item 2`);
+
+    expect(xml).toContain("Quoted intro");
+    expect(xml).toContain("list item 1");
+    expect(xml).toContain("list item 2");
+    expect(xml).toContain("<w:numPr>");
+  });
+
+  it("renders nested blockquotes with all nested text preserved", async () => {
+    const xml = await render(`> Outer quote
+>
+> > Inner quote`);
+
+    expect(xml).toContain("Outer quote");
+    expect(xml).toContain("Inner quote");
+    expect(documentParagraphCount(xml)).toBeGreaterThanOrEqual(2);
   });
 });
 
@@ -202,9 +225,7 @@ Interrupting paragraph.
     await saveBlobForDebug(blob, "lists.docx");
     const zip = await getZip(blob);
     const documentXml = await zip.file("word/document.xml")!.async("string");
-    const numberingXml = await zip
-      .file("word/numbering.xml")
-      ?.async("string");
+    const numberingXml = await zip.file("word/numbering.xml")?.async("string");
 
     expect(documentXml).toContain("<w:numPr>");
     expect(documentXml).toMatch(/<w:numId\s+w:val="\d+"\s*\/>/);
@@ -354,9 +375,65 @@ describe("Rendering: images", () => {
 
     // docx should create a media entry for the embedded image
     const mediaFiles = Object.keys(zip.files).filter((p) =>
-      p.startsWith("word/media/")
+      p.startsWith("word/media/"),
     );
     expect(mediaFiles.length).toBeGreaterThan(0);
+  });
+
+  it("embeds images inside list items", async () => {
+    const markdown = `- ![list image](${ONE_PX_PNG})`;
+
+    const blob = await convertMarkdownToDocx(markdown);
+    const zip = await getZip(blob);
+    const documentXml = await zip.file("word/document.xml")!.async("string");
+    const mediaFiles = Object.keys(zip.files).filter((p) =>
+      p.startsWith("word/media/"),
+    );
+
+    expect(documentXml).toContain("<w:drawing>");
+    expect(mediaFiles.length).toBeGreaterThan(0);
+  });
+
+  it("embeds images inside blockquotes", async () => {
+    const markdown = `> ![quoted image](${ONE_PX_PNG})`;
+
+    const blob = await convertMarkdownToDocx(markdown);
+    const zip = await getZip(blob);
+    const documentXml = await zip.file("word/document.xml")!.async("string");
+    const mediaFiles = Object.keys(zip.files).filter((p) =>
+      p.startsWith("word/media/"),
+    );
+
+    expect(documentXml).toContain("<w:drawing>");
+    expect(mediaFiles.length).toBeGreaterThan(0);
+  });
+
+  it("applies maximum image count across top-level and nested images", async () => {
+    const markdown = `![one](${ONE_PX_PNG})
+
+- ![two](${ONE_PX_PNG})
+
+> ![three](${ONE_PX_PNG})`;
+
+    const blob = await convertMarkdownToDocx(markdown, {
+      imageHandling: { maxImages: 2 },
+    });
+    const zip = await getZip(blob);
+    const documentXml = await zip.file("word/document.xml")!.async("string");
+    const mediaFiles = Object.keys(zip.files).filter((p) =>
+      p.startsWith("word/media/"),
+    );
+
+    expect(documentXml.match(/<w:drawing>/g)).toHaveLength(2);
+    expect(mediaFiles).toHaveLength(2);
+    expect(documentXml).toContain("Image could not be loaded");
+  });
+
+  it("renders a fallback for invalid nested images", async () => {
+    const xml = await render(`> ![broken](not-a-url)`);
+
+    expect(xml).toContain("Image could not be displayed");
+    expect(xml).toContain("broken");
   });
 });
 
@@ -407,10 +484,10 @@ More content.`;
     expect(xml).toContain("Hidden H1");
     expect(xml).toContain("Hidden H4");
     expect(xml.indexOf(">Included H2<")).toBeLessThan(
-      xml.lastIndexOf(">Included H2<")
+      xml.lastIndexOf(">Included H2<"),
     );
     expect(xml.indexOf(">Included H3<")).toBeLessThan(
-      xml.lastIndexOf(">Included H3<")
+      xml.lastIndexOf(">Included H3<"),
     );
     expect(xml.indexOf(">Hidden H1<")).toBe(xml.lastIndexOf(">Hidden H1<"));
     expect(xml.indexOf(">Hidden H4<")).toBe(xml.lastIndexOf(">Hidden H4<"));
@@ -420,7 +497,9 @@ More content.`;
 describe("Rendering: Node output helpers", () => {
   it("returns valid DOCX bytes as Buffer and ArrayBuffer", async () => {
     const buffer = await convertMarkdownToBuffer("# Buffer helper");
-    const arrayBuffer = await convertMarkdownToArrayBuffer("# ArrayBuffer helper");
+    const arrayBuffer = await convertMarkdownToArrayBuffer(
+      "# ArrayBuffer helper",
+    );
 
     expect(Buffer.isBuffer(buffer)).toBe(true);
     expect(buffer.length).toBeGreaterThan(0);
@@ -457,13 +536,13 @@ describe("Rendering: error cases", () => {
     await expect(
       convertMarkdownToDocx("Hello", {
         style: { fontFamily: "   " },
-      })
+      }),
     ).rejects.toThrow("Invalid fontFamily");
   });
 
   it("throws MarkdownConversionError for non-string markdown input", async () => {
     await expect(
-      convertMarkdownToDocx(undefined as unknown as string)
+      convertMarkdownToDocx(undefined as unknown as string),
     ).rejects.toBeInstanceOf(MarkdownConversionError);
   });
 });

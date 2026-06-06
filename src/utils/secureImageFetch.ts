@@ -2,6 +2,7 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { Agent, buildConnector } from "undici";
 import { ImageHandlingOptions } from "../types.js";
+import { throwIfAborted } from "../processingLimits.js";
 
 export interface ResolvedImageHandlingOptions {
   remote: {
@@ -296,6 +297,53 @@ async function abortablePromise<T>(
   }
 }
 
+async function abortableCallerPromise<T>(
+  promise: Promise<T>,
+  signal?: AbortSignal
+): Promise<T> {
+  if (!signal) {
+    return promise;
+  }
+  throwIfAborted(signal);
+
+  let onAbort!: () => void;
+  const abortPromise = new Promise<never>((_, reject) => {
+    onAbort = () => reject(abortErrorFromSignal(signal));
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+
+  try {
+    return await Promise.race([promise, abortPromise]);
+  } catch (error) {
+    if (signal.aborted) {
+      throwIfAborted(signal);
+    }
+    throw error;
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
+function linkCallerSignal(
+  controller: AbortController,
+  signal?: AbortSignal
+): () => void {
+  if (!signal) {
+    return () => {};
+  }
+  if (signal.aborted) {
+    controller.abort(signal.reason);
+    return () => {};
+  }
+
+  const onAbort = (): void => {
+    controller.abort(signal.reason);
+  };
+  signal.addEventListener("abort", onAbort, { once: true });
+
+  return () => signal.removeEventListener("abort", onAbort);
+}
+
 function abortErrorFromSignal(signal: AbortSignal): Error {
   const reason = signal.reason;
   if (reason instanceof Error) {
@@ -380,8 +428,11 @@ export interface RemoteImage {
  */
 export async function fetchRemoteImage(
   initialUrl: string,
-  options: ResolvedImageHandlingOptions
+  options: ResolvedImageHandlingOptions,
+  signal?: AbortSignal
 ): Promise<RemoteImage> {
+  throwIfAborted(signal);
+
   const totalBudgetMs = Math.max(1, options.fetchTimeoutMs);
   const deadline = Date.now() + totalBudgetMs;
   let currentUrl = new URL(initialUrl);
@@ -402,6 +453,8 @@ export async function fetchRemoteImage(
 
   try {
     while (true) {
+      throwIfAborted(signal);
+
       const remainMs = deadline - Date.now();
       if (remainMs <= 0) {
         throw new Error("Remote image fetch timed out");
@@ -413,10 +466,9 @@ export async function fetchRemoteImage(
       );
 
       await closePinned();
-      pinnedAgent = await preparePinnedAgentIfNeeded(
-        currentUrl,
-        options,
-        dnsBudgetMs
+      pinnedAgent = await abortableCallerPromise(
+        preparePinnedAgentIfNeeded(currentUrl, options, dnsBudgetMs),
+        signal
       );
 
       const hopRemainMs = deadline - Date.now();
@@ -425,9 +477,14 @@ export async function fetchRemoteImage(
       }
 
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), hopRemainMs);
+      const timeout = setTimeout(
+        () => controller.abort(new Error("Remote image fetch timed out")),
+        hopRemainMs
+      );
+      const unlinkCallerSignal = linkCallerSignal(controller, signal);
 
       try {
+        throwIfAborted(signal);
         const fetchInit: RequestInit & { dispatcher?: Agent } = {
           redirect: "manual",
           signal: controller.signal,
@@ -435,6 +492,7 @@ export async function fetchRemoteImage(
         };
 
         const response = await fetch(currentUrl.href, fetchInit);
+        throwIfAborted(signal);
 
         if (
           response.status >= 300 &&
@@ -464,6 +522,7 @@ export async function fetchRemoteImage(
           options.maxImageBytes,
           controller.signal
         );
+        throwIfAborted(signal);
 
         clearTimeout(timeout);
 
@@ -472,8 +531,14 @@ export async function fetchRemoteImage(
           contentType: response.headers.get("content-type") || "",
           finalUrl: currentUrl.href,
         };
+      } catch (error) {
+        if (signal?.aborted) {
+          throwIfAborted(signal);
+        }
+        throw error;
       } finally {
         clearTimeout(timeout);
+        unlinkCallerSignal();
       }
     }
   } finally {

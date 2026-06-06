@@ -30,6 +30,7 @@ import {
 import { processInlineCode } from "./renderers/textRenderer.js";
 import { resolveFontFamily } from "./utils/styleUtils.js";
 import { sanitizeForBookmarkId } from "./utils/bookmarkUtils.js";
+import { throwIfAborted } from "./processingLimits.js";
 
 /** Rendering overrides shared across inline-node renderers. */
 interface InlineOverrides {
@@ -92,6 +93,8 @@ export async function modelToDocx(
   const headingBookmarkCounter = renderOptions.headingBookmarkCounter ?? {
     count: 0,
   };
+
+  throwIfAborted(options.signal);
 
   function textRunFromNode(
     node: DocxTextNode,
@@ -306,6 +309,8 @@ export async function modelToDocx(
     listLevel: number = 0,
     context: RenderContext = {},
   ): Promise<(Paragraph | Table)[]> {
+    throwIfAborted(options.signal);
+
     switch (node.type) {
       case "heading": {
         const headingText = node.children.map((c) => c.value).join("");
@@ -395,6 +400,8 @@ export async function modelToDocx(
     listLevel: number,
     context: RenderContext,
   ): Promise<(Paragraph | Table)[]> {
+    throwIfAborted(options.signal);
+
     const quoteContext = { quoteLevel: (context.quoteLevel || 0) + 1 };
     const out: (Paragraph | Table)[] = [];
 
@@ -409,6 +416,8 @@ export async function modelToDocx(
     }
 
     for (const child of node.children) {
+      throwIfAborted(options.signal);
+
       if (child.type === "paragraph") {
         out.push(
           paragraphFromInlineNodes(child.children, quoteContext, {
@@ -430,6 +439,8 @@ export async function modelToDocx(
     currentLevel: number,
     context: RenderContext = {},
   ): Promise<Paragraph[]> {
+    throwIfAborted(options.signal);
+
     const paragraphs: Paragraph[] = [];
     const adjustedSequenceId = list.sequenceId
       ? list.sequenceId + sequenceIdOffset
@@ -441,6 +452,8 @@ export async function modelToDocx(
     }
 
     for (const item of list.children) {
+      throwIfAborted(options.signal);
+
       // Render list item content
       const itemParagraphs = renderListItem(
         item,
@@ -462,10 +475,14 @@ export async function modelToDocx(
     sequenceId: number | undefined,
     context: RenderContext = {},
   ): Promise<Paragraph[]> {
+    throwIfAborted(options.signal);
+
     const paragraphs: Paragraph[] = [];
 
     // Process children of list item
     for (const child of item.children) {
+      throwIfAborted(options.signal);
+
       if (child.type === "list") {
         // Nested list - render recursively
         const nestedParagraphs = await renderList(
@@ -608,6 +625,8 @@ export async function modelToDocx(
     context: RenderContext = {},
     listMarker?: ListMarkerContext,
   ): Promise<Paragraph[]> {
+    throwIfAborted(options.signal);
+
     const paragraphOptions = imageParagraphOptions(context, listMarker);
 
     if (processedImageCounter.count >= imageHandling.maxImages) {
@@ -621,6 +640,7 @@ export async function modelToDocx(
         style,
         imageHandling,
         paragraphOptions,
+        options.signal,
       );
       if (embedded) {
         processedImageCounter.count++;
@@ -634,6 +654,8 @@ export async function modelToDocx(
   // Process all top-level nodes
   let previousNodeType: string | undefined;
   for (const node of model.children) {
+    throwIfAborted(options.signal);
+
     // Insert a blank spacer paragraph between back-to-back code blocks so
     // Word doesn't collapse the shared borders into a single visual block.
     if (node.type === "codeBlock" && previousNodeType === "codeBlock") {

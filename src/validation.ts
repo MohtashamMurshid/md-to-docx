@@ -416,6 +416,22 @@ function validateImageHandlingInput(
   }
 }
 
+function validateProcessingLimitsInput(options: Options): void {
+  validatePositiveIntegerOption(options.maxInputLength, "maxInputLength");
+  validatePositiveIntegerOption(options.maxElements, "maxElements");
+
+  if (
+    options.signal !== undefined &&
+    (options.signal === null ||
+      typeof options.signal !== "object" ||
+      typeof options.signal.aborted !== "boolean" ||
+      typeof options.signal.addEventListener !== "function" ||
+      typeof options.signal.removeEventListener !== "function")
+  ) {
+    throw new MarkdownConversionError("Invalid signal: Must be an AbortSignal");
+  }
+}
+
 /**
  * Validates markdown input and options
  * @throws {MarkdownConversionError} If input is invalid
@@ -436,6 +452,7 @@ export function validateInput(markdown: string, options: Options): void {
   validateStyleInput(normalizeStyleInput(options.style), "options.style");
   validateTocOptionsInput(options.toc);
   validateImageHandlingInput(options.imageHandling);
+  validateProcessingLimitsInput(options);
 
   const normalizedTemplate = normalizeSectionConfig(options.template);
   if (normalizedTemplate) {

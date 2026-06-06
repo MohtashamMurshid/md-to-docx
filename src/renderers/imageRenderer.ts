@@ -6,6 +6,8 @@ import {
   fetchRemoteImage,
   resolveImageHandlingOptions,
 } from "../utils/secureImageFetch.js";
+import { MarkdownConversionError } from "../errors.js";
+import { throwIfAborted } from "../processingLimits.js";
 
 export {
   DEFAULT_IMAGE_HANDLING,
@@ -162,8 +164,10 @@ export async function processImage(
   style: Style,
   imageHandling?: ImageHandlingOptions,
   paragraphOptions: Partial<IParagraphOptions> = {},
+  signal?: AbortSignal,
 ): Promise<ProcessImageResult> {
   try {
+    throwIfAborted(signal);
     const resolvedImageHandling = resolveImageHandlingOptions(imageHandling);
     let widthHint: number | undefined;
     let heightHint: number | undefined;
@@ -192,6 +196,7 @@ export async function processImage(
     let urlForTypeDetection = imageUrl;
 
     if (/^data:/i.test(urlWithoutFragment)) {
+      throwIfAborted(signal);
       if (!resolvedImageHandling.dataUrls.enabled) {
         throw new Error("Data URL images are disabled");
       }
@@ -227,7 +232,11 @@ export async function processImage(
         if (data.length > resolvedImageHandling.maxImageBytes) {
           throw new Error("Data URL image exceeds maximum size");
         }
+        throwIfAborted(signal);
       } catch (error) {
+        if (error instanceof MarkdownConversionError) {
+          throw error;
+        }
         throw new Error(
           `Failed to decode data URL: ${error instanceof Error ? error.message : String(error)}`,
         );
@@ -236,6 +245,7 @@ export async function processImage(
       const remoteImage = await fetchRemoteImage(
         urlWithoutFragment,
         resolvedImageHandling,
+        signal,
       );
       data =
         typeof Buffer !== "undefined"
@@ -250,6 +260,7 @@ export async function processImage(
         `Invalid image data: data length is ${data ? (data instanceof Uint8Array ? data.length : (data as Buffer).length) : 0}`,
       );
     }
+    throwIfAborted(signal);
 
     const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
     const imageType = detectImageType(bytes, contentType, urlForTypeDetection);
@@ -298,7 +309,11 @@ export async function processImage(
         }),
       ],
     };
-  } catch {
+  } catch (error) {
+    if (error instanceof MarkdownConversionError) {
+      throw error;
+    }
+
     return {
       embedded: false,
       paragraphs: [

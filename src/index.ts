@@ -28,6 +28,12 @@ import {
   TocHeadingEntry,
 } from "./tocBuilder.js";
 import { buildParagraphStyles } from "./documentStyles.js";
+import {
+  enforceElementLimit,
+  enforceInputLength,
+  throwIfAborted,
+  yieldToAbortSignal,
+} from "./processingLimits.js";
 
 const defaultStyle: Style = {
   titleSize: 32,
@@ -75,8 +81,11 @@ export async function convertMarkdownToDocx(
 ): Promise<Blob> {
   try {
     const docxOptions = await parseToDocxOptions(markdown, options);
+    await yieldToAbortSignal(options.signal);
     const doc = new Document(docxOptions);
-    return await Packer.toBlob(doc);
+    const blob = await Packer.toBlob(doc);
+    await yieldToAbortSignal(options.signal);
+    return blob;
   } catch (error) {
     if (error instanceof MarkdownConversionError) {
       throw error;
@@ -118,6 +127,8 @@ export async function parseToDocxOptions(
 ): Promise<IPropertiesOptions> {
   try {
     validateInput(markdown, options);
+    throwIfAborted(options.signal);
+    enforceInputLength(markdown, options);
 
     const normalizedStyle = normalizeStyleInput(options.style);
     const style: Style = { ...defaultStyle, ...normalizedStyle };
@@ -133,15 +144,27 @@ export async function parseToDocxOptions(
     const processedImageCounter = { count: 0 };
     const headingBookmarkCounter = { count: 0 };
     const tocPlaceholders = new WeakSet<object>();
+    let elementCount = 0;
 
     for (const section of resolvedSections) {
+      throwIfAborted(options.signal);
+      await yieldToAbortSignal(options.signal);
       const ast = await parseMarkdownToAst(section.markdown);
+      await yieldToAbortSignal(options.signal);
 
       if (options.textReplacements && options.textReplacements.length > 0) {
         applyTextReplacements(ast, options.textReplacements);
       }
+      throwIfAborted(options.signal);
+      elementCount = enforceElementLimit(
+        ast,
+        options.maxElements,
+        elementCount,
+        options.signal
+      );
 
       const model = mdastToDocxModel(ast, section.style, options);
+      throwIfAborted(options.signal);
       const renderedModel = await modelToDocx(model, section.style, options, {
         sequenceIdOffset: maxSequenceId,
         processedImageCounter,
@@ -163,9 +186,11 @@ export async function parseToDocxOptions(
       });
     }
 
+    throwIfAborted(options.signal);
     const tocContent = buildTocContent(headings, style, options.toc);
     let tocInserted = false;
     const docSections: ISectionOptions[] = renderedSections.map((section) => {
+      throwIfAborted(options.signal);
       const replacedTocChildren = replaceTocPlaceholders(
         section.children,
         tocContent,
@@ -185,8 +210,10 @@ export async function parseToDocxOptions(
       };
     });
 
+    throwIfAborted(options.signal);
     const numberingConfigs = [];
     for (let i = 1; i <= maxSequenceId; i++) {
+      throwIfAborted(options.signal);
       numberingConfigs.push({
         reference: `numbered-list-${i}`,
         levels: [
@@ -205,6 +232,7 @@ export async function parseToDocxOptions(
       });
     }
 
+    throwIfAborted(options.signal);
     return {
       numbering: {
         config: numberingConfigs,

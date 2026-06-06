@@ -28,6 +28,7 @@ A TypeScript-first library and CLI that turns Markdown into production-ready Wor
   - [Custom heading and paragraph alignment](#custom-heading-and-paragraph-alignment)
   - [Table of Contents styling](#table-of-contents-styling)
   - [Text find-and-replace](#text-find-and-replace)
+  - [Server-side processing limits](#server-side-processing-limits)
   - [RTL / bidirectional text](#rtl--bidirectional-text)
 - [Supported Markdown](#supported-markdown)
 - [API reference](#api-reference)
@@ -322,6 +323,31 @@ For untrusted input, prefer literal string replacements. Regex replacements are 
 
 Escaped link syntax such as `\[label](https://example.com)` stays plain text in the DOCX. Hyperlinks are emitted only from actual Markdown link nodes.
 
+### Server-side processing limits
+
+Limits are opt-in so existing large-document workflows keep working. For API endpoints, upload forms, webhooks, or any untrusted input, set both input and parsed-structure caps and use `AbortSignal` for request cancellation or timeouts:
+
+```typescript
+const controller = new AbortController();
+const timeout = setTimeout(() => controller.abort(), 10_000);
+
+try {
+  const blob = await convertMarkdownToDocx(markdown, {
+    maxInputLength: 1_048_576,
+    maxElements: 50_000,
+    signal: controller.signal,
+    imageHandling: {
+      remote: { enabled: false },
+      maxImages: 25,
+    },
+  });
+} finally {
+  clearTimeout(timeout);
+}
+```
+
+`maxInputLength` is measured with JavaScript string length. When `sections` is provided, all section markdown lengths are summed. `maxElements` counts parsed Markdown AST nodes across every section after `textReplacements` run. The CLI options JSON can set numeric limits, but `signal` is programmatic-only.
+
 ### RTL / bidirectional text
 
 ```typescript
@@ -387,10 +413,14 @@ interface Options {
   documentType?: "document" | "report";
   style?: Style;
   toc?: TocOptions;
+  maxInputLength?: number;
+  maxElements?: number;
+  signal?: AbortSignal;
   template?: DocumentSection;
   sections?: DocumentSection[];
   codeHighlighting?: CodeHighlightOptions;
   textReplacements?: TextReplacement[];
+  imageHandling?: ImageHandlingOptions;
 }
 ```
 

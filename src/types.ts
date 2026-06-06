@@ -202,6 +202,22 @@ export interface Options {
   style?: Partial<Style>;
   toc?: TocOptions;
   /**
+   * Optional maximum markdown input length, measured with JavaScript string
+   * length. When `sections` is provided, all section markdown lengths are
+   * summed. Omitted by default, preserving unlimited input behavior.
+   */
+  maxInputLength?: number;
+  /**
+   * Optional maximum number of parsed markdown AST elements across the whole
+   * document. Omitted by default, preserving unlimited structure size.
+   */
+  maxElements?: number;
+  /**
+   * Optional cancellation signal for programmatic conversions. CLI JSON
+   * options cannot provide this value.
+   */
+  signal?: AbortSignal;
+  /**
    * Shared defaults applied to each section before per-section overrides.
    */
   template?: SectionTemplate;

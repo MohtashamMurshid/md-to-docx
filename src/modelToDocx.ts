@@ -10,6 +10,7 @@ import {
   TableLayoutType,
   WidthType,
 } from "docx";
+import type { IParagraphOptions } from "docx";
 import type {
   DocxDocumentModel,
   DocxBlockNode,
@@ -39,6 +40,12 @@ interface InlineOverrides {
 
 interface RenderContext {
   quoteLevel?: number;
+}
+
+interface ListMarkerContext {
+  isOrdered: boolean;
+  level: number;
+  sequenceId: number | undefined;
 }
 
 /**
@@ -319,7 +326,7 @@ export async function modelToDocx(
       }
 
       case "image": {
-        return renderImageNode(node);
+        return renderImageNode(node, context);
       }
 
       case "table": {
@@ -456,7 +463,16 @@ export async function modelToDocx(
         );
       } else {
         // Other block types - render normally but they'll appear as part of list item
-        const rendered = await renderBlockNode(child, level, context);
+        const markerContext =
+          child.type === "image" && paragraphs.length === 0
+            ? { isOrdered, level, sequenceId }
+            : undefined;
+        const rendered = await renderBlockNodeWithListMarker(
+          child,
+          level,
+          context,
+          markerContext,
+        );
         // Filter out Tables - list items should only contain Paragraphs
         for (const item of rendered) {
           if (item instanceof Paragraph) {
@@ -476,8 +492,58 @@ export async function modelToDocx(
     return paragraphs;
   }
 
-  function imageCouldNotLoadParagraph(alt: string): Paragraph {
+  function imageParagraphOptions(
+    context: RenderContext = {},
+    listMarker?: ListMarkerContext,
+  ): Partial<IParagraphOptions> {
+    let options: Partial<IParagraphOptions> = {};
+
+    if (context.quoteLevel) {
+      options = {
+        ...options,
+        ...blockquoteParagraphStyle(style, context.quoteLevel),
+      };
+    }
+
+    if (listMarker) {
+      if (listMarker.isOrdered) {
+        options = {
+          ...options,
+          numbering: {
+            reference: `numbered-list-${listMarker.sequenceId || 1}`,
+            level: listMarker.level,
+          },
+        };
+      } else {
+        options = {
+          ...options,
+          bullet: { level: listMarker.level },
+        };
+      }
+    }
+
+    return options;
+  }
+
+  async function renderBlockNodeWithListMarker(
+    node: DocxBlockNode,
+    listLevel: number,
+    context: RenderContext,
+    listMarker?: ListMarkerContext,
+  ): Promise<(Paragraph | Table)[]> {
+    if (node.type === "image") {
+      return renderImageNode(node, context, listMarker);
+    }
+
+    return renderBlockNode(node, listLevel, context);
+  }
+
+  function imageCouldNotLoadParagraph(
+    alt: string,
+    paragraphOptions: Partial<IParagraphOptions> = {},
+  ): Paragraph {
     return new Paragraph({
+      ...paragraphOptions,
       children: [
         new TextRun({
           text: `[Image could not be loaded: ${alt}]`,
@@ -492,9 +558,13 @@ export async function modelToDocx(
 
   async function renderImageNode(
     node: Extract<DocxBlockNode, { type: "image" }>,
+    context: RenderContext = {},
+    listMarker?: ListMarkerContext,
   ): Promise<Paragraph[]> {
+    const paragraphOptions = imageParagraphOptions(context, listMarker);
+
     if (processedImageCounter.count >= imageHandling.maxImages) {
-      return [imageCouldNotLoadParagraph(node.alt)];
+      return [imageCouldNotLoadParagraph(node.alt, paragraphOptions)];
     }
 
     try {
@@ -503,13 +573,14 @@ export async function modelToDocx(
         node.url,
         style,
         imageHandling,
+        paragraphOptions,
       );
       if (embedded) {
         processedImageCounter.count++;
       }
       return paragraphs;
     } catch {
-      return [imageCouldNotLoadParagraph(node.alt)];
+      return [imageCouldNotLoadParagraph(node.alt, paragraphOptions)];
     }
   }
 

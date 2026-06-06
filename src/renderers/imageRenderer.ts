@@ -1,4 +1,5 @@
 import { Paragraph, TextRun, AlignmentType, ImageRun } from "docx";
+import type { IParagraphOptions } from "docx";
 import { ImageHandlingOptions, Style } from "../types.js";
 import { resolveFontFamily } from "../utils/styleUtils.js";
 import {
@@ -22,7 +23,7 @@ export function computeImageDimensions(
   widthHint: number | undefined,
   heightHint: number | undefined,
   intrinsicWidth: number | undefined,
-  intrinsicHeight: number | undefined
+  intrinsicHeight: number | undefined,
 ): { width: number; height?: number } {
   let outWidth: number;
   let outHeight: number | undefined;
@@ -66,7 +67,7 @@ function readUint32BE(buf: Uint8Array, offset: number): number {
 
 function readIntrinsicDimensions(
   imageType: "png" | "jpg" | "gif",
-  bytes: Uint8Array
+  bytes: Uint8Array,
 ): { width?: number; height?: number } {
   let width: number | undefined;
   let height: number | undefined;
@@ -105,7 +106,7 @@ function readIntrinsicDimensions(
 function detectImageType(
   bytes: Uint8Array,
   contentType: string,
-  imageUrl: string
+  imageUrl: string,
 ): "png" | "jpg" | "gif" {
   const isPng =
     bytes.length >= 8 &&
@@ -142,7 +143,7 @@ function detectImageType(
   if (isGif) return "gif";
 
   throw new Error(
-    `Unsupported or invalid image data (${contentType || imageUrl})`
+    `Unsupported or invalid image data (${contentType || imageUrl})`,
   );
 }
 
@@ -159,7 +160,8 @@ export async function processImage(
   altText: string,
   imageUrl: string,
   style: Style,
-  imageHandling?: ImageHandlingOptions
+  imageHandling?: ImageHandlingOptions,
+  paragraphOptions: Partial<IParagraphOptions> = {},
 ): Promise<ProcessImageResult> {
   try {
     const resolvedImageHandling = resolveImageHandlingOptions(imageHandling);
@@ -195,7 +197,9 @@ export async function processImage(
       }
       const match = urlWithoutFragment.match(/^data:([^;,]*)(;base64)?,(.*)$/i);
       if (!match) {
-        throw new Error(`Invalid data URL for image: ${urlWithoutFragment.substring(0, 100)}...`);
+        throw new Error(
+          `Invalid data URL for image: ${urlWithoutFragment.substring(0, 100)}...`,
+        );
       }
       contentType = match[1] || "";
       const isBase64 = !!match[2];
@@ -213,8 +217,8 @@ export async function processImage(
             ? Buffer.from(dataPart, "base64")
             : Uint8Array.from(atob(dataPart), (c) => c.charCodeAt(0))
           : typeof Buffer !== "undefined"
-          ? Buffer.from(decodeURIComponent(dataPart))
-          : new TextEncoder().encode(decodeURIComponent(dataPart));
+            ? Buffer.from(decodeURIComponent(dataPart))
+            : new TextEncoder().encode(decodeURIComponent(dataPart));
         data = binary as Uint8Array | Buffer;
 
         if (!data || data.length === 0) {
@@ -224,12 +228,14 @@ export async function processImage(
           throw new Error("Data URL image exceeds maximum size");
         }
       } catch (error) {
-        throw new Error(`Failed to decode data URL: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(
+          `Failed to decode data URL: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
     } else {
       const remoteImage = await fetchRemoteImage(
         urlWithoutFragment,
-        resolvedImageHandling
+        resolvedImageHandling,
       );
       data =
         typeof Buffer !== "undefined"
@@ -240,37 +246,40 @@ export async function processImage(
     }
 
     if (!data || data.length === 0) {
-      throw new Error(`Invalid image data: data length is ${data ? (data instanceof Uint8Array ? data.length : (data as Buffer).length) : 0}`);
+      throw new Error(
+        `Invalid image data: data length is ${data ? (data instanceof Uint8Array ? data.length : (data as Buffer).length) : 0}`,
+      );
     }
 
     const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
     const imageType = detectImageType(bytes, contentType, urlForTypeDetection);
-    const { width: intrinsicWidth, height: intrinsicHeight } = readIntrinsicDimensions(
-      imageType,
-      bytes
-    );
+    const { width: intrinsicWidth, height: intrinsicHeight } =
+      readIntrinsicDimensions(imageType, bytes);
 
     const { width: outWidth, height: outHeight } = computeImageDimensions(
       widthHint,
       heightHint,
       intrinsicWidth,
-      intrinsicHeight
+      intrinsicHeight,
     );
 
     // docx expects Buffer in Node.js, Uint8Array in browsers
-    const imageData = typeof Buffer !== "undefined" && !(data instanceof Buffer)
-      ? Buffer.from(data)
-      : data instanceof Uint8Array
-      ? data
-      : Buffer.from(data as Uint8Array);
+    const imageData =
+      typeof Buffer !== "undefined" && !(data instanceof Buffer)
+        ? Buffer.from(data)
+        : data instanceof Uint8Array
+          ? data
+          : Buffer.from(data as Uint8Array);
 
     // Fallback height if neither hints nor intrinsic dimensions provided one
-    const finalHeight = outHeight || (outWidth ? Math.round(outWidth * 0.75) : 200);
+    const finalHeight =
+      outHeight || (outWidth ? Math.round(outWidth * 0.75) : 200);
 
     return {
       embedded: true,
       paragraphs: [
         new Paragraph({
+          ...paragraphOptions,
           children: [
             new ImageRun({
               data: imageData,
@@ -294,6 +303,7 @@ export async function processImage(
       embedded: false,
       paragraphs: [
         new Paragraph({
+          ...paragraphOptions,
           children: [
             new TextRun({
               text: `[Image could not be displayed: ${altText}]`,

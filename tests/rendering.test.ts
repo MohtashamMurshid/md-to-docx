@@ -391,6 +391,7 @@ describe("Rendering: images", () => {
     );
 
     expect(documentXml).toContain("<w:drawing>");
+    expect(documentXml).toContain("<w:numPr>");
     expect(mediaFiles.length).toBeGreaterThan(0);
   });
 
@@ -405,6 +406,8 @@ describe("Rendering: images", () => {
     );
 
     expect(documentXml).toContain("<w:drawing>");
+    expect(documentXml).toContain("<w:pBdr>");
+    expect(documentXml).toContain("<w:ind");
     expect(mediaFiles.length).toBeGreaterThan(0);
   });
 

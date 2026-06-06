@@ -25,6 +25,10 @@ function numberingLevels(xml: string): string[] {
   );
 }
 
+function numberingMarkerCount(xml: string): number {
+  return xml.match(/<w:numPr>/g)?.length || 0;
+}
+
 async function render(markdown: string, options?: Options): Promise<string> {
   const blob = await convertMarkdownToDocx(markdown, options);
   expect(blob).toBeInstanceOf(Blob);
@@ -257,6 +261,15 @@ Interrupting paragraph.
 
     expect(xml).toContain("<w:numPr>");
     expect(xml).toContain("quoted block");
+  });
+
+  it("does not duplicate markers for split list item content", async () => {
+    const xml = await render(`- Before ![mixed image](${ONE_PX_PNG}) after`);
+
+    expect(xml).toContain("Before ");
+    expect(xml).toContain(" after");
+    expect(xml).toContain("<w:drawing>");
+    expect(numberingMarkerCount(xml)).toBe(1);
   });
 });
 

@@ -278,6 +278,29 @@ export async function modelToDocx(
     });
   }
 
+  function listContinuationParagraphFromInlineNodes(
+    nodes: DocxTextNode[],
+    level: number,
+    context: RenderContext = {},
+  ): Paragraph {
+    const quoteStyle = context.quoteLevel
+      ? blockquoteParagraphStyle(style, context.quoteLevel)
+      : undefined;
+
+    return new Paragraph({
+      children: renderInlineNodes(nodes, { size: style.listItemSize || 24 }),
+      spacing: {
+        before: style.paragraphSpacing / 2,
+        after: style.paragraphSpacing / 2,
+      },
+      indent: {
+        left: 720 * (level + 1),
+      },
+      bidirectional: style.direction === "RTL",
+      ...quoteStyle,
+    });
+  }
+
   async function renderBlockNode(
     node: DocxBlockNode,
     listLevel: number = 0,
@@ -452,15 +475,25 @@ export async function modelToDocx(
         );
         paragraphs.push(...nestedParagraphs);
       } else if (child.type === "paragraph") {
-        paragraphs.push(
-          listParagraphFromInlineNodes(
-            child.children,
-            isOrdered,
-            level,
-            sequenceId,
-            context,
-          ),
-        );
+        if (paragraphs.length === 0) {
+          paragraphs.push(
+            listParagraphFromInlineNodes(
+              child.children,
+              isOrdered,
+              level,
+              sequenceId,
+              context,
+            ),
+          );
+        } else {
+          paragraphs.push(
+            listContinuationParagraphFromInlineNodes(
+              child.children,
+              level,
+              context,
+            ),
+          );
+        }
       } else {
         // Other block types - render normally but they'll appear as part of list item
         const markerContext =

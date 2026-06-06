@@ -4,7 +4,9 @@ import {
   MarkdownConversionError,
   parseToDocxOptions,
 } from "../src/index";
-import type { Options } from "../src/types";
+import { modelToDocx } from "../src/modelToDocx";
+import type { DocxDocumentModel } from "../src/docxModel";
+import type { Options, Style } from "../src/types";
 
 afterEach(() => {
   jest.restoreAllMocks();
@@ -19,6 +21,13 @@ const invalidLimitCases: Array<{
   { optionName: "maxElements", value: 0 },
   { optionName: "maxElements", value: Number.POSITIVE_INFINITY },
 ];
+
+const testStyle: Style = {
+  titleSize: 32,
+  headingSpacing: 240,
+  paragraphSpacing: 240,
+  lineSpacing: 1.15,
+};
 
 describe("Processing limits", () => {
   it("rejects oversized single markdown input when maxInputLength is set", async () => {
@@ -39,11 +48,11 @@ describe("Processing limits", () => {
   it.each(invalidLimitCases)(
     "rejects invalid $optionName values",
     async ({ optionName, value }) => {
-    await expect(
-      parseToDocxOptions("Valid input", {
-        [optionName]: value,
-      } as Options)
-    ).rejects.toBeInstanceOf(MarkdownConversionError);
+      await expect(
+        parseToDocxOptions("Valid input", {
+          [optionName]: value,
+        } as Options)
+      ).rejects.toBeInstanceOf(MarkdownConversionError);
     }
   );
 
@@ -107,5 +116,41 @@ describe("Conversion cancellation", () => {
     ).rejects.toThrow("Markdown conversion was aborted");
 
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("rethrows image aborts from model rendering", async () => {
+    const controller = new AbortController();
+    const model: DocxDocumentModel = {
+      children: [
+        {
+          type: "image",
+          alt: "remote",
+          url: "https://93.184.216.34/image.png",
+        },
+      ],
+    };
+
+    jest.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+      setTimeout(() => {
+        controller.abort(new Error("caller cancelled"));
+      }, 0);
+
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(new DOMException("The operation was aborted", "AbortError"));
+        });
+      }) as never;
+    });
+
+    await expect(
+      modelToDocx(
+        model,
+        testStyle,
+        {
+          imageHandling: { remote: { enabled: true } },
+          signal: controller.signal,
+        },
+      )
+    ).rejects.toThrow("Markdown conversion was aborted");
   });
 });

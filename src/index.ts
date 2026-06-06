@@ -208,8 +208,10 @@ export async function parseToDocxOptions(
       };
     });
 
+    throwIfAborted(options.signal);
     const numberingConfigs = [];
     for (let i = 1; i <= maxSequenceId; i++) {
+      throwIfAborted(options.signal);
       numberingConfigs.push({
         reference: `numbered-list-${i}`,
         levels: [
@@ -228,6 +230,7 @@ export async function parseToDocxOptions(
       });
     }
 
+    throwIfAborted(options.signal);
     return {
       numbering: {
         config: numberingConfigs,

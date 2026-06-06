@@ -31,6 +31,7 @@ import { processInlineCode } from "./renderers/textRenderer.js";
 import { resolveFontFamily } from "./utils/styleUtils.js";
 import { sanitizeForBookmarkId } from "./utils/bookmarkUtils.js";
 import { throwIfAborted } from "./processingLimits.js";
+import { MarkdownConversionError } from "./errors.js";
 
 /** Rendering overrides shared across inline-node renderers. */
 interface InlineOverrides {
@@ -646,7 +647,10 @@ export async function modelToDocx(
         processedImageCounter.count++;
       }
       return paragraphs;
-    } catch {
+    } catch (error) {
+      if (error instanceof MarkdownConversionError) {
+        throw error;
+      }
       return [imageCouldNotLoadParagraph(node.alt, paragraphOptions)];
     }
   }

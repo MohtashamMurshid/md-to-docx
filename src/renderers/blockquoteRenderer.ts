@@ -1,12 +1,5 @@
-import {
-  Paragraph,
-  TextRun,
-  ExternalHyperlink,
-  AlignmentType,
-  BorderStyle,
-} from "docx";
+import { AlignmentType, BorderStyle } from "docx";
 import { Style } from "../types.js";
-import type { DocxBlockNode, DocxTextNode } from "../docxModel.js";
 
 const BLOCKQUOTE_ALIGNMENTS: Record<
   NonNullable<Style["blockquoteAlignment"]>,
@@ -18,47 +11,40 @@ const BLOCKQUOTE_ALIGNMENTS: Record<
   JUSTIFIED: AlignmentType.JUSTIFIED,
 };
 
+export interface BlockquoteParagraphStyle {
+  indent: {
+    left: number;
+  };
+  spacing: {
+    before: number;
+    after: number;
+  };
+  border: {
+    left: {
+      style: typeof BorderStyle.SINGLE;
+      size: number;
+      color: string;
+    };
+  };
+  alignment?: (typeof AlignmentType)[keyof typeof AlignmentType];
+  bidirectional: boolean;
+}
+
 /**
- * Builds a blockquote paragraph from its structured children, preserving
- * inline formatting, links, and code via the caller-supplied renderer
- * (which also applies the blockquote's italic + size styling). Multiple
- * child paragraphs are separated by a line break.
- *
- * @param children - The blockquote's block children (paragraphs)
- * @param style - The style configuration
- * @param renderInline - Renders inline nodes with blockquote run styling
- * @returns The processed paragraph
+ * Returns paragraph options shared by each rendered blockquote paragraph.
+ * Nested quotes increase the left indent while preserving the same border.
  */
-export function processBlockquote(
-  children: DocxBlockNode[],
+export function blockquoteParagraphStyle(
   style: Style,
-  renderInline: (nodes: DocxTextNode[]) => (TextRun | ExternalHyperlink)[]
-): Paragraph {
-  const runs: (TextRun | ExternalHyperlink)[] = [];
-  const paragraphs = children.filter(
-    (child): child is Extract<DocxBlockNode, { type: "paragraph" }> =>
-      child.type === "paragraph"
-  );
-
-  paragraphs.forEach((paragraph, index) => {
-    if (index > 0) {
-      runs.push(new TextRun({ break: 1, rightToLeft: style.direction === "RTL" }));
-    }
-    runs.push(...renderInline(paragraph.children));
-  });
-
-  if (runs.length === 0) {
-    runs.push(new TextRun({ text: "", italics: true }));
-  }
-
+  quoteLevel: number,
+): BlockquoteParagraphStyle {
   const alignment = style.blockquoteAlignment
     ? BLOCKQUOTE_ALIGNMENTS[style.blockquoteAlignment]
     : undefined;
 
-  return new Paragraph({
-    children: runs,
+  return {
     indent: {
-      left: 720,
+      left: 720 * Math.max(1, quoteLevel),
     },
     spacing: {
       before: style.paragraphSpacing,
@@ -73,5 +59,5 @@ export function processBlockquote(
     },
     alignment,
     bidirectional: style.direction === "RTL",
-  });
+  };
 }

@@ -10,11 +10,18 @@ import {
   TableLayoutType,
   WidthType,
 } from "docx";
-import type { DocxDocumentModel, DocxBlockNode, DocxListNode, DocxListItemNode, DocxTextNode } from "./docxModel.js";
+import type { IParagraphOptions } from "docx";
+import type {
+  DocxDocumentModel,
+  DocxBlockNode,
+  DocxListNode,
+  DocxListItemNode,
+  DocxTextNode,
+} from "./docxModel.js";
 import { Style, Options } from "./types.js";
 import { processHeading } from "./renderers/headingRenderer.js";
 import { processCodeBlock } from "./renderers/codeRenderer.js";
-import { processBlockquote } from "./renderers/blockquoteRenderer.js";
+import { blockquoteParagraphStyle } from "./renderers/blockquoteRenderer.js";
 import { processComment } from "./renderers/commentRenderer.js";
 import {
   processImage,
@@ -29,6 +36,16 @@ interface InlineOverrides {
   forceBold?: boolean;
   forceItalic?: boolean;
   size?: number;
+}
+
+interface RenderContext {
+  quoteLevel?: number;
+}
+
+interface ListMarkerContext {
+  isOrdered: boolean;
+  level: number;
+  sequenceId: number | undefined;
 }
 
 /**
@@ -52,7 +69,7 @@ export async function modelToDocx(
      * avoiding the percentage form that Word 2007 treats as corrupt.
      */
     tableWidthTwips?: number;
-  } = {}
+  } = {},
 ): Promise<{
   children: (Paragraph | Table)[];
   headings: { text: string; level: number; bookmarkId: string }[];
@@ -78,7 +95,7 @@ export async function modelToDocx(
 
   function textRunFromNode(
     node: DocxTextNode,
-    overrides: InlineOverrides = {}
+    overrides: InlineOverrides = {},
   ): TextRun {
     if (node.code) {
       return processInlineCode(node.value, style, { size: overrides.size });
@@ -99,7 +116,7 @@ export async function modelToDocx(
 
   function renderInlineNodes(
     nodes: DocxTextNode[],
-    overrides: InlineOverrides = {}
+    overrides: InlineOverrides = {},
   ): (TextRun | ExternalHyperlink)[] {
     const out: (TextRun | ExternalHyperlink)[] = [];
     for (const node of nodes) {
@@ -120,7 +137,7 @@ export async function modelToDocx(
               }),
             ],
             link: node.link,
-          })
+          }),
         );
       } else {
         out.push(textRunFromNode(node, overrides));
@@ -133,12 +150,19 @@ export async function modelToDocx(
     return out;
   }
 
-  function paragraphFromInlineNodes(nodes: DocxTextNode[]): Paragraph {
+  function paragraphFromInlineNodes(
+    nodes: DocxTextNode[],
+    context: RenderContext = {},
+    overrides: InlineOverrides = {},
+  ): Paragraph {
     const alignment = style.paragraphAlignment
       ? AlignmentType[style.paragraphAlignment]
       : AlignmentType.LEFT;
+    const quoteStyle = context.quoteLevel
+      ? blockquoteParagraphStyle(style, context.quoteLevel)
+      : undefined;
     return new Paragraph({
-      children: renderInlineNodes(nodes),
+      children: renderInlineNodes(nodes, overrides),
       spacing: {
         before: style.paragraphSpacing,
         after: style.paragraphSpacing,
@@ -150,14 +174,19 @@ export async function modelToDocx(
           ? { left: 0, right: 0 }
           : undefined,
       bidirectional: style.direction === "RTL",
+      ...quoteStyle,
     });
   }
 
-  function tableFromNode(node: Extract<DocxBlockNode, { type: "table" }>): Table {
+  function tableFromNode(
+    node: Extract<DocxBlockNode, { type: "table" }>,
+  ): Table {
     const layout =
-      style.tableLayout === "fixed" ? TableLayoutType.FIXED : TableLayoutType.AUTOFIT;
+      style.tableLayout === "fixed"
+        ? TableLayoutType.FIXED
+        : TableLayoutType.AUTOFIT;
     const getColumnAlignment = (
-      index: number
+      index: number,
     ): (typeof AlignmentType)[keyof typeof AlignmentType] => {
       const align = node.align?.[index];
       if (align === "center") return AlignmentType.CENTER;
@@ -183,7 +212,7 @@ export async function modelToDocx(
                 shading: {
                   fill: documentType === "report" ? "DDDDDD" : "F2F2F2",
                 },
-              })
+              }),
           ),
         }),
         ...node.rows.map(
@@ -198,9 +227,9 @@ export async function modelToDocx(
                         children: renderInlineNodes(cell),
                       }),
                     ],
-                  })
+                  }),
               ),
-            })
+            }),
         ),
       ],
       layout,
@@ -217,8 +246,12 @@ export async function modelToDocx(
     nodes: DocxTextNode[],
     isOrdered: boolean,
     level: number,
-    sequenceId: number | undefined
+    sequenceId: number | undefined,
+    context: RenderContext = {},
   ): Paragraph {
+    const quoteStyle = context.quoteLevel
+      ? blockquoteParagraphStyle(style, context.quoteLevel)
+      : undefined;
     const base = {
       children: renderInlineNodes(nodes, { size: style.listItemSize || 24 }),
       spacing: {
@@ -226,6 +259,7 @@ export async function modelToDocx(
         after: style.paragraphSpacing / 2,
       },
       bidirectional: style.direction === "RTL",
+      ...quoteStyle,
     };
 
     if (isOrdered) {
@@ -244,10 +278,34 @@ export async function modelToDocx(
     });
   }
 
-  function renderBlockNode(
+  function listContinuationParagraphFromInlineNodes(
+    nodes: DocxTextNode[],
+    level: number,
+    context: RenderContext = {},
+  ): Paragraph {
+    const quoteStyle = context.quoteLevel
+      ? blockquoteParagraphStyle(style, context.quoteLevel)
+      : undefined;
+
+    return new Paragraph({
+      children: renderInlineNodes(nodes, { size: style.listItemSize || 24 }),
+      spacing: {
+        before: style.paragraphSpacing / 2,
+        after: style.paragraphSpacing / 2,
+      },
+      indent: {
+        left: 720 * (level + 1),
+      },
+      bidirectional: style.direction === "RTL",
+      ...quoteStyle,
+    });
+  }
+
+  async function renderBlockNode(
     node: DocxBlockNode,
-    listLevel: number = 0
-  ): (Paragraph | Table)[] {
+    listLevel: number = 0,
+    context: RenderContext = {},
+  ): Promise<(Paragraph | Table)[]> {
     switch (node.type) {
       case "heading": {
         const headingText = node.children.map((c) => c.value).join("");
@@ -257,7 +315,7 @@ export async function modelToDocx(
           node.children,
           { level: node.level, bookmarkId },
           style,
-          (nodes, size) => renderInlineNodes(nodes, { size })
+          (nodes, size) => renderInlineNodes(nodes, { size }),
         );
         headings.push({
           text: headingText,
@@ -268,11 +326,11 @@ export async function modelToDocx(
       }
 
       case "paragraph": {
-        return [paragraphFromInlineNodes(node.children)];
+        return [paragraphFromInlineNodes(node.children, context)];
       }
 
       case "list": {
-        return renderList(node, listLevel || 0);
+        return renderList(node, listLevel || 0, context);
       }
 
       case "codeBlock": {
@@ -281,24 +339,17 @@ export async function modelToDocx(
             node.value,
             node.language,
             style,
-            options.codeHighlighting
+            options.codeHighlighting,
           ),
         ];
       }
 
       case "blockquote": {
-        return [
-          processBlockquote(node.children, style, (nodes) =>
-            renderInlineNodes(nodes, {
-              size: style.blockquoteSize || 24,
-              forceItalic: true,
-            })
-          ),
-        ];
+        return renderBlockquote(node, listLevel, context);
       }
 
       case "image": {
-        return [];
+        return renderImageNode(node, context);
       }
 
       case "table": {
@@ -306,7 +357,22 @@ export async function modelToDocx(
       }
 
       case "comment": {
-        return [processComment(node.value, style)];
+        if (!context.quoteLevel) {
+          return [processComment(node.value, style)];
+        }
+        return [
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: `Comment: ${node.value}`,
+                italics: true,
+                color: "666666",
+                font: resolveFontFamily(style),
+              }),
+            ],
+            ...blockquoteParagraphStyle(style, context.quoteLevel),
+          }),
+        ];
       }
 
       case "pageBreak": {
@@ -324,10 +390,46 @@ export async function modelToDocx(
     }
   }
 
-  function renderList(
+  async function renderBlockquote(
+    node: Extract<DocxBlockNode, { type: "blockquote" }>,
+    listLevel: number,
+    context: RenderContext,
+  ): Promise<(Paragraph | Table)[]> {
+    const quoteContext = { quoteLevel: (context.quoteLevel || 0) + 1 };
+    const out: (Paragraph | Table)[] = [];
+
+    if (node.children.length === 0) {
+      out.push(
+        paragraphFromInlineNodes([], quoteContext, {
+          size: style.blockquoteSize || 24,
+          forceItalic: true,
+        }),
+      );
+      return out;
+    }
+
+    for (const child of node.children) {
+      if (child.type === "paragraph") {
+        out.push(
+          paragraphFromInlineNodes(child.children, quoteContext, {
+            size: style.blockquoteSize || 24,
+            forceItalic: true,
+          }),
+        );
+        continue;
+      }
+
+      out.push(...(await renderBlockNode(child, 0, quoteContext)));
+    }
+
+    return out;
+  }
+
+  async function renderList(
     list: DocxListNode,
-    currentLevel: number
-  ): Paragraph[] {
+    currentLevel: number,
+    context: RenderContext = {},
+  ): Promise<Paragraph[]> {
     const paragraphs: Paragraph[] = [];
     const adjustedSequenceId = list.sequenceId
       ? list.sequenceId + sequenceIdOffset
@@ -344,35 +446,66 @@ export async function modelToDocx(
         item,
         list.ordered,
         currentLevel,
-        adjustedSequenceId
+        adjustedSequenceId,
+        context,
       );
-      paragraphs.push(...itemParagraphs);
+      paragraphs.push(...(await itemParagraphs));
     }
 
     return paragraphs;
   }
 
-  function renderListItem(
+  async function renderListItem(
     item: DocxListItemNode,
     isOrdered: boolean,
     level: number,
-    sequenceId: number | undefined
-  ): Paragraph[] {
+    sequenceId: number | undefined,
+    context: RenderContext = {},
+  ): Promise<Paragraph[]> {
     const paragraphs: Paragraph[] = [];
 
     // Process children of list item
     for (const child of item.children) {
       if (child.type === "list") {
         // Nested list - render recursively
-        const nestedParagraphs = renderList(child as DocxListNode, level + 1);
+        const nestedParagraphs = await renderList(
+          child as DocxListNode,
+          level + 1,
+          context,
+        );
         paragraphs.push(...nestedParagraphs);
       } else if (child.type === "paragraph") {
-        paragraphs.push(
-          listParagraphFromInlineNodes(child.children, isOrdered, level, sequenceId)
-        );
+        if (paragraphs.length === 0) {
+          paragraphs.push(
+            listParagraphFromInlineNodes(
+              child.children,
+              isOrdered,
+              level,
+              sequenceId,
+              context,
+            ),
+          );
+        } else {
+          paragraphs.push(
+            listContinuationParagraphFromInlineNodes(
+              child.children,
+              level,
+              context,
+            ),
+          );
+        }
       } else {
         // Other block types - render normally but they'll appear as part of list item
-        const rendered = renderBlockNode(child, level);
+        const markerContext =
+          paragraphs.length === 0
+            ? { isOrdered, level, sequenceId }
+            : undefined;
+        const rendered = await renderBlockNodeWithListMarker(
+          child,
+          level,
+          context,
+          markerContext,
+        );
         // Filter out Tables - list items should only contain Paragraphs
         for (const item of rendered) {
           if (item instanceof Paragraph) {
@@ -385,15 +518,79 @@ export async function modelToDocx(
     // If no paragraphs were created, create an empty list item
     if (paragraphs.length === 0) {
       paragraphs.push(
-        listParagraphFromInlineNodes([], isOrdered, level, sequenceId)
+        listParagraphFromInlineNodes([], isOrdered, level, sequenceId, context),
       );
     }
 
     return paragraphs;
   }
 
-  function imageCouldNotLoadParagraph(alt: string): Paragraph {
+  function imageParagraphOptions(
+    context: RenderContext = {},
+    listMarker?: ListMarkerContext,
+  ): Partial<IParagraphOptions> {
+    let options: Partial<IParagraphOptions> = {};
+
+    if (context.quoteLevel) {
+      options = {
+        ...options,
+        ...blockquoteParagraphStyle(style, context.quoteLevel),
+      };
+    }
+
+    if (listMarker) {
+      if (listMarker.isOrdered) {
+        options = {
+          ...options,
+          numbering: {
+            reference: `numbered-list-${listMarker.sequenceId || 1}`,
+            level: listMarker.level,
+          },
+        };
+      } else {
+        options = {
+          ...options,
+          bullet: { level: listMarker.level },
+        };
+      }
+    }
+
+    return options;
+  }
+
+  async function renderBlockNodeWithListMarker(
+    node: DocxBlockNode,
+    listLevel: number,
+    context: RenderContext,
+    listMarker?: ListMarkerContext,
+  ): Promise<(Paragraph | Table)[]> {
+    if (node.type === "image") {
+      return renderImageNode(node, context, listMarker);
+    }
+
+    if (listMarker) {
+      const rendered = await renderBlockNode(node, listLevel, context);
+      return [
+        listParagraphFromInlineNodes(
+          [],
+          listMarker.isOrdered,
+          listMarker.level,
+          listMarker.sequenceId,
+          context,
+        ),
+        ...rendered,
+      ];
+    }
+
+    return renderBlockNode(node, listLevel, context);
+  }
+
+  function imageCouldNotLoadParagraph(
+    alt: string,
+    paragraphOptions: Partial<IParagraphOptions> = {},
+  ): Paragraph {
     return new Paragraph({
+      ...paragraphOptions,
       children: [
         new TextRun({
           text: `[Image could not be loaded: ${alt}]`,
@@ -406,38 +603,47 @@ export async function modelToDocx(
     });
   }
 
+  async function renderImageNode(
+    node: Extract<DocxBlockNode, { type: "image" }>,
+    context: RenderContext = {},
+    listMarker?: ListMarkerContext,
+  ): Promise<Paragraph[]> {
+    const paragraphOptions = imageParagraphOptions(context, listMarker);
+
+    if (processedImageCounter.count >= imageHandling.maxImages) {
+      return [imageCouldNotLoadParagraph(node.alt, paragraphOptions)];
+    }
+
+    try {
+      const { embedded, paragraphs } = await processImage(
+        node.alt,
+        node.url,
+        style,
+        imageHandling,
+        paragraphOptions,
+      );
+      if (embedded) {
+        processedImageCounter.count++;
+      }
+      return paragraphs;
+    } catch {
+      return [imageCouldNotLoadParagraph(node.alt, paragraphOptions)];
+    }
+  }
+
   // Process all top-level nodes
   let previousNodeType: string | undefined;
   for (const node of model.children) {
     // Insert a blank spacer paragraph between back-to-back code blocks so
     // Word doesn't collapse the shared borders into a single visual block.
     if (node.type === "codeBlock" && previousNodeType === "codeBlock") {
-      children.push(new Paragraph({ children: [], spacing: { before: 0, after: 0 } }));
+      children.push(
+        new Paragraph({ children: [], spacing: { before: 0, after: 0 } }),
+      );
     }
 
-    if (node.type === "image") {
-      try {
-        if (processedImageCounter.count >= imageHandling.maxImages) {
-          children.push(imageCouldNotLoadParagraph(node.alt));
-        } else {
-          const { embedded, paragraphs } = await processImage(
-            node.alt,
-            node.url,
-            style,
-            imageHandling
-          );
-          children.push(...paragraphs);
-          if (embedded) {
-            processedImageCounter.count++;
-          }
-        }
-      } catch {
-        children.push(imageCouldNotLoadParagraph(node.alt));
-      }
-    } else {
-      const rendered = renderBlockNode(node);
-      children.push(...rendered);
-    }
+    const rendered = await renderBlockNode(node);
+    children.push(...rendered);
 
     previousNodeType = node.type;
   }

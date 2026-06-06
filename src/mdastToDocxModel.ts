@@ -1,5 +1,28 @@
-import type { Root, Node, List, Heading, Paragraph, Code, Blockquote, Image, Table, TableRow, TableCell, Text, Emphasis, Strong, InlineCode, Link, Delete } from "mdast";
-import type { DocxDocumentModel, DocxBlockNode, DocxTextNode, DocxListItemNode } from "./docxModel.js";
+import type {
+  Root,
+  Node,
+  List,
+  Heading,
+  Paragraph,
+  Code,
+  Blockquote,
+  Image,
+  Table,
+  TableRow,
+  TableCell,
+  Text,
+  Emphasis,
+  Strong,
+  InlineCode,
+  Link,
+  Delete,
+} from "mdast";
+import type {
+  DocxDocumentModel,
+  DocxBlockNode,
+  DocxTextNode,
+  DocxListItemNode,
+} from "./docxModel.js";
 import { Style, Options } from "./types.js";
 
 /**
@@ -24,7 +47,11 @@ function classifyHtmlNode(value: string): DocxBlockNode | null {
  * Converts mdast AST to internal docx-friendly model
  * Handles nested lists properly using AST structure
  */
-export function mdastToDocxModel(root: Root, _style: Style, _options: Options): DocxDocumentModel {
+export function mdastToDocxModel(
+  root: Root,
+  _style: Style,
+  _options: Options,
+): DocxDocumentModel {
   const children: DocxBlockNode[] = [];
   let numberedListSequenceId = 0;
   const listSequenceMap = new Map<List, number>();
@@ -64,7 +91,9 @@ export function mdastToDocxModel(root: Root, _style: Style, _options: Options): 
     };
   }
 
-  function processParagraph(paragraph: Paragraph): DocxBlockNode {
+  function processParagraph(
+    paragraph: Paragraph,
+  ): DocxBlockNode | DocxBlockNode[] {
     // If the paragraph consists of a single image, treat it as a block image
     if (
       paragraph.children.length === 1 &&
@@ -76,6 +105,40 @@ export function mdastToDocxModel(root: Root, _style: Style, _options: Options): 
         alt: img.alt || "",
         url: img.url || "",
       };
+    }
+
+    if (paragraph.children.some((child) => (child as any).type === "image")) {
+      const blocks: DocxBlockNode[] = [];
+      let inlineBuffer: typeof paragraph.children = [];
+
+      const flushInlineBuffer = (): void => {
+        if (inlineBuffer.length === 0) {
+          return;
+        }
+
+        blocks.push({
+          type: "paragraph",
+          children: processInlineNodes(inlineBuffer),
+        });
+        inlineBuffer = [];
+      };
+
+      for (const child of paragraph.children) {
+        if ((child as any).type === "image") {
+          flushInlineBuffer();
+          const image = child as Image;
+          blocks.push({
+            type: "image",
+            alt: image.alt || "",
+            url: image.url || "",
+          });
+        } else {
+          inlineBuffer.push(child);
+        }
+      }
+
+      flushInlineBuffer();
+      return blocks;
     }
 
     // Regular paragraph with inline content
@@ -96,7 +159,7 @@ export function mdastToDocxModel(root: Root, _style: Style, _options: Options): 
     const listItems: DocxListItemNode[] = [];
     for (const item of list.children) {
       const itemChildren: DocxBlockNode[] = [];
-      
+
       // Process children of list item (ListItem.children is FlowContent[])
       for (const child of item.children) {
         if (child.type === "list") {
@@ -106,13 +169,12 @@ export function mdastToDocxModel(root: Root, _style: Style, _options: Options): 
             itemChildren.push(nestedList);
           }
         } else if (child.type === "paragraph") {
-          // Paragraph - convert to our paragraph model
-          const para = child as Paragraph;
-          const inlineChildren = processInlineNodes(para.children);
-          itemChildren.push({
-            type: "paragraph",
-            children: inlineChildren,
-          });
+          const processedParagraph = processParagraph(child as Paragraph);
+          if (Array.isArray(processedParagraph)) {
+            itemChildren.push(...processedParagraph);
+          } else {
+            itemChildren.push(processedParagraph);
+          }
         } else {
           // Other block content (headings, code blocks, etc.)
           const processed = processNode(child);
@@ -242,14 +304,16 @@ export function mdastToDocxModel(root: Root, _style: Style, _options: Options): 
         }
       }
     }
-    
+
     for (const node of nodes) {
       switch (node.type) {
         case "text":
           pushTextWithUnderline((node as Text).value);
           break;
-        case "emphasis":
-          const emphasisChildren = processInlineNodes((node as Emphasis).children);
+        case "emphasis": {
+          const emphasisChildren = processInlineNodes(
+            (node as Emphasis).children,
+          );
           for (const child of emphasisChildren) {
             result.push({
               ...child,
@@ -257,7 +321,8 @@ export function mdastToDocxModel(root: Root, _style: Style, _options: Options): 
             });
           }
           break;
-        case "strong":
+        }
+        case "strong": {
           const strongChildren = processInlineNodes((node as Strong).children);
           for (const child of strongChildren) {
             result.push({
@@ -266,7 +331,8 @@ export function mdastToDocxModel(root: Root, _style: Style, _options: Options): 
             });
           }
           break;
-        case "delete":
+        }
+        case "delete": {
           const strikeChildren = processInlineNodes((node as Delete).children);
           for (const child of strikeChildren) {
             result.push({
@@ -275,6 +341,7 @@ export function mdastToDocxModel(root: Root, _style: Style, _options: Options): 
             });
           }
           break;
+        }
         case "inlineCode":
           result.push({
             type: "text",
@@ -319,7 +386,7 @@ export function mdastToDocxModel(root: Root, _style: Style, _options: Options): 
           }
       }
     }
-    
+
     return result;
   }
 
@@ -343,10 +410,12 @@ export function mdastToDocxModel(root: Root, _style: Style, _options: Options): 
         continue;
       }
     }
-    
+
     // Handle HTML comments and page-break markers.
     if (child.type === "html") {
-      const classified = classifyHtmlNode((child as { value?: string }).value || "");
+      const classified = classifyHtmlNode(
+        (child as { value?: string }).value || "",
+      );
       if (classified) {
         children.push(classified);
       }

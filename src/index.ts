@@ -32,6 +32,7 @@ import {
   enforceElementLimit,
   enforceInputLength,
   throwIfAborted,
+  yieldToAbortSignal,
 } from "./processingLimits.js";
 
 const defaultStyle: Style = {
@@ -80,10 +81,10 @@ export async function convertMarkdownToDocx(
 ): Promise<Blob> {
   try {
     const docxOptions = await parseToDocxOptions(markdown, options);
-    throwIfAborted(options.signal);
+    await yieldToAbortSignal(options.signal);
     const doc = new Document(docxOptions);
     const blob = await Packer.toBlob(doc);
-    throwIfAborted(options.signal);
+    await yieldToAbortSignal(options.signal);
     return blob;
   } catch (error) {
     if (error instanceof MarkdownConversionError) {
@@ -147,8 +148,9 @@ export async function parseToDocxOptions(
 
     for (const section of resolvedSections) {
       throwIfAborted(options.signal);
+      await yieldToAbortSignal(options.signal);
       const ast = await parseMarkdownToAst(section.markdown);
-      throwIfAborted(options.signal);
+      await yieldToAbortSignal(options.signal);
 
       if (options.textReplacements && options.textReplacements.length > 0) {
         applyTextReplacements(ast, options.textReplacements);

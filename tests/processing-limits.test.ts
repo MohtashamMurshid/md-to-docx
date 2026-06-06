@@ -94,6 +94,17 @@ describe("Conversion cancellation", () => {
     ).rejects.toThrow("Markdown conversion was aborted");
   });
 
+  it("observes queued timeout aborts before markdown parsing continues", async () => {
+    const controller = new AbortController();
+    setTimeout(() => {
+      controller.abort(new Error("timeout"));
+    }, 0);
+
+    await expect(
+      parseToDocxOptions("# Timeout", { signal: controller.signal })
+    ).rejects.toThrow("Markdown conversion was aborted");
+  });
+
   it("rejects when the signal aborts during remote image fetch", async () => {
     const controller = new AbortController();
     jest.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {

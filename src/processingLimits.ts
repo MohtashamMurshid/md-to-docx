@@ -12,6 +12,20 @@ export function throwIfAborted(signal: AbortSignal | undefined): void {
   });
 }
 
+export async function yieldToAbortSignal(
+  signal: AbortSignal | undefined
+): Promise<void> {
+  if (!signal) {
+    return;
+  }
+
+  throwIfAborted(signal);
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
+  throwIfAborted(signal);
+}
+
 export function enforceInputLength(markdown: string, options: Options): void {
   if (options.maxInputLength === undefined) {
     return;

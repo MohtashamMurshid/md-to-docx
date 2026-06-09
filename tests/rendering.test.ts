@@ -588,6 +588,24 @@ describe("Rendering: font family", () => {
   });
 });
 
+describe("Rendering: HTML comments", () => {
+  it("renders the full comment text, not just the first character", async () => {
+    const xml = await render(
+      "# Title\n\n<!-- COMMENT: hello world this is a note -->\n\nBody."
+    );
+
+    expect(xml).toContain("Comment: hello world this is a note");
+  });
+
+  it("renders multi-word comments inside blockquotes", async () => {
+    const xml = await render(
+      "> quoted\n>\n> <!-- COMMENT: reviewer feedback here -->"
+    );
+
+    expect(xml).toContain("Comment: reviewer feedback here");
+  });
+});
+
 describe("Rendering: error cases", () => {
   it("throws MarkdownConversionError for whitespace-only fontFamily", async () => {
     await expect(

@@ -32,7 +32,7 @@ import { Style, Options } from "./types.js";
  */
 function classifyHtmlNode(value: string): DocxBlockNode | null {
   if (value.includes("COMMENT:")) {
-    const match = value.match(/COMMENT:\s*(.+?)(?:-->)?/);
+    const match = value.match(/COMMENT:\s*([\s\S]*?)\s*(?:-->|$)/);
     if (match) {
       return { type: "comment", value: match[1].trim() };
     }

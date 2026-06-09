@@ -606,6 +606,31 @@ describe("Rendering: HTML comments", () => {
   });
 });
 
+describe("Rendering: image dimension clamping", () => {
+  it("clamps oversized dimension hints from URL fragments", async () => {
+    const xml = await render(
+      `![huge](${ONE_PX_PNG}#99999999999x99999999999)`
+    );
+
+    // 10,000 px cap * 9525 EMU/px = 95,250,000.
+    const extents = Array.from(
+      xml.matchAll(/<wp:extent cx="(\d+)" cy="(\d+)"/g)
+    );
+    expect(extents.length).toBeGreaterThan(0);
+    for (const [, cx, cy] of extents) {
+      expect(Number(cx)).toBeLessThanOrEqual(10_000 * 9525);
+      expect(Number(cy)).toBeLessThanOrEqual(10_000 * 9525);
+    }
+  });
+
+  it("keeps reasonable dimension hints intact", async () => {
+    const xml = await render(`![sized](${ONE_PX_PNG}#300x150)`);
+
+    expect(xml).toContain(`cx="${300 * 9525}"`);
+    expect(xml).toContain(`cy="${150 * 9525}"`);
+  });
+});
+
 describe("Rendering: error cases", () => {
   it("throws MarkdownConversionError for whitespace-only fontFamily", async () => {
     await expect(

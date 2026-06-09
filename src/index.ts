@@ -142,6 +142,7 @@ export async function parseToDocxOptions(
     const headings: TocHeadingEntry[] = [];
     let maxSequenceId = 0;
     const processedImageCounter = { count: 0 };
+    const failedRemoteImageCounter = { count: 0 };
     const headingBookmarkCounter = { count: 0 };
     const tocPlaceholders = new WeakSet<object>();
     let elementCount = 0;
@@ -168,6 +169,7 @@ export async function parseToDocxOptions(
       const renderedModel = await modelToDocx(model, section.style, options, {
         sequenceIdOffset: maxSequenceId,
         processedImageCounter,
+        failedRemoteImageCounter,
         headingBookmarkCounter,
         tocPlaceholders,
         tableWidthTwips: getSectionContentWidthTwips(section.config),

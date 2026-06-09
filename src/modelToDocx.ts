@@ -62,6 +62,8 @@ export async function modelToDocx(
     sequenceIdOffset?: number;
     /** When set by `parseToDocxOptions`, ties `maxImages` to the whole document across sections. */
     processedImageCounter?: { count: number };
+    /** Document-wide budget for failed remote image fetch attempts. */
+    failedRemoteImageCounter?: { count: number };
     headingBookmarkCounter?: { count: number };
     /** Records emitted TOC placeholder paragraphs so the caller can splice in TOC content. */
     tocPlaceholders?: WeakSet<object>;
@@ -83,6 +85,9 @@ export async function modelToDocx(
   const sequenceIdOffset = renderOptions.sequenceIdOffset || 0;
   const imageHandling = resolveImageHandlingOptions(options.imageHandling);
   const processedImageCounter = renderOptions.processedImageCounter ?? {
+    count: 0,
+  };
+  const failedRemoteImageCounter = renderOptions.failedRemoteImageCounter ?? {
     count: 0,
   };
   // Full-width tables are sized in twips so docx emits a plain integer width.
@@ -634,6 +639,15 @@ export async function modelToDocx(
       return [imageCouldNotLoadParagraph(node.alt, paragraphOptions)];
     }
 
+    // maxImages caps successful embeds only (so broken images cannot starve
+    // valid ones of budget), but failed *remote* attempts still cost up to
+    // fetchTimeoutMs each. Give failures their own equal budget so a document
+    // full of broken/slow URLs cannot trigger unbounded sequential fetches.
+    const isRemote = !/^data:/i.test(node.url);
+    if (isRemote && failedRemoteImageCounter.count >= imageHandling.maxImages) {
+      return [imageCouldNotLoadParagraph(node.alt, paragraphOptions)];
+    }
+
     try {
       const { embedded, paragraphs } = await processImage(
         node.alt,
@@ -645,6 +659,8 @@ export async function modelToDocx(
       );
       if (embedded) {
         processedImageCounter.count++;
+      } else if (isRemote) {
+        failedRemoteImageCounter.count++;
       }
       return paragraphs;
     } catch (error) {

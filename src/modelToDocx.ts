@@ -50,6 +50,25 @@ interface ListMarkerContext {
   sequenceId: number | undefined;
 }
 
+const SAFE_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
+
+/**
+ * Hyperlink targets are restricted to a scheme allowlist so a malicious
+ * document cannot embed e.g. file:// UNC links (NTLM credential leak when
+ * clicked in Word on Windows) or other unexpected protocol handlers.
+ * Scheme-less (relative/fragment) targets carry no protocol to abuse and
+ * are allowed.
+ */
+function isSafeLinkUrl(url: string): boolean {
+  let protocol: string;
+  try {
+    protocol = new URL(url).protocol;
+  } catch {
+    return true;
+  }
+  return SAFE_LINK_PROTOCOLS.has(protocol.toLowerCase());
+}
+
 /**
  * Converts internal docx model to docx Paragraph/Table objects
  * Handles nested lists with proper level tracking
@@ -129,7 +148,9 @@ export async function modelToDocx(
   ): (TextRun | ExternalHyperlink)[] {
     const out: (TextRun | ExternalHyperlink)[] = [];
     for (const node of nodes) {
-      if (node.link) {
+      if (node.link && !isSafeLinkUrl(node.link)) {
+        out.push(textRunFromNode({ ...node, link: undefined }, overrides));
+      } else if (node.link) {
         out.push(
           new ExternalHyperlink({
             children: [

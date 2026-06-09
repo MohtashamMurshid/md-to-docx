@@ -303,6 +303,38 @@ describe("Image security", () => {
     expect(xml.match(IMAGE_FALLBACK_GLOBAL)).toHaveLength(6);
   });
 
+  it("denies every remote host when an empty allowedHosts list is provided", async () => {
+    const fetchSpy = jest
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("unexpected fetch"));
+
+    const xml = await render("![remote](https://93.184.216.34/image.png)", {
+      imageHandling: { remote: { enabled: true, allowedHosts: [] } },
+    });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expectImageFallback(xml);
+  });
+
+  it("still fetches hosts present in the allowedHosts list", async () => {
+    const pngBytes = Buffer.from(ONE_PX_PNG.split(",")[1], "base64");
+    jest.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(new Uint8Array(pngBytes), {
+        status: 200,
+        headers: { "content-type": "image/png" },
+      }) as never
+    );
+
+    const xml = await render("![remote](https://93.184.216.34/image.png)", {
+      imageHandling: {
+        remote: { enabled: true, allowedHosts: ["93.184.216.34"] },
+      },
+    });
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(xml).toContain("<w:drawing>");
+  });
+
   it("continues to embed valid data URL images by default", async () => {
     const xml = await render(`![one px](${ONE_PX_PNG})`);
 

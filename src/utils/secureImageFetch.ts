@@ -158,8 +158,11 @@ function enforceRemoteHttpsPolicy(
     throw new Error("Remote image URL exceeds maximum length");
   }
 
+  // An explicitly provided allowlist fails closed: an empty array denies
+  // every host rather than silently allowing all of them. Omit the option
+  // entirely to permit any (public) host.
   const allowedHosts = options.remote.allowedHosts;
-  if (allowedHosts && allowedHosts.length > 0) {
+  if (allowedHosts) {
     const hostname = url.hostname.toLowerCase();
     if (!allowedHosts.includes(hostname)) {
       throw new Error("Remote image host is not allowed");

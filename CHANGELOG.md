@@ -1,3 +1,9 @@
+## [2.12.4](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.12.3...v2.12.4) (2026-06-10)
+
+### Bug Fixes
+
+* address security audit findings (links, images, comments, deps) ([#68](https://github.com/MohtashamMurshid/md-to-docx/issues/68)) ([e2efbcf](https://github.com/MohtashamMurshid/md-to-docx/commit/e2efbcf7263c95b381e0d4b36b03b5650749e8ca)), closes [img.png#99999999999x9](https://github.com/MohtashamMurshid/img.png/issues/99999999999x9)
+
 ## [2.12.3](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.12.2...v2.12.3) (2026-06-06)
 
 ### Bug Fixes

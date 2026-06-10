@@ -16,10 +16,23 @@ export {
 export type { ResolvedImageHandlingOptions } from "../utils/secureImageFetch.js";
 
 /**
+ * Upper bound for rendered image dimensions in pixels. Hints come from
+ * attacker-controllable URL fragments (e.g. `img.png#99999999999x9`) and
+ * intrinsic sizes from untrusted image headers; unbounded values produce
+ * EMU numbers that Word rejects as a corrupt document.
+ */
+const MAX_IMAGE_DIMENSION = 10_000;
+
+function clampImageDimension(value: number): number {
+  return Math.min(Math.max(1, Math.round(value)), MAX_IMAGE_DIMENSION);
+}
+
+/**
  * Computes output image dimensions preserving aspect ratio.
  * - If both hints provided, uses them directly.
  * - If one hint provided and intrinsic aspect known, computes the other.
  * - Falls back to intrinsic width capped to 400, or default width 200.
+ * Results are clamped to [1, MAX_IMAGE_DIMENSION].
  */
 export function computeImageDimensions(
   widthHint: number | undefined,
@@ -50,7 +63,10 @@ export function computeImageDimensions(
     outWidth = 200;
   }
 
-  return { width: outWidth, height: outHeight };
+  return {
+    width: clampImageDimension(outWidth),
+    height: outHeight === undefined ? undefined : clampImageDimension(outHeight),
+  };
 }
 
 function readUint16BE(buf: Uint8Array, offset: number): number {

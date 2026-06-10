@@ -95,4 +95,73 @@ describe("Security regressions", () => {
     expect(canonicalLanguageName("javascript")).toBe("javascript");
     expect(canonicalLanguageName("js")).toBe("javascript");
   });
+
+  it("renders file:// UNC links as plain text instead of hyperlinks", async () => {
+    const blob = await convertMarkdownToDocx(
+      "Open [report](file://attacker.example/share/doc.docx) now."
+    );
+
+    const documentXml = await getDocumentXml(blob);
+    const relationshipsXml = await documentRelationshipsXml(blob);
+
+    expect(documentXml).toContain("report");
+    expect(documentXml).not.toContain("<w:hyperlink");
+    expect(relationshipsXml).not.toContain("file://");
+  });
+
+  it("renders javascript: links as plain text instead of hyperlinks", async () => {
+    const blob = await convertMarkdownToDocx(
+      "Click [here](javascript:alert(1))."
+    );
+
+    const documentXml = await getDocumentXml(blob);
+    const relationshipsXml = await documentRelationshipsXml(blob);
+
+    expect(documentXml).toContain("here");
+    expect(documentXml).not.toContain("<w:hyperlink");
+    expect(relationshipsXml).not.toContain("javascript:");
+  });
+
+  it("renders whitespace-obfuscated unsafe schemes as plain text", async () => {
+    // The WHATWG URL parser strips tabs/newlines, so "java\tscript:" would
+    // otherwise normalize to javascript: after the allowlist check.
+    const blob = await convertMarkdownToDocx(
+      "Click [here](java\tscript:alert(1))."
+    );
+
+    const documentXml = await getDocumentXml(blob);
+    const relationshipsXml = await documentRelationshipsXml(blob);
+
+    expect(documentXml).toContain("here");
+    expect(documentXml).not.toContain("<w:hyperlink");
+    expect(relationshipsXml).not.toContain("script:");
+  });
+
+  it("fails closed on malformed link targets the URL parser rejects", async () => {
+    const blob = await convertMarkdownToDocx("Broken [target](https://).");
+
+    const documentXml = await getDocumentXml(blob);
+    const relationshipsXml = await documentRelationshipsXml(blob);
+
+    expect(documentXml).toContain("target");
+    expect(documentXml).not.toContain("<w:hyperlink");
+    expect(relationshipsXml).not.toContain('Target="https://"');
+  });
+
+  it("keeps https, mailto, and relative links as hyperlinks", async () => {
+    const blob = await convertMarkdownToDocx(
+      [
+        "[secure](https://example.com/ok)",
+        "[mail](mailto:user@example.com)",
+        "[relative](./other-doc.md)",
+      ].join(" and ")
+    );
+
+    const documentXml = await getDocumentXml(blob);
+    const relationshipsXml = await documentRelationshipsXml(blob);
+
+    expect(documentXml.match(/<w:hyperlink/g)).toHaveLength(3);
+    expect(relationshipsXml).toContain("https://example.com/ok");
+    expect(relationshipsXml).toContain("mailto:user@example.com");
+  });
 });

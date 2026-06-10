@@ -50,6 +50,26 @@ interface ListMarkerContext {
   sequenceId: number | undefined;
 }
 
+const SAFE_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
+
+/**
+ * Hyperlink targets are restricted to a scheme allowlist so a malicious
+ * document cannot embed e.g. file:// UNC links (NTLM credential leak when
+ * clicked in Word on Windows) or other unexpected protocol handlers.
+ * Relative/fragment targets resolve against the dummy base and inherit its
+ * safe scheme; targets the URL parser rejects outright fail closed because
+ * Word may still treat the raw string as an active hyperlink.
+ */
+function isSafeLinkUrl(url: string): boolean {
+  let protocol: string;
+  try {
+    protocol = new URL(url, "https://relative-link.invalid/").protocol;
+  } catch {
+    return false;
+  }
+  return SAFE_LINK_PROTOCOLS.has(protocol.toLowerCase());
+}
+
 /**
  * Converts internal docx model to docx Paragraph/Table objects
  * Handles nested lists with proper level tracking
@@ -62,6 +82,8 @@ export async function modelToDocx(
     sequenceIdOffset?: number;
     /** When set by `parseToDocxOptions`, ties `maxImages` to the whole document across sections. */
     processedImageCounter?: { count: number };
+    /** Document-wide budget for failed remote image fetch attempts. */
+    failedRemoteImageCounter?: { count: number };
     headingBookmarkCounter?: { count: number };
     /** Records emitted TOC placeholder paragraphs so the caller can splice in TOC content. */
     tocPlaceholders?: WeakSet<object>;
@@ -83,6 +105,9 @@ export async function modelToDocx(
   const sequenceIdOffset = renderOptions.sequenceIdOffset || 0;
   const imageHandling = resolveImageHandlingOptions(options.imageHandling);
   const processedImageCounter = renderOptions.processedImageCounter ?? {
+    count: 0,
+  };
+  const failedRemoteImageCounter = renderOptions.failedRemoteImageCounter ?? {
     count: 0,
   };
   // Full-width tables are sized in twips so docx emits a plain integer width.
@@ -124,7 +149,9 @@ export async function modelToDocx(
   ): (TextRun | ExternalHyperlink)[] {
     const out: (TextRun | ExternalHyperlink)[] = [];
     for (const node of nodes) {
-      if (node.link) {
+      if (node.link && !isSafeLinkUrl(node.link)) {
+        out.push(textRunFromNode({ ...node, link: undefined }, overrides));
+      } else if (node.link) {
         out.push(
           new ExternalHyperlink({
             children: [
@@ -634,6 +661,15 @@ export async function modelToDocx(
       return [imageCouldNotLoadParagraph(node.alt, paragraphOptions)];
     }
 
+    // maxImages caps successful embeds only (so broken images cannot starve
+    // valid ones of budget), but failed *remote* attempts still cost up to
+    // fetchTimeoutMs each. Give failures their own equal budget so a document
+    // full of broken/slow URLs cannot trigger unbounded sequential fetches.
+    const isRemote = !/^data:/i.test(node.url);
+    if (isRemote && failedRemoteImageCounter.count >= imageHandling.maxImages) {
+      return [imageCouldNotLoadParagraph(node.alt, paragraphOptions)];
+    }
+
     try {
       const { embedded, paragraphs } = await processImage(
         node.alt,
@@ -645,6 +681,8 @@ export async function modelToDocx(
       );
       if (embedded) {
         processedImageCounter.count++;
+      } else if (isRemote) {
+        failedRemoteImageCounter.count++;
       }
       return paragraphs;
     } catch (error) {

@@ -8,6 +8,7 @@ const ONE_PX_PNG =
 
 /** Matches fallback paragraphs from `processImage` (`displayed`) or `modelToDocx` (`loaded`). */
 const IMAGE_FALLBACK = /Image could not be (displayed|loaded)/;
+const IMAGE_FALLBACK_GLOBAL = /Image could not be (displayed|loaded)/g;
 
 function expectImageFallback(xml: string): void {
   expect(xml).toMatch(IMAGE_FALLBACK);
@@ -277,7 +278,61 @@ describe("Image security", () => {
 
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(xml.match(/<w:drawing>/g)).toHaveLength(1);
-    expect(xml.match(/Image could not be displayed/g)).toHaveLength(2);
+    expect(xml.match(IMAGE_FALLBACK_GLOBAL)).toHaveLength(2);
+  });
+
+  it("stops attempting remote fetches once the failed-image budget is spent", async () => {
+    let fetchCalls = 0;
+    jest.spyOn(globalThis, "fetch").mockImplementation(() => {
+      fetchCalls += 1;
+      return Promise.reject(new Error("connection refused"));
+    });
+
+    const markdown = Array.from(
+      { length: 6 },
+      (_, i) => `![broken](https://93.184.216.34/missing-${i}.png)`
+    ).join("\n\n");
+
+    const xml = await render(markdown, {
+      imageHandling: { remote: { enabled: true }, maxImages: 2 },
+    });
+
+    // Failed remote attempts get an equal budget to maxImages; once spent,
+    // remaining images fall back without performing network fetches.
+    expect(fetchCalls).toBe(2);
+    expect(xml.match(IMAGE_FALLBACK_GLOBAL)).toHaveLength(6);
+  });
+
+  it("denies every remote host when an empty allowedHosts list is provided", async () => {
+    const fetchSpy = jest
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("unexpected fetch"));
+
+    const xml = await render("![remote](https://93.184.216.34/image.png)", {
+      imageHandling: { remote: { enabled: true, allowedHosts: [] } },
+    });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expectImageFallback(xml);
+  });
+
+  it("still fetches hosts present in the allowedHosts list", async () => {
+    const pngBytes = Buffer.from(ONE_PX_PNG.split(",")[1], "base64");
+    jest.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(new Uint8Array(pngBytes), {
+        status: 200,
+        headers: { "content-type": "image/png" },
+      }) as never
+    );
+
+    const xml = await render("![remote](https://93.184.216.34/image.png)", {
+      imageHandling: {
+        remote: { enabled: true, allowedHosts: ["93.184.216.34"] },
+      },
+    });
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(xml).toContain("<w:drawing>");
   });
 
   it("continues to embed valid data URL images by default", async () => {

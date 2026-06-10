@@ -268,6 +268,8 @@ export interface RemoteImageHandlingOptions {
   enabled?: boolean;
   /**
    * Optional exact host allowlist. Host names are compared case-insensitively.
+   * When provided, the list fails closed: an empty array denies every host.
+   * Omit the option to allow any (public) host.
    */
   allowedHosts?: string[];
 }

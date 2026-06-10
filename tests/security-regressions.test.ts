@@ -122,6 +122,32 @@ describe("Security regressions", () => {
     expect(relationshipsXml).not.toContain("javascript:");
   });
 
+  it("renders whitespace-obfuscated unsafe schemes as plain text", async () => {
+    // The WHATWG URL parser strips tabs/newlines, so "java\tscript:" would
+    // otherwise normalize to javascript: after the allowlist check.
+    const blob = await convertMarkdownToDocx(
+      "Click [here](java\tscript:alert(1))."
+    );
+
+    const documentXml = await getDocumentXml(blob);
+    const relationshipsXml = await documentRelationshipsXml(blob);
+
+    expect(documentXml).toContain("here");
+    expect(documentXml).not.toContain("<w:hyperlink");
+    expect(relationshipsXml).not.toContain("script:");
+  });
+
+  it("fails closed on malformed link targets the URL parser rejects", async () => {
+    const blob = await convertMarkdownToDocx("Broken [target](https://).");
+
+    const documentXml = await getDocumentXml(blob);
+    const relationshipsXml = await documentRelationshipsXml(blob);
+
+    expect(documentXml).toContain("target");
+    expect(documentXml).not.toContain("<w:hyperlink");
+    expect(relationshipsXml).not.toContain('Target="https://"');
+  });
+
   it("keeps https, mailto, and relative links as hyperlinks", async () => {
     const blob = await convertMarkdownToDocx(
       [

@@ -56,15 +56,16 @@ const SAFE_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
  * Hyperlink targets are restricted to a scheme allowlist so a malicious
  * document cannot embed e.g. file:// UNC links (NTLM credential leak when
  * clicked in Word on Windows) or other unexpected protocol handlers.
- * Scheme-less (relative/fragment) targets carry no protocol to abuse and
- * are allowed.
+ * Relative/fragment targets resolve against the dummy base and inherit its
+ * safe scheme; targets the URL parser rejects outright fail closed because
+ * Word may still treat the raw string as an active hyperlink.
  */
 function isSafeLinkUrl(url: string): boolean {
   let protocol: string;
   try {
-    protocol = new URL(url).protocol;
+    protocol = new URL(url, "https://relative-link.invalid/").protocol;
   } catch {
-    return true;
+    return false;
   }
   return SAFE_LINK_PROTOCOLS.has(protocol.toLowerCase());
 }

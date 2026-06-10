@@ -604,6 +604,14 @@ describe("Rendering: HTML comments", () => {
 
     expect(xml).toContain("Comment: reviewer feedback here");
   });
+
+  it("does not treat non-comment HTML containing COMMENT: as a comment", async () => {
+    const xml = await render(
+      "Before.\n\n<div>COMMENT: just markup text</div>\n\nAfter."
+    );
+
+    expect(xml).not.toContain("Comment:");
+  });
 });
 
 describe("Rendering: image dimension clamping", () => {

@@ -856,7 +856,8 @@ export async function modelToDocx(
     const rendered = await renderBlockNode(node);
     const currentRenderedAsCode =
       node.type === "codeBlock" ||
-      rendered.some((child) => mermaidFallbackCodeParagraphs.has(child));
+      (node.type === "mermaidBlock" &&
+        rendered.some((child) => mermaidFallbackCodeParagraphs.has(child)));
 
     // Insert a blank spacer paragraph between back-to-back code blocks so
     // Word doesn't collapse the shared borders into a single visual block.

@@ -37,6 +37,10 @@ function numberingMarkerCount(xml: string): number {
   return xml.match(/<w:numPr>/g)?.length || 0;
 }
 
+function zeroSpacingSpacerCount(xml: string): number {
+  return xml.match(/w:before="0"[\s\S]*?w:after="0"/g)?.length || 0;
+}
+
 describe("Diagram rendering: Mermaid fenced blocks", () => {
   it("keeps mermaid fences as ordinary code blocks by default", async () => {
     const xml = await render(MERMAID_MARKDOWN);
@@ -144,6 +148,43 @@ graph TD
     expect(xml).toContain("C --&gt; D");
     expect(xml).toContain('w:before="0"');
     expect(xml).toContain('w:after="0"');
+  });
+
+  it("does not add a spacer after nested Mermaid fallback code", async () => {
+    const options: Options = {
+      mermaidRendering: {
+        enabled: true,
+        render: () => undefined,
+      },
+    };
+    const topLevelCodeFence = `\`\`\`typescript
+const topLevel = true;
+\`\`\``;
+    const listXml = await render(
+      `- \`\`\`mermaid
+  graph TD
+    A --> B
+  \`\`\`
+
+${topLevelCodeFence}`,
+      options,
+    );
+    const quoteXml = await render(
+      `> \`\`\`mermaid
+> graph TD
+>   A --> B
+> \`\`\`
+
+${topLevelCodeFence}`,
+      options,
+    );
+
+    expect(listXml).toContain("graph TD");
+    expect(listXml).toContain("const topLevel");
+    expect(zeroSpacingSpacerCount(listXml)).toBe(0);
+    expect(quoteXml).toContain("graph TD");
+    expect(quoteXml).toContain("const topLevel");
+    expect(zeroSpacingSpacerCount(quoteXml)).toBe(0);
   });
 
   it("can render a placeholder or throw on render failure", async () => {

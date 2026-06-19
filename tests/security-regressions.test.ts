@@ -79,6 +79,63 @@ describe("Security regressions", () => {
     ).rejects.toBeInstanceOf(MarkdownConversionError);
   });
 
+  it("rejects function text replacements in untrusted mode before execution", async () => {
+    const replacement = jest.fn((match: string) => `Number: ${match}`);
+
+    await expect(
+      convertMarkdownToDocx("Invoice 42", {
+        textReplacementMode: "untrusted",
+        textReplacements: [{ find: /(\d+)/g, replace: replacement }],
+      })
+    ).rejects.toThrow("Function textReplacements are not allowed");
+
+    expect(replacement).not.toHaveBeenCalled();
+  });
+
+  it("allows literal text replacements in untrusted mode", async () => {
+    const blob = await convertMarkdownToDocx("Company Name", {
+      textReplacementMode: "untrusted",
+      textReplacements: [{ find: "Company Name", replace: "Acme Corp" }],
+    });
+
+    const documentXml = await getDocumentXml(blob);
+    expect(documentXml).toContain("Acme Corp");
+    expect(documentXml).not.toContain("Company Name");
+  });
+
+  it("preserves trusted function text replacement behavior", async () => {
+    const replacement = jest.fn((match: string) => `Number: ${match}`);
+    const blob = await convertMarkdownToDocx("Invoice 42", {
+      textReplacementMode: "trusted",
+      textReplacements: [{ find: /(\d+)/g, replace: replacement }],
+    });
+
+    const documentXml = await getDocumentXml(blob);
+    expect(documentXml).toContain("Number: 42");
+    expect(replacement).toHaveBeenCalledWith(
+      "42",
+      "42",
+      expect.objectContaining({ index: 8 })
+    );
+  });
+
+  it("rejects invalid textReplacementMode values", async () => {
+    await expect(
+      convertMarkdownToDocx("Hello", {
+        textReplacementMode: "invalid" as unknown as "trusted",
+      })
+    ).rejects.toThrow("Invalid textReplacementMode");
+  });
+
+  it("rejects null textReplacementMode values", async () => {
+    await expect(
+      convertMarkdownToDocx("Hello", {
+        textReplacementMode: null as unknown as "trusted",
+        textReplacements: [{ find: "Hello", replace: "Hi" }],
+      })
+    ).rejects.toThrow("Invalid textReplacementMode");
+  });
+
   it("bounds bracket-heavy input without catastrophic scanning", async () => {
     const blob = await convertMarkdownToDocx("[".repeat(20_000));
     const documentXml = await getDocumentXml(blob);

@@ -340,7 +340,7 @@ await convertMarkdownToDocx(markdown, {
 
 ### Text find-and-replace
 
-Run string, regex, or functional replacements over the Markdown AST before conversion — they apply across every element type (headings, paragraphs, list items, table cells, etc.):
+Run string, regex, or trusted functional replacements over the Markdown AST before conversion — they apply across every element type (headings, paragraphs, list items, table cells, etc.):
 
 ```typescript
 await convertMarkdownToDocx(markdown, {
@@ -352,7 +352,9 @@ await convertMarkdownToDocx(markdown, {
 });
 ```
 
-For untrusted input, prefer literal string replacements. Regex replacements are accepted only when they fit bounded safety checks; patterns with nested quantifiers or excessive length are rejected before conversion to avoid ReDoS-style stalls.
+Function replacements execute JavaScript in the conversion process and must only be constructed by trusted programmatic callers. They are still supported by default for backward compatibility.
+
+For untrusted input, set `textReplacementMode: "untrusted"` and prefer literal string replacements. In untrusted mode, function replacements are rejected before conversion. Regex replacements are accepted only when they fit bounded safety checks; patterns with nested quantifiers or excessive length are rejected before conversion to avoid ReDoS-style stalls.
 
 Escaped link syntax such as `\[label](https://example.com)` stays plain text in the DOCX. Hyperlinks are emitted only from actual Markdown link nodes.
 
@@ -368,6 +370,7 @@ try {
   const blob = await convertMarkdownToDocx(markdown, {
     maxInputLength: 1_048_576,
     maxElements: 50_000,
+    textReplacementMode: "untrusted",
     signal: controller.signal,
     imageHandling: {
       remote: { enabled: false },
@@ -453,6 +456,7 @@ interface Options {
   sections?: DocumentSection[];
   codeHighlighting?: CodeHighlightOptions;
   textReplacements?: TextReplacement[];
+  textReplacementMode?: "trusted" | "untrusted";
   imageHandling?: ImageHandlingOptions;
 }
 ```
@@ -554,10 +558,14 @@ Alignment & direction
 #### `TextReplacement`
 
 
-| Field     | Type    |
-| --------- | ------- |
-| `find`    | `string |
-| `replace` | `string |
+| Field     | Type                                                        | Description                                                                 |
+| --------- | ----------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `find`    | `string \| RegExp`                                         | Pattern to find. Regex patterns are checked for bounded safety before use.  |
+| `replace` | `string \| TextReplacementFunction`                        | Literal replacement or trusted function replacement.                        |
+
+`textReplacementMode` defaults to `"trusted"` to preserve existing programmatic behavior. Set it to `"untrusted"` when options come from users, API requests, webhooks, uploaded JSON, or any other external source; that mode rejects `TextReplacementFunction` values before they can run.
+
+`TextReplacementFunction` returns `string`, a Markdown phrasing node, an array of phrasing nodes, `false`, `null`, or `undefined`, matching the supported `mdast-util-find-and-replace` replacement results.
 
 
 ### Errors

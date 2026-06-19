@@ -284,6 +284,12 @@ export interface Options {
    * to fetch internal network resources.
    */
   imageHandling?: ImageHandlingOptions;
+  /**
+   * Optional Mermaid fenced-block rendering. Disabled by default; when enabled,
+   * callers must provide a renderer that converts Mermaid fences into raster
+   * image bytes.
+   */
+  mermaidRendering?: MermaidRenderingOptions;
 }
 
 export interface MathRenderingOptions {
@@ -331,6 +337,10 @@ export interface PatchMarkdownOptions {
    * markdown. Defaults to enabled, matching normal conversion.
    */
   mathRendering?: MathRenderingOptions;
+  /**
+   * Controls opt-in Mermaid fenced-block rendering in patch markdown.
+   */
+  mermaidRendering?: MermaidRenderingOptions;
   /**
    * Optional syntax highlighting configuration for fenced code blocks.
    */
@@ -493,6 +503,67 @@ export interface CodeHighlightOptions {
    * Defaults to true.
    */
   showLanguageLabel?: boolean;
+}
+
+export interface MermaidRenderInput {
+  /**
+   * Raw fenced code block body.
+   */
+  code: string;
+  /**
+   * Optional mdast code fence metadata.
+   */
+  meta?: string;
+  /**
+   * Abort signal from the conversion options, when provided.
+   */
+  signal?: AbortSignal;
+}
+
+export interface MermaidRenderResult {
+  /**
+   * Raster image bytes. Supported output formats match normal embedded images:
+   * PNG, JPEG, or GIF.
+   */
+  data: Uint8Array | ArrayBuffer | Buffer;
+  /**
+   * Optional content type used as a hint when detecting the image format.
+   */
+  contentType?: string;
+  /**
+   * Optional output width hint in pixels. If omitted, intrinsic image metadata
+   * and normal image sizing defaults are used.
+   */
+  width?: number;
+  /**
+   * Optional output height hint in pixels. If omitted, intrinsic image metadata
+   * and normal image sizing defaults are used.
+   */
+  height?: number;
+  /**
+   * Optional source label for diagnostics. This is not fetched.
+   */
+  source?: string;
+}
+
+export interface MermaidRenderingOptions {
+  /**
+   * Turn Mermaid rendering on. Defaults to false, preserving Mermaid fences
+   * as ordinary code blocks.
+   */
+  enabled?: boolean;
+  /**
+   * Converts a Mermaid fence into raster image bytes. The package does not
+   * bundle Mermaid, Graphviz, browser automation, or a subprocess runner.
+   */
+  render?: (
+    input: MermaidRenderInput
+  ) => Promise<MermaidRenderResult | null | undefined> | MermaidRenderResult | null | undefined;
+  /**
+   * Behavior when rendering is enabled but unavailable or failed. Defaults to
+   * "codeBlock" so document content is preserved.
+   */
+  failureMode?: "codeBlock" | "placeholder" | "throw";
 }
 
 export interface TableData {

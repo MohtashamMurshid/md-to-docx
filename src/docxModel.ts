@@ -64,13 +64,18 @@ export interface DocxMathBlockNode {
   value: string;
 }
 
+export interface DocxMermaidBlockNode {
+  type: "mermaidBlock";
+  value: string;
+  meta?: string;
+}
+
 export type DocxCalloutType =
   | "note"
   | "tip"
   | "important"
   | "warning"
   | "caution";
-
 export interface DocxBlockquoteNode {
   type: "blockquote";
   children: DocxBlockNode[];
@@ -115,6 +120,7 @@ export type DocxBlockNode =
   | DocxListNode
   | DocxCodeBlockNode
   | DocxMathBlockNode
+  | DocxMermaidBlockNode
   | DocxBlockquoteNode
   | DocxImageNode
   | DocxTableNode

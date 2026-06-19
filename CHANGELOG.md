@@ -1,3 +1,9 @@
+## [2.17.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.16.0...v2.17.0) (2026-06-19)
+
+### Features
+
+* render Mermaid fences as DOCX images ([3b44e9a](https://github.com/MohtashamMurshid/md-to-docx/commit/3b44e9ae17cdd843b5f817ae81e0edb820fe457e))
+
 ## [2.16.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.15.0...v2.16.0) (2026-06-19)
 
 ### Features

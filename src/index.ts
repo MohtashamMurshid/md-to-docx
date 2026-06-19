@@ -64,11 +64,14 @@ type RenderedMarkdownContent = {
   children: (Paragraph | Table)[];
   headings: TocHeadingEntry[];
   maxSequenceId: number;
+  footnotes: Record<string, { children: Paragraph[] }>;
 };
 
 export { MarkdownConversionError };
 
 export {
+  CalloutStyle,
+  CalloutType,
   CodeHighlightOptions,
   CodeHighlightTheme,
   DataUrlImageHandlingOptions,
@@ -85,6 +88,10 @@ export {
   SectionTemplate,
   Style,
   TableData,
+  TextReplacement,
+  TextReplacementFunction,
+  TextReplacementFunctionResult,
+  TextReplacementMode,
   TocOptions,
 } from "./types.js";
 
@@ -204,8 +211,10 @@ export async function parseToDocxOptions(
       style: Style;
       config: SectionConfig;
     }[] = [];
+    const footnotes: Record<string, { children: Paragraph[] }> = {};
     const headings: TocHeadingEntry[] = [];
     let maxSequenceId = 0;
+    let maxFootnoteId = 0;
     const processedImageCounter = { count: 0 };
     const failedRemoteImageCounter = { count: 0 };
     const headingBookmarkCounter = { count: 0 };
@@ -227,11 +236,16 @@ export async function parseToDocxOptions(
           headingBookmarkCounter,
           tocPlaceholders,
           tableWidthTwips: getSectionContentWidthTwips(section.config),
+          footnoteIdOffset: maxFootnoteId,
         }
       );
       elementCount = rendered.elementCount;
 
       maxSequenceId = Math.max(maxSequenceId, rendered.content.maxSequenceId);
+      for (const [id, footnote] of Object.entries(rendered.content.footnotes)) {
+        footnotes[id] = footnote;
+        maxFootnoteId = Math.max(maxFootnoteId, Number(id));
+      }
       headings.push(...rendered.content.headings);
 
       renderedSections.push({
@@ -296,6 +310,7 @@ export async function parseToDocxOptions(
         config: numberingConfigs,
       },
       sections: docSections,
+      ...(Object.keys(footnotes).length > 0 ? { footnotes } : {}),
       styles: {
         paragraphStyles: buildParagraphStyles(style),
       },
@@ -364,6 +379,7 @@ async function patchMarkdownInDocxWithOutput(
         documentType: options.documentType || defaultOptions.documentType,
         style,
         textReplacements: options.textReplacements,
+        textReplacementMode: options.textReplacementMode,
         codeHighlighting: options.codeHighlighting,
         imageHandling: options.imageHandling,
         maxInputLength: options.maxInputLength,
@@ -509,6 +525,7 @@ async function renderMarkdownContent(
     headingBookmarkCounter?: { count: number };
     tocPlaceholders?: WeakSet<object>;
     tableWidthTwips?: number;
+    footnoteIdOffset?: number;
     validateModel?: (model: DocxDocumentModel) => void;
   } = {}
 ): Promise<{ content: RenderedMarkdownContent; elementCount: number }> {
@@ -516,7 +533,11 @@ async function renderMarkdownContent(
   await yieldToAbortSignal(options.signal);
 
   if (options.textReplacements && options.textReplacements.length > 0) {
-    applyTextReplacements(ast, options.textReplacements);
+    applyTextReplacements(
+      ast,
+      options.textReplacements,
+      options.textReplacementMode,
+    );
   }
 
   throwIfAborted(options.signal);
@@ -538,6 +559,7 @@ async function renderMarkdownContent(
     headingBookmarkCounter: renderOptions.headingBookmarkCounter,
     tocPlaceholders: renderOptions.tocPlaceholders,
     tableWidthTwips: renderOptions.tableWidthTwips,
+    footnoteIdOffset: renderOptions.footnoteIdOffset,
   });
 
   return { content, elementCount };
@@ -547,6 +569,13 @@ function assertPatchCompatibleModel(
   model: DocxDocumentModel,
   placeholder: string
 ): void {
+  if (model.footnotes && model.footnotes.length > 0) {
+    throw new MarkdownConversionError(
+      "Patch markdown does not support footnotes yet",
+      { placeholder },
+    );
+  }
+
   const stack: DocxBlockNode[] = [...model.children];
 
   while (stack.length > 0) {

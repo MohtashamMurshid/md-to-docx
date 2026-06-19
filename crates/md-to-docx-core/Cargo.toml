@@ -1,0 +1,20 @@
+[package]
+name = "md-to-docx-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Rust markdown-to-DOCX intermediate model core for @mohtasham/md-to-docx"
+
+[lib]
+name = "md_to_docx_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "md-to-docx-core"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+zip = { version = "2", default-features = false, features = ["deflate"] }

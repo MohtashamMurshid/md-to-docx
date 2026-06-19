@@ -26,6 +26,9 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: "npm"
 
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
+
       - name: Install dependencies
         run: npm ci
 
@@ -38,5 +41,11 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Run Rust core tests
+        run: npm run rust:test
+
       - name: Lint
         run: npm run lint
+
+      - name: Lint Rust core
+        run: npm run rust:lint

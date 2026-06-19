@@ -30,6 +30,7 @@ A TypeScript-first library and CLI that turns Markdown into production-ready Wor
   - [Text find-and-replace](#text-find-and-replace)
   - [Server-side processing limits](#server-side-processing-limits)
   - [RTL / bidirectional text](#rtl--bidirectional-text)
+  - [Reference DOCX placeholder patching](#reference-docx-placeholder-patching)
 - [Supported Markdown](#supported-markdown)
 - [API reference](#api-reference)
 - [Requirements](#requirements)
@@ -47,6 +48,7 @@ A TypeScript-first library and CLI that turns Markdown into production-ready Wor
 - **First-class CLI** — `npx @mohtasham/md-to-docx input.md output.docx`.
 - **TypeScript-native** — fully typed options surface, including `CodeHighlightTheme`, `Options`, and `DocumentSection`.
 - **Multi-section documents** — cover pages, per-section headers/footers, page numbering resets, mixed orientations, style overrides.
+- **Reference DOCX patching** — Node-friendly placeholder replacement for inserting generated Markdown into an existing `.docx` package.
 - **Optional syntax highlighting** — opt-in, powered by `[lowlight](https://github.com/wooorm/lowlight)`; ships a GitHub-light theme and lets you override any token color.
 - **Works everywhere** — Node.js (18+) and modern browsers; the package ships ESM with type declarations.
 - **Small public surface, stable API** — only the root entrypoint is exported via `package.json#exports`.
@@ -238,6 +240,58 @@ const blob = await convertMarkdownToDocx("", {
 
 **Precedence (last wins):** global `style` → `template.style` → per-section `style`. For `headers` / `footers`, each slot (`default`, `first`, `even`) can inherit, override, or be explicitly disabled with `null`.
 
+### Reference DOCX placeholder patching
+
+Use `patchMarkdownInDocxToBuffer` when you already have a Word template and want Markdown inserted at named placeholders. This workflow preserves the original DOCX package around the patched location, including existing styles, headers, footers, margins, cover pages, and static content.
+
+Create placeholders in the reference DOCX as plain text, for example `{{body}}`, then patch them from Node:
+
+```typescript
+import { patchMarkdownInDocxToBuffer } from "@mohtasham/md-to-docx";
+import fs from "node:fs/promises";
+
+const template = await fs.readFile("corporate-template.docx");
+const output = await patchMarkdownInDocxToBuffer(
+  template,
+  {
+    body: `# Quarterly Update
+
+Hello **team**.
+
+| Metric | Value |
+| --- | --- |
+| Revenue | $1.2M |`,
+  },
+  {
+    style: { fontFamily: "Aptos" },
+    keepOriginalStyles: true,
+  }
+);
+
+await fs.writeFile("report.docx", output);
+```
+
+The default placeholder delimiters are `{{` and `}}`. Use `placeholderDelimiters` if your template uses a different marker:
+
+```typescript
+await patchMarkdownInDocxToBuffer(template, patches, {
+  placeholderDelimiters: { start: "[[", end: "]]" },
+});
+```
+
+Supported in this first mode:
+
+- Node-first `.docx` patching from an existing DOCX buffer.
+- Document-level placeholder replacement with generated paragraphs, headings, tables, blockquotes, code blocks, links, images, bullet lists, and page breaks.
+- Preserving existing package parts that are not replaced by the placeholder patch.
+
+Current limitations:
+
+- This is not a "reference styles" mode for generating a brand-new DOCX from another DOCX.
+- This does not append to the end of a document unless the template contains a placeholder at that location.
+- Ordered lists, generated `[TOC]`, and Word comments are rejected in patch markdown because they require package-level merges that are not supported yet.
+- Browser use may work when you provide DOCX bytes, but this workflow is designed and tested for Node.
+
 ### Syntax-highlighted code blocks
 
 Highlighting is **opt-in**; when disabled (the default) output is byte-identical to pre-highlighting versions. When enabled, each token becomes its own colored `TextRun`.
@@ -402,6 +456,18 @@ Converts Markdown text to DOCX bytes in any runtime with `ArrayBuffer` support.
 
 Node-friendly helper for writing DOCX output to disk, object storage, or HTTP responses.
 
+### `patchMarkdownInDocx(referenceDocx, patches, options?): Promise<Blob>`
+
+Patches generated Markdown into an existing DOCX at named placeholders such as `{{body}}`.
+
+### `patchMarkdownInDocxToArrayBuffer(referenceDocx, patches, options?): Promise<ArrayBuffer>`
+
+Patches a reference DOCX and returns bytes in any runtime with `ArrayBuffer` support.
+
+### `patchMarkdownInDocxToBuffer(referenceDocx, patches, options?): Promise<Buffer>`
+
+Node-friendly helper for writing a patched reference DOCX to disk, object storage, or HTTP responses.
+
 ### `downloadDocx(blob, filename?): Promise<void>`
 
 Browser-only async helper that triggers a file download. Throws in non-browser environments. `filename` defaults to `"document.docx"`.
@@ -423,6 +489,33 @@ interface Options {
   imageHandling?: ImageHandlingOptions;
 }
 ```
+
+### `PatchMarkdownOptions`
+
+```typescript
+type MarkdownDocxPatch =
+  | string
+  | {
+      markdown: string;
+      style?: Partial<Style>;
+    };
+
+interface PatchMarkdownOptions {
+  documentType?: "document" | "report";
+  style?: Partial<Style>;
+  codeHighlighting?: CodeHighlightOptions;
+  textReplacements?: TextReplacement[];
+  imageHandling?: ImageHandlingOptions;
+  maxInputLength?: number;
+  maxElements?: number;
+  signal?: AbortSignal;
+  keepOriginalStyles?: boolean;
+  placeholderDelimiters?: { start: string; end: string };
+  recursive?: boolean;
+}
+```
+
+`patches` is an object keyed by placeholder name without delimiters. With the default delimiters, `{ body: "# Report" }` replaces `{{body}}` in the reference DOCX.
 
 #### `Style`
 

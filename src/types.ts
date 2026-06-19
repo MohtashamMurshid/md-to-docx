@@ -1,3 +1,5 @@
+import type { InputDataType } from "docx";
+
 export interface Style {
   titleSize: number;
   headingSpacing: number;
@@ -243,6 +245,68 @@ export interface Options {
    * to fetch internal network resources.
    */
   imageHandling?: ImageHandlingOptions;
+}
+
+export type ReferenceDocxInput = InputDataType;
+
+export type MarkdownDocxPatch =
+  | string
+  | {
+      /**
+       * Markdown content inserted at the matching DOCX placeholder.
+       */
+      markdown: string;
+      /**
+       * Optional style overrides for this placeholder's generated content.
+       */
+      style?: Partial<Style>;
+    };
+
+export interface PatchMarkdownOptions {
+  documentType?: "document" | "report";
+  style?: Partial<Style>;
+  /**
+   * Array of text replacements to apply to each patch's markdown AST before
+   * rendering.
+   */
+  textReplacements?: TextReplacement[];
+  /**
+   * Optional syntax highlighting configuration for fenced code blocks.
+   */
+  codeHighlighting?: CodeHighlightOptions;
+  /**
+   * Controls image loading and embedding for markdown inserted into the
+   * reference DOCX.
+   */
+  imageHandling?: ImageHandlingOptions;
+  /**
+   * Optional maximum markdown input length per patch.
+   */
+  maxInputLength?: number;
+  /**
+   * Optional maximum parsed markdown AST element count per patch.
+   */
+  maxElements?: number;
+  /**
+   * Optional cancellation signal for programmatic patching.
+   */
+  signal?: AbortSignal;
+  /**
+   * Preserve the run styles around placeholder text when the underlying docx
+   * patcher can apply them. Defaults to true.
+   */
+  keepOriginalStyles?: boolean;
+  /**
+   * Placeholder delimiters used in the reference DOCX. Defaults to {{ and }}.
+   */
+  placeholderDelimiters?: {
+    start: string;
+    end: string;
+  };
+  /**
+   * Whether repeated placeholders should all be replaced. Defaults to true.
+   */
+  recursive?: boolean;
 }
 
 export interface TocOptions {

@@ -1,5 +1,6 @@
 import {
   AlignmentOption,
+  CalloutType,
   DocumentSection,
   HeaderFooterGroup,
   HeaderFooterSlot,
@@ -49,6 +50,14 @@ const validSectionTypes = [
   "ODD_PAGE",
 ] as const;
 const validPageOrientations = ["PORTRAIT", "LANDSCAPE"] as const;
+const validTextReplacementModes = ["trusted", "untrusted"] as const;
+const validCalloutTypes: CalloutType[] = [
+  "note",
+  "tip",
+  "important",
+  "warning",
+  "caution",
+];
 
 function validateHexColorOption(
   value: string | undefined,
@@ -120,6 +129,56 @@ function validateStyleInput(
     "inlineCodeBackground",
     styleContext
   );
+
+  if (style.calloutStyles !== undefined) {
+    if (
+      typeof style.calloutStyles !== "object" ||
+      style.calloutStyles === null ||
+      Array.isArray(style.calloutStyles)
+    ) {
+      throw new MarkdownConversionError("Invalid calloutStyles: Must be an object", {
+        styleContext,
+        calloutStyles: style.calloutStyles,
+      });
+    }
+
+    for (const [calloutType, calloutStyle] of Object.entries(
+      style.calloutStyles
+    )) {
+      if (!validCalloutTypes.includes(calloutType as CalloutType)) {
+        throw new MarkdownConversionError(
+          `Invalid calloutStyles key: ${calloutType}`,
+          { styleContext, calloutType }
+        );
+      }
+      if (
+        typeof calloutStyle !== "object" ||
+        calloutStyle === null ||
+        Array.isArray(calloutStyle)
+      ) {
+        throw new MarkdownConversionError(
+          `Invalid calloutStyles.${calloutType}: Must be an object`,
+          { styleContext, calloutStyle }
+        );
+      }
+
+      validateHexColorOption(
+        calloutStyle.borderColor,
+        `calloutStyles.${calloutType}.borderColor`,
+        styleContext
+      );
+      validateHexColorOption(
+        calloutStyle.backgroundColor,
+        `calloutStyles.${calloutType}.backgroundColor`,
+        styleContext
+      );
+      validateHexColorOption(
+        calloutStyle.titleColor,
+        `calloutStyles.${calloutType}.titleColor`,
+        styleContext
+      );
+    }
+  }
 }
 
 function validateTocOptionsInput(toc: TocOptions | undefined): void {
@@ -156,6 +215,34 @@ function validateTocOptionsInput(toc: TocOptions | undefined): void {
     throw new MarkdownConversionError(
       "Invalid TOC depth range: minDepth cannot be greater than maxDepth",
       { minDepth: toc.minDepth, maxDepth: toc.maxDepth }
+    );
+  }
+}
+
+function validateMathRenderingInput(
+  mathRendering: Options["mathRendering"]
+): void {
+  if (!mathRendering) {
+    return;
+  }
+
+  if (
+    mathRendering.enabled !== undefined &&
+    typeof mathRendering.enabled !== "boolean"
+  ) {
+    throw new MarkdownConversionError(
+      "Invalid mathRendering.enabled: Must be a boolean"
+    );
+  }
+
+  if (
+    mathRendering.unsupported !== undefined &&
+    mathRendering.unsupported !== "text" &&
+    mathRendering.unsupported !== "throw"
+  ) {
+    throw new MarkdownConversionError(
+      'Invalid mathRendering.unsupported: Must be "text" or "throw"',
+      { unsupported: mathRendering.unsupported }
     );
   }
 }
@@ -460,6 +547,31 @@ function validateProcessingLimitsInput(options: Options): void {
   }
 }
 
+function validateTextReplacementInput(options: Options): void {
+  const mode = options.textReplacementMode;
+
+  if (mode !== undefined && !validTextReplacementModes.includes(mode)) {
+    throw new MarkdownConversionError(
+      "Invalid textReplacementMode: Must be trusted or untrusted",
+      { textReplacementMode: options.textReplacementMode }
+    );
+  }
+
+  if (!options.textReplacements || (mode ?? "trusted") !== "untrusted") {
+    return;
+  }
+
+  if (
+    options.textReplacements.some(
+      (replacement) => typeof replacement.replace === "function"
+    )
+  ) {
+    throw new MarkdownConversionError(
+      'Function textReplacements are not allowed when textReplacementMode is "untrusted"'
+    );
+  }
+}
+
 /**
  * Validates markdown input and options
  * @throws {MarkdownConversionError} If input is invalid
@@ -479,9 +591,11 @@ export function validateInput(markdown: string, options: Options): void {
 
   validateStyleInput(normalizeStyleInput(options.style), "options.style");
   validateTocOptionsInput(options.toc);
+  validateMathRenderingInput(options.mathRendering);
   validateImageHandlingInput(options.imageHandling);
   validateMermaidRenderingInput(options.mermaidRendering);
   validateProcessingLimitsInput(options);
+  validateTextReplacementInput(options);
 
   const normalizedTemplate = normalizeSectionConfig(options.template);
   if (normalizedTemplate) {

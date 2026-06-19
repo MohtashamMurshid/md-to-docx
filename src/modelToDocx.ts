@@ -25,6 +25,7 @@ import { blockquoteParagraphStyle } from "./renderers/blockquoteRenderer.js";
 import { processComment } from "./renderers/commentRenderer.js";
 import {
   processImage,
+  processImageData,
   resolveImageHandlingOptions,
 } from "./renderers/imageRenderer.js";
 import { processInlineCode } from "./renderers/textRenderer.js";
@@ -385,6 +386,10 @@ export async function modelToDocx(
         return renderImageNode(node, context);
       }
 
+      case "mermaidBlock": {
+        return renderMermaidNode(node, context);
+      }
+
       case "table": {
         return [tableFromNode(node)];
       }
@@ -613,6 +618,10 @@ export async function modelToDocx(
       return renderImageNode(node, context, listMarker);
     }
 
+    if (node.type === "mermaidBlock") {
+      return renderMermaidNode(node, context, listMarker);
+    }
+
     if (listMarker) {
       const rendered = await renderBlockNode(node, listLevel, context);
       return [
@@ -690,6 +699,119 @@ export async function modelToDocx(
         throw error;
       }
       return [imageCouldNotLoadParagraph(node.alt, paragraphOptions)];
+    }
+  }
+
+  function mermaidCouldNotRenderParagraph(
+    paragraphOptions: Partial<IParagraphOptions> = {},
+  ): Paragraph {
+    return new Paragraph({
+      ...paragraphOptions,
+      children: [
+        new TextRun({
+          text: "[Mermaid diagram could not be rendered]",
+          italics: true,
+          color: "FF0000",
+          font: resolveFontFamily(style),
+          rightToLeft: style.direction === "RTL",
+        }),
+      ],
+      alignment: AlignmentType.CENTER,
+      bidirectional: style.direction === "RTL",
+    });
+  }
+
+  function renderMermaidFallback(
+    node: Extract<DocxBlockNode, { type: "mermaidBlock" }>,
+    paragraphOptions: Partial<IParagraphOptions>,
+    reason?: unknown,
+  ): Paragraph[] {
+    const failureMode = options.mermaidRendering?.failureMode ?? "codeBlock";
+
+    if (failureMode === "throw") {
+      throw new MarkdownConversionError(
+        `Failed to render Mermaid diagram${
+          reason instanceof Error ? `: ${reason.message}` : ""
+        }`,
+        { language: "mermaid", originalError: reason },
+      );
+    }
+
+    if (failureMode === "placeholder") {
+      return [mermaidCouldNotRenderParagraph(paragraphOptions)];
+    }
+
+    return [
+      processCodeBlock(
+        node.value,
+        "mermaid",
+        style,
+        options.codeHighlighting,
+      ),
+    ];
+  }
+
+  async function renderMermaidNode(
+    node: Extract<DocxBlockNode, { type: "mermaidBlock" }>,
+    context: RenderContext = {},
+    listMarker?: ListMarkerContext,
+  ): Promise<Paragraph[]> {
+    throwIfAborted(options.signal);
+
+    const paragraphOptions = imageParagraphOptions(context, listMarker);
+    const render = options.mermaidRendering?.render;
+    if (!render) {
+      return renderMermaidFallback(node, paragraphOptions);
+    }
+
+    if (processedImageCounter.count >= imageHandling.maxImages) {
+      return renderMermaidFallback(
+        node,
+        paragraphOptions,
+        new Error("Maximum embedded image count reached"),
+      );
+    }
+
+    try {
+      const result = await render({
+        code: node.value,
+        meta: node.meta,
+        signal: options.signal,
+      });
+      throwIfAborted(options.signal);
+
+      if (!result) {
+        return renderMermaidFallback(
+          node,
+          paragraphOptions,
+          new Error("Mermaid renderer returned no image"),
+        );
+      }
+
+      const { embedded, paragraphs } = processImageData(
+        {
+          altText: "Mermaid diagram",
+          data: result.data,
+          contentType: result.contentType,
+          source: result.source || "Mermaid diagram",
+          widthHint: result.width,
+          heightHint: result.height,
+          maxImageBytes: imageHandling.maxImageBytes,
+          paragraphOptions,
+          signal: options.signal,
+        },
+        style,
+      );
+
+      if (embedded) {
+        processedImageCounter.count++;
+      }
+      return paragraphs;
+    } catch (error) {
+      if (error instanceof MarkdownConversionError) {
+        throw error;
+      }
+      return renderMermaidFallback(node, paragraphOptions, error);
     }
   }
 

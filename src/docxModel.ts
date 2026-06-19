@@ -43,6 +43,12 @@ export interface DocxCodeBlockNode {
   value: string;
 }
 
+export interface DocxMermaidBlockNode {
+  type: "mermaidBlock";
+  value: string;
+  meta?: string;
+}
+
 export interface DocxBlockquoteNode {
   type: "blockquote";
   children: DocxBlockNode[];
@@ -79,6 +85,7 @@ export type DocxBlockNode =
   | DocxHeadingNode
   | DocxListNode
   | DocxCodeBlockNode
+  | DocxMermaidBlockNode
   | DocxBlockquoteNode
   | DocxImageNode
   | DocxTableNode

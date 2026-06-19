@@ -50,7 +50,7 @@ function classifyHtmlNode(value: string): DocxBlockNode | null {
 export function mdastToDocxModel(
   root: Root,
   _style: Style,
-  _options: Options,
+  options: Options,
 ): DocxDocumentModel {
   const children: DocxBlockNode[] = [];
   let numberedListSequenceId = 0;
@@ -211,9 +211,21 @@ export function mdastToDocxModel(
   }
 
   function processCodeBlock(code: Code): DocxBlockNode {
+    const language = code.lang || undefined;
+    if (
+      options.mermaidRendering?.enabled === true &&
+      language?.trim().toLowerCase() === "mermaid"
+    ) {
+      return {
+        type: "mermaidBlock",
+        value: code.value || "",
+        meta: code.meta || undefined,
+      };
+    }
+
     return {
       type: "codeBlock",
-      language: code.lang || undefined,
+      language,
       value: code.value || "",
     };
   }

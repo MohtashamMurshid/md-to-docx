@@ -1,0 +1,126 @@
+import { describe, expect, it, jest } from "@jest/globals";
+import {
+  convertMarkdownToDocx,
+  MarkdownConversionError,
+} from "../src/index";
+import type { MermaidRenderInput, Options } from "../src/types";
+import { getDocumentXml, getZip } from "./helpers";
+
+const MERMAID_MARKDOWN = `Before.
+
+\`\`\`mermaid
+graph TD
+  A[Start] --> B[Done]
+\`\`\`
+
+After.`;
+
+const ONE_PX_PNG_BYTES = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAGgwJ/vk9yBgAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+async function render(markdown: string, options?: Options): Promise<string> {
+  const blob = await convertMarkdownToDocx(markdown, options);
+  return getDocumentXml(blob);
+}
+
+async function mediaCount(markdown: string, options?: Options): Promise<number> {
+  const blob = await convertMarkdownToDocx(markdown, options);
+  const zip = await getZip(blob);
+  return Object.keys(zip.files).filter(
+    (path) => path.startsWith("word/media/") && !path.endsWith("/"),
+  ).length;
+}
+
+describe("Diagram rendering: Mermaid fenced blocks", () => {
+  it("keeps mermaid fences as ordinary code blocks by default", async () => {
+    const xml = await render(MERMAID_MARKDOWN);
+
+    expect(xml).toContain("graph TD");
+    expect(xml).toContain("mermaid");
+    expect(xml).not.toContain("<w:drawing>");
+    expect(await mediaCount(MERMAID_MARKDOWN)).toBe(0);
+  });
+
+  it("keeps mermaid fences as ordinary code blocks when disabled explicitly", async () => {
+    const xml = await render(MERMAID_MARKDOWN, {
+      mermaidRendering: { enabled: false },
+    });
+
+    expect(xml).toContain("graph TD");
+    expect(xml).not.toContain("<w:drawing>");
+  });
+
+  it("embeds renderer output as a DOCX image when enabled", async () => {
+    const renderMermaid = jest.fn((input: MermaidRenderInput) => {
+      expect(input.code).toContain("graph TD");
+      return {
+        data: ONE_PX_PNG_BYTES,
+        contentType: "image/png",
+        width: 320,
+        height: 180,
+      };
+    });
+
+    const xml = await render(MERMAID_MARKDOWN, {
+      mermaidRendering: {
+        enabled: true,
+        render: renderMermaid,
+      },
+    });
+
+    expect(renderMermaid).toHaveBeenCalledTimes(1);
+    expect(xml).toContain("<w:drawing>");
+    expect(xml).not.toContain("graph TD");
+    expect(await mediaCount(MERMAID_MARKDOWN, {
+      mermaidRendering: {
+        enabled: true,
+        render: () => ({
+          data: ONE_PX_PNG_BYTES,
+          contentType: "image/png",
+        }),
+      },
+    })).toBe(1);
+  });
+
+  it("falls back to the original code block when rendering fails", async () => {
+    const xml = await render(MERMAID_MARKDOWN, {
+      mermaidRendering: {
+        enabled: true,
+        render: () => {
+          throw new Error("Mermaid runtime unavailable");
+        },
+      },
+    });
+
+    expect(xml).toContain("graph TD");
+    expect(xml).toContain("mermaid");
+    expect(xml).not.toContain("<w:drawing>");
+  });
+
+  it("can render a placeholder or throw on render failure", async () => {
+    const placeholderXml = await render(MERMAID_MARKDOWN, {
+      mermaidRendering: {
+        enabled: true,
+        failureMode: "placeholder",
+        render: () => undefined,
+      },
+    });
+
+    expect(placeholderXml).toContain("Mermaid diagram could not be rendered");
+    expect(placeholderXml).not.toContain("graph TD");
+
+    await expect(
+      convertMarkdownToDocx(MERMAID_MARKDOWN, {
+        mermaidRendering: {
+          enabled: true,
+          failureMode: "throw",
+          render: () => {
+            throw new Error("bad diagram");
+          },
+        },
+      }),
+    ).rejects.toThrow(MarkdownConversionError);
+  });
+});

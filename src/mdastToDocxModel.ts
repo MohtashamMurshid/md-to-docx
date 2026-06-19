@@ -20,7 +20,7 @@ import type {
 import type {
   DocxDocumentModel,
   DocxBlockNode,
-  DocxTextNode,
+  DocxInlineNode,
   DocxListItemNode,
 } from "./docxModel.js";
 import { Style, Options } from "./types.js";
@@ -66,6 +66,8 @@ export function mdastToDocxModel(
         return processList(node as List);
       case "code":
         return processCodeBlock(node as Code);
+      case "math":
+        return processMathBlock(node as { value?: string });
       case "blockquote":
         return processBlockquote(node as Blockquote);
       case "image":
@@ -218,6 +220,13 @@ export function mdastToDocxModel(
     };
   }
 
+  function processMathBlock(math: { value?: string }): DocxBlockNode {
+    return {
+      type: "mathBlock",
+      value: math.value || "",
+    };
+  }
+
   function processBlockquote(blockquote: Blockquote): DocxBlockNode {
     const children: DocxBlockNode[] = [];
     for (const child of blockquote.children) {
@@ -245,8 +254,8 @@ export function mdastToDocxModel(
   }
 
   function processTable(table: Table): DocxBlockNode {
-    const headers: DocxTextNode[][] = [];
-    const rows: DocxTextNode[][][] = [];
+    const headers: DocxInlineNode[][] = [];
+    const rows: DocxInlineNode[][][] = [];
 
     if (table.children.length > 0) {
       const headerRow = table.children[0] as TableRow;
@@ -256,7 +265,7 @@ export function mdastToDocxModel(
 
       for (let i = 1; i < table.children.length; i++) {
         const row = table.children[i] as TableRow;
-        const rowData: DocxTextNode[][] = [];
+        const rowData: DocxInlineNode[][] = [];
         for (const cell of row.children) {
           rowData.push(extractRichTextFromTableCell(cell as TableCell));
         }
@@ -272,8 +281,8 @@ export function mdastToDocxModel(
     };
   }
 
-  function extractRichTextFromTableCell(cell: TableCell): DocxTextNode[] {
-    const nodes: DocxTextNode[] = [];
+  function extractRichTextFromTableCell(cell: TableCell): DocxInlineNode[] {
+    const nodes: DocxInlineNode[] = [];
     for (const child of cell.children as any[]) {
       if (child.type === "paragraph") {
         nodes.push(...processInlineNodes(child.children));
@@ -284,8 +293,8 @@ export function mdastToDocxModel(
     return nodes;
   }
 
-  function processInlineNodes(nodes: any[]): DocxTextNode[] {
-    const result: DocxTextNode[] = [];
+  function processInlineNodes(nodes: any[]): DocxInlineNode[] {
+    const result: DocxInlineNode[] = [];
 
     function pushTextWithUnderline(value: string): void {
       const parts = value.split(/(\+\+[^+\n][\s\S]*?\+\+)/g);
@@ -315,30 +324,25 @@ export function mdastToDocxModel(
             (node as Emphasis).children,
           );
           for (const child of emphasisChildren) {
-            result.push({
-              ...child,
-              italic: true,
-            });
+            result.push(
+              child.type === "text" ? { ...child, italic: true } : child,
+            );
           }
           break;
         }
         case "strong": {
           const strongChildren = processInlineNodes((node as Strong).children);
           for (const child of strongChildren) {
-            result.push({
-              ...child,
-              bold: true,
-            });
+            result.push(child.type === "text" ? { ...child, bold: true } : child);
           }
           break;
         }
         case "delete": {
           const strikeChildren = processInlineNodes((node as Delete).children);
           for (const child of strikeChildren) {
-            result.push({
-              ...child,
-              strikethrough: true,
-            });
+            result.push(
+              child.type === "text" ? { ...child, strikethrough: true } : child,
+            );
           }
           break;
         }
@@ -363,13 +367,23 @@ export function mdastToDocxModel(
           }
           const linkChildren = processInlineNodes((node as Link).children);
           for (const child of linkChildren) {
-            result.push({
-              ...child,
-              link: (node as Link).url,
-            });
+            result.push(
+              child.type === "text"
+                ? {
+                    ...child,
+                    link: (node as Link).url,
+                  }
+                : child,
+            );
           }
           break;
         }
+        case "inlineMath":
+          result.push({
+            type: "mathInline",
+            value: String((node as { value?: string }).value || ""),
+          });
+          break;
         case "break":
           result.push({
             type: "text",

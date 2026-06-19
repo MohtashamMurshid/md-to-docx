@@ -25,6 +25,7 @@ A TypeScript-first library and CLI that turns Markdown into production-ready Wor
 - [Features](#features)
   - [Multi-section documents (template + sections)](#multi-section-documents-template--sections)
   - [Syntax-highlighted code blocks](#syntax-highlighted-code-blocks)
+  - [Math rendering](#math-rendering)
   - [Custom heading and paragraph alignment](#custom-heading-and-paragraph-alignment)
   - [Table of Contents styling](#table-of-contents-styling)
   - [Text find-and-replace](#text-find-and-replace)
@@ -48,6 +49,7 @@ A TypeScript-first library and CLI that turns Markdown into production-ready Wor
 - **TypeScript-native** — fully typed options surface, including `CodeHighlightTheme`, `Options`, and `DocumentSection`.
 - **Multi-section documents** — cover pages, per-section headers/footers, page numbering resets, mixed orientations, style overrides.
 - **Optional syntax highlighting** — opt-in, powered by `[lowlight](https://github.com/wooorm/lowlight)`; ships a GitHub-light theme and lets you override any token color.
+- **Native Word math** — Markdown `$...$` and `$$...$$` equations render as editable Word math for a documented TeX subset.
 - **Works everywhere** — Node.js (18+) and modern browsers; the package ships ESM with type declarations.
 - **Small public surface, stable API** — only the root entrypoint is exported via `package.json#exports`.
 
@@ -265,6 +267,38 @@ await convertMarkdownToDocx(markdown, {
 
 Theme keys map 1:1 to `hljs-*` token classes (without the `hljs-` prefix); values are RRGGBB hex strings without `#`. Reserved keys: `default`, `background`, `border`, `languageLabel`. Unknown or non-whitelisted languages fall back to the plain rendering path, so conversion never throws on an unsupported fence.
 
+### Math rendering
+
+Markdown math is enabled by default. Inline math uses single-dollar delimiters, and block math uses `$$` fences on their own lines:
+
+```markdown
+Inline math: $x^2 + y_1$
+
+$$
+\frac{1}{2} + \sqrt{x}
+$$
+```
+
+The renderer emits native Word math objects, not images, so supported equations remain editable in Word. The first supported subset covers plain symbols and text, superscript/subscript, combined subscript/superscript, `\frac{...}{...}`, `\sqrt{...}`, common Greek-letter commands, common operators such as `\times`, `\cdot`, `\le`, `\ge`, `\neq`, `\approx`, `\sum`, and `\int`, plus simple function names such as `\sin`, `\cos`, `\tan`, `\log`, and `\ln`.
+
+Unsupported TeX falls back to literal source text by default, including delimiters, so content is not silently dropped. To fail conversion instead, set:
+
+```typescript
+await convertMarkdownToDocx(markdown, {
+  mathRendering: { unsupported: "throw" },
+});
+```
+
+To keep dollar-delimited text literal and skip math parsing entirely:
+
+```typescript
+await convertMarkdownToDocx(markdown, {
+  mathRendering: { enabled: false },
+});
+```
+
+Escaped dollars such as `\$x^2$` remain text. Advanced TeX layout commands such as matrices, over/under accents, custom macros, and root-degree syntax are not rendered as equations in this native subset.
+
 ### Custom heading and paragraph alignment
 
 Each heading level and block type can be aligned independently:
@@ -370,6 +404,7 @@ await convertMarkdownToDocx(markdown, {
 | Strikethrough     | `~~text~~`             | GFM                                                  |
 | Inline code       | `code`                 |                                                      |
 | Code blocks       | ````` fenced           | Optional syntax highlighting per block               |
+| Math              | `$x^2$`, `$$...$$`     | Native Word math subset; literal fallback            |
 | Lists             | `-`, `*`, `1.`         | Bullet, numbered, nested, rich formatting inside     |
 | Tables            | `                      | a                                                    |
 | Blockquotes       | `> text`               |                                                      |
@@ -413,6 +448,7 @@ interface Options {
   documentType?: "document" | "report";
   style?: Style;
   toc?: TocOptions;
+  mathRendering?: MathRenderingOptions;
   maxInputLength?: number;
   maxElements?: number;
   signal?: AbortSignal;

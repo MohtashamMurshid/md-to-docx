@@ -73,6 +73,7 @@
     "mdast-util-find-and-replace": "^3.0.2",
     "remark": "^15.0.1",
     "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
     "remark-parse": "^11.0.0",
     "undici": "^7.25.0",
     "unified": "^11.0.5",

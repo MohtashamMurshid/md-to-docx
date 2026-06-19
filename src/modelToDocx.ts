@@ -10,10 +10,11 @@ import {
   TableLayoutType,
   WidthType,
 } from "docx";
-import type { IParagraphOptions } from "docx";
+import type { IParagraphOptions, ParagraphChild } from "docx";
 import type {
   DocxDocumentModel,
   DocxBlockNode,
+  DocxInlineNode,
   DocxListNode,
   DocxListItemNode,
   DocxTextNode,
@@ -27,6 +28,7 @@ import {
   processImage,
   resolveImageHandlingOptions,
 } from "./renderers/imageRenderer.js";
+import { parseTexMath, renderNativeMath } from "./renderers/mathRenderer.js";
 import { processInlineCode } from "./renderers/textRenderer.js";
 import { resolveFontFamily } from "./utils/styleUtils.js";
 import { sanitizeForBookmarkId } from "./utils/bookmarkUtils.js";
@@ -143,13 +145,38 @@ export async function modelToDocx(
     });
   }
 
+  function unsupportedMathText(value: string, block: boolean): DocxTextNode {
+    return {
+      type: "text",
+      value: block ? `$$\n${value}\n$$` : `$${value}$`,
+    };
+  }
+
+  function renderMathNode(value: string, block: boolean): ParagraphChild {
+    const parsed = parseTexMath(value);
+    if (parsed.supported) {
+      return renderNativeMath(parsed.children);
+    }
+
+    if (options.mathRendering?.unsupported === "throw") {
+      throw new MarkdownConversionError("Unsupported math expression", {
+        expression: value,
+        reason: parsed.reason,
+      });
+    }
+
+    return textRunFromNode(unsupportedMathText(value, block));
+  }
+
   function renderInlineNodes(
-    nodes: DocxTextNode[],
+    nodes: DocxInlineNode[],
     overrides: InlineOverrides = {},
-  ): (TextRun | ExternalHyperlink)[] {
-    const out: (TextRun | ExternalHyperlink)[] = [];
+  ): ParagraphChild[] {
+    const out: ParagraphChild[] = [];
     for (const node of nodes) {
-      if (node.link && !isSafeLinkUrl(node.link)) {
+      if (node.type === "mathInline") {
+        out.push(renderMathNode(node.value, false));
+      } else if (node.link && !isSafeLinkUrl(node.link)) {
         out.push(textRunFromNode({ ...node, link: undefined }, overrides));
       } else if (node.link) {
         out.push(
@@ -182,7 +209,7 @@ export async function modelToDocx(
   }
 
   function paragraphFromInlineNodes(
-    nodes: DocxTextNode[],
+    nodes: DocxInlineNode[],
     context: RenderContext = {},
     overrides: InlineOverrides = {},
   ): Paragraph {
@@ -274,7 +301,7 @@ export async function modelToDocx(
   }
 
   function listParagraphFromInlineNodes(
-    nodes: DocxTextNode[],
+    nodes: DocxInlineNode[],
     isOrdered: boolean,
     level: number,
     sequenceId: number | undefined,
@@ -310,7 +337,7 @@ export async function modelToDocx(
   }
 
   function listContinuationParagraphFromInlineNodes(
-    nodes: DocxTextNode[],
+    nodes: DocxInlineNode[],
     level: number,
     context: RenderContext = {},
   ): Paragraph {
@@ -374,6 +401,24 @@ export async function modelToDocx(
             style,
             options.codeHighlighting,
           ),
+        ];
+      }
+
+      case "mathBlock": {
+        const mathAlignment = style.paragraphAlignment
+          ? AlignmentType[style.paragraphAlignment]
+          : AlignmentType.LEFT;
+        return [
+          new Paragraph({
+            children: [renderMathNode(node.value, true)],
+            spacing: {
+              before: style.paragraphSpacing,
+              after: style.paragraphSpacing,
+              line: style.lineSpacing * 240,
+            },
+            alignment: mathAlignment,
+            bidirectional: style.direction === "RTL",
+          }),
         ];
       }
 

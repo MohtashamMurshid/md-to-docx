@@ -160,6 +160,34 @@ function validateTocOptionsInput(toc: TocOptions | undefined): void {
   }
 }
 
+function validateMathRenderingInput(
+  mathRendering: Options["mathRendering"]
+): void {
+  if (!mathRendering) {
+    return;
+  }
+
+  if (
+    mathRendering.enabled !== undefined &&
+    typeof mathRendering.enabled !== "boolean"
+  ) {
+    throw new MarkdownConversionError(
+      "Invalid mathRendering.enabled: Must be a boolean"
+    );
+  }
+
+  if (
+    mathRendering.unsupported !== undefined &&
+    mathRendering.unsupported !== "text" &&
+    mathRendering.unsupported !== "throw"
+  ) {
+    throw new MarkdownConversionError(
+      'Invalid mathRendering.unsupported: Must be "text" or "throw"',
+      { unsupported: mathRendering.unsupported }
+    );
+  }
+}
+
 function validatePageNumberingInput(
   pageNumbering: SectionConfig["pageNumbering"] | undefined,
   context: string
@@ -451,6 +479,7 @@ export function validateInput(markdown: string, options: Options): void {
 
   validateStyleInput(normalizeStyleInput(options.style), "options.style");
   validateTocOptionsInput(options.toc);
+  validateMathRenderingInput(options.mathRendering);
   validateImageHandlingInput(options.imageHandling);
   validateProcessingLimitsInput(options);
 

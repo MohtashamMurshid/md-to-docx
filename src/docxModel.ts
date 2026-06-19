@@ -14,15 +14,22 @@ export interface DocxTextNode {
   link?: string;
 }
 
+export interface DocxMathInlineNode {
+  type: "mathInline";
+  value: string;
+}
+
+export type DocxInlineNode = DocxTextNode | DocxMathInlineNode;
+
 export interface DocxParagraphNode {
   type: "paragraph";
-  children: DocxTextNode[];
+  children: DocxInlineNode[];
 }
 
 export interface DocxHeadingNode {
   type: "heading";
   level: number;
-  children: DocxTextNode[];
+  children: DocxInlineNode[];
 }
 
 export interface DocxListItemNode {
@@ -43,6 +50,11 @@ export interface DocxCodeBlockNode {
   value: string;
 }
 
+export interface DocxMathBlockNode {
+  type: "mathBlock";
+  value: string;
+}
+
 export interface DocxBlockquoteNode {
   type: "blockquote";
   children: DocxBlockNode[];
@@ -56,8 +68,8 @@ export interface DocxImageNode {
 
 export interface DocxTableNode {
   type: "table";
-  headers: DocxTextNode[][];
-  rows: DocxTextNode[][][];
+  headers: DocxInlineNode[][];
+  rows: DocxInlineNode[][][];
   align?: (string | null)[];
 }
 
@@ -79,6 +91,7 @@ export type DocxBlockNode =
   | DocxHeadingNode
   | DocxListNode
   | DocxCodeBlockNode
+  | DocxMathBlockNode
   | DocxBlockquoteNode
   | DocxImageNode
   | DocxTableNode

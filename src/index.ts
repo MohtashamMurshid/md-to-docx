@@ -59,6 +59,7 @@ export {
   HeaderFooterContent,
   HeaderFooterGroup,
   ImageHandlingOptions,
+  MathRenderingOptions,
   Options,
   RemoteImageHandlingOptions,
   SectionConfig,
@@ -150,7 +151,10 @@ export async function parseToDocxOptions(
     for (const section of resolvedSections) {
       throwIfAborted(options.signal);
       await yieldToAbortSignal(options.signal);
-      const ast = await parseMarkdownToAst(section.markdown);
+      const ast = await parseMarkdownToAst(
+        section.markdown,
+        options.mathRendering?.enabled !== false
+      );
       await yieldToAbortSignal(options.signal);
 
       if (options.textReplacements && options.textReplacements.length > 0) {

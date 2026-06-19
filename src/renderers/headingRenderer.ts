@@ -1,13 +1,12 @@
 import {
   Paragraph,
-  TextRun,
-  ExternalHyperlink,
   HeadingLevel,
   AlignmentType,
   Bookmark,
 } from "docx";
+import type { ParagraphChild } from "docx";
 import { Style, AlignmentOption } from "../types.js";
-import type { DocxTextNode } from "../docxModel.js";
+import type { DocxInlineNode } from "../docxModel.js";
 
 /**
  * Resolves the font size (in half-points) for a heading level, honouring
@@ -54,13 +53,13 @@ function resolveHeadingAlignment(
  * @returns The heading paragraph and its bookmark id
  */
 export function processHeading(
-  children: DocxTextNode[],
+  children: DocxInlineNode[],
   config: { level: number; bookmarkId: string },
   style: Style,
   renderInline: (
-    nodes: DocxTextNode[],
+    nodes: DocxInlineNode[],
     size: number
-  ) => (TextRun | ExternalHyperlink)[]
+  ) => ParagraphChild[]
 ): { paragraph: Paragraph; bookmarkId: string } {
   const headingLevel = config.level;
   const headingSize = resolveHeadingSize(headingLevel, style);

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@jest/globals";
+import { inflateSync } from "node:zlib";
 import {
   convertMarkdownToArrayBuffer,
   convertMarkdownToBuffer,
@@ -31,6 +32,70 @@ function numberingMarkerCount(xml: string): number {
 
 function mathObjectCount(xml: string): number {
   return xml.match(/<m:oMath>/g)?.length || 0;
+}
+
+function mediaFilesFromZip(zip: Awaited<ReturnType<typeof getZip>>): string[] {
+  return Object.entries(zip.files)
+    .filter(([p, file]) => p.startsWith("word/media/") && !file.dir)
+    .map(([p]) => p);
+}
+
+function readPngUint32(bytes: Uint8Array, offset: number): number {
+  return (
+    ((bytes[offset] << 24) |
+      (bytes[offset + 1] << 16) |
+      (bytes[offset + 2] << 8) |
+      bytes[offset + 3]) >>>
+    0
+  );
+}
+
+function countNonWhitePixelsInPng(bytes: Uint8Array): number {
+  let offset = 8;
+  let width = 0;
+  let height = 0;
+  const idatChunks: Uint8Array[] = [];
+
+  while (offset + 8 <= bytes.length) {
+    const length = readPngUint32(bytes, offset);
+    const type = String.fromCharCode(
+      bytes[offset + 4],
+      bytes[offset + 5],
+      bytes[offset + 6],
+      bytes[offset + 7],
+    );
+    const dataStart = offset + 8;
+    const dataEnd = dataStart + length;
+
+    if (type === "IHDR") {
+      width = readPngUint32(bytes, dataStart);
+      height = readPngUint32(bytes, dataStart + 4);
+    } else if (type === "IDAT") {
+      idatChunks.push(bytes.subarray(dataStart, dataEnd));
+    }
+
+    offset = dataEnd + 4;
+  }
+
+  const compressed = Buffer.concat(idatChunks.map((chunk) => Buffer.from(chunk)));
+  const raw = inflateSync(compressed);
+  let nonWhite = 0;
+  let rawIndex = 0;
+
+  for (let y = 0; y < height; y++) {
+    rawIndex++;
+    for (let x = 0; x < width; x++) {
+      const r = raw[rawIndex++];
+      const g = raw[rawIndex++];
+      const b = raw[rawIndex++];
+      rawIndex++;
+      if (r !== 255 || g !== 255 || b !== 255) {
+        nonWhite++;
+      }
+    }
+  }
+
+  return nonWhite;
 }
 
 async function render(markdown: string, options?: Options): Promise<string> {
@@ -522,6 +587,133 @@ Outro paragraph.`;
     expect(xml).toContain("Hello, ");
     expect(xml).toContain("Intro paragraph");
     expect(xml).toContain("Outro paragraph");
+  });
+});
+
+describe("Rendering: chart blocks", () => {
+  const chartJson = JSON.stringify({
+    type: "bar",
+    data: {
+      labels: ["Q1", "Q2", "Q3"],
+      datasets: [{ label: "Revenue", data: [12, 18, 9] }],
+    },
+    width: 160,
+    height: 90,
+    alt: "Revenue chart",
+  });
+
+  it("embeds enabled chart fences as DOCX images", async () => {
+    const blob = await convertMarkdownToDocx(`\`\`\`chart\n${chartJson}\n\`\`\``, {
+      chartRendering: { enabled: true },
+    });
+    const zip = await getZip(blob);
+    const documentXml = await zip.file("word/document.xml")!.async("string");
+    const mediaFiles = mediaFilesFromZip(zip);
+
+    expect(documentXml).toContain("<w:drawing>");
+    expect(documentXml).not.toContain("Revenue chart");
+    expect(mediaFiles).toHaveLength(1);
+    expect(mediaFiles[0]).toMatch(/\.png$/);
+  });
+
+  it("keeps chart fences as ordinary code blocks when disabled", async () => {
+    const blob = await convertMarkdownToDocx(`\`\`\`chart\n${chartJson}\n\`\`\``);
+    const zip = await getZip(blob);
+    const documentXml = await zip.file("word/document.xml")!.async("string");
+
+    expect(documentXml).not.toContain("<w:drawing>");
+    expect(documentXml).toContain("chart");
+    expect(documentXml).toContain("&quot;bar&quot;");
+    expect(mediaFilesFromZip(zip)).toHaveLength(0);
+  });
+
+  it("renders invalid chart definitions as clear placeholders by default", async () => {
+    const xml = await render(
+      "```chart\n{\"type\":\"bar\",\"data\":{\"datasets\":[{\"data\":[\"bad\"]}]}}\n```",
+      { chartRendering: { enabled: true } },
+    );
+
+    expect(xml).toContain("Chart could not be rendered");
+    expect(xml).toContain("finite numbers");
+  });
+
+  it("can throw on invalid chart definitions", async () => {
+    await expect(
+      convertMarkdownToDocx("```chart\n{\"type\":\"scatter\"}\n```", {
+        chartRendering: {
+          enabled: true,
+          invalidDefinitionBehavior: "throw",
+        },
+      }),
+    ).rejects.toThrow(MarkdownConversionError);
+  });
+
+  it("uses chart block dimensions for DOCX image sizing", async () => {
+    const width = 321;
+    const height = 123;
+    const sizedChart = JSON.stringify({
+      type: "line",
+      data: {
+        labels: ["A", "B", "C"],
+        datasets: [{ data: [1, 3, 2] }],
+      },
+      width,
+      height,
+    });
+
+    const blob = await convertMarkdownToDocx(`\`\`\`chartjs\n${sizedChart}\n\`\`\``, {
+      chartRendering: { enabled: true },
+    });
+    const xml = await getDocumentXml(blob);
+    const extentMatch = xml.match(/<wp:extent cx="(\d+)" cy="(\d+)"\/>/);
+
+    expect(extentMatch?.[1]).toBe(String(width * 9525));
+    expect(extentMatch?.[2]).toBe(String(height * 9525));
+  });
+
+  it.each(["pie", "doughnut"] as const)(
+    "fills a single-slice %s chart instead of rendering a blank image",
+    async (type) => {
+      const chart = JSON.stringify({
+        type,
+        data: {
+          labels: ["Only"],
+          datasets: [{ data: [1], backgroundColor: ["#E15759"] }],
+        },
+        width: 96,
+        height: 96,
+      });
+
+      const blob = await convertMarkdownToDocx(`\`\`\`chart\n${chart}\n\`\`\``, {
+        chartRendering: { enabled: true },
+      });
+      const zip = await getZip(blob);
+      const mediaFile = mediaFilesFromZip(zip)[0];
+      const pngBytes = await zip.file(mediaFile)!.async("uint8array");
+
+      expect(countNonWhitePixelsInPng(pngBytes)).toBeGreaterThan(100);
+    },
+  );
+
+  it("fills a full-total doughnut slice in a multi-value chart", async () => {
+    const chart = JSON.stringify({
+      type: "doughnut",
+      data: {
+        labels: ["All", "None"],
+        datasets: [{ data: [5, 0], backgroundColor: ["#E15759", "#4E79A7"] }],
+      },
+      width: 96,
+      height: 96,
+    });
+
+    const blob = await convertMarkdownToDocx(`\`\`\`chart\n${chart}\n\`\`\``, {
+      chartRendering: { enabled: true },
+    });
+    const zip = await getZip(blob);
+    const mediaFile = mediaFilesFromZip(zip)[0];
+    const pngBytes = await zip.file(mediaFile)!.async("uint8array");
+
+    expect(countNonWhitePixelsInPng(pngBytes)).toBeGreaterThan(100);
   });
 });
 

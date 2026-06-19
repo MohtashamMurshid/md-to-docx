@@ -76,6 +76,12 @@ export type DocxCalloutType =
   | "important"
   | "warning"
   | "caution";
+
+export interface DocxChartBlockNode {
+  type: "chartBlock";
+  language?: string;
+  value: string;
+}
 export interface DocxBlockquoteNode {
   type: "blockquote";
   children: DocxBlockNode[];
@@ -121,6 +127,7 @@ export type DocxBlockNode =
   | DocxCodeBlockNode
   | DocxMathBlockNode
   | DocxMermaidBlockNode
+  | DocxChartBlockNode
   | DocxBlockquoteNode
   | DocxImageNode
   | DocxTableNode

@@ -531,6 +531,44 @@ function validateMermaidRenderingInput(
   }
 }
 
+function validateChartRenderingInput(
+  chartRendering: Options["chartRendering"]
+): void {
+  if (!chartRendering) {
+    return;
+  }
+
+  validatePositiveIntegerOption(chartRendering.width, "chartRendering.width");
+  validatePositiveIntegerOption(chartRendering.height, "chartRendering.height");
+  validatePositiveIntegerOption(
+    chartRendering.maxWidth,
+    "chartRendering.maxWidth"
+  );
+  validatePositiveIntegerOption(
+    chartRendering.maxHeight,
+    "chartRendering.maxHeight"
+  );
+
+  if (
+    chartRendering.invalidDefinitionBehavior !== undefined &&
+    chartRendering.invalidDefinitionBehavior !== "placeholder" &&
+    chartRendering.invalidDefinitionBehavior !== "throw"
+  ) {
+    throw new MarkdownConversionError(
+      "Invalid chartRendering.invalidDefinitionBehavior: must be placeholder or throw"
+    );
+  }
+
+  if (
+    chartRendering.renderer !== undefined &&
+    typeof chartRendering.renderer !== "function"
+  ) {
+    throw new MarkdownConversionError(
+      "Invalid chartRendering.renderer: must be a function"
+    );
+  }
+}
+
 function validateProcessingLimitsInput(options: Options): void {
   validatePositiveIntegerOption(options.maxInputLength, "maxInputLength");
   validatePositiveIntegerOption(options.maxElements, "maxElements");
@@ -594,6 +632,7 @@ export function validateInput(markdown: string, options: Options): void {
   validateMathRenderingInput(options.mathRendering);
   validateImageHandlingInput(options.imageHandling);
   validateMermaidRenderingInput(options.mermaidRendering);
+  validateChartRenderingInput(options.chartRendering);
   validateProcessingLimitsInput(options);
   validateTextReplacementInput(options);
 

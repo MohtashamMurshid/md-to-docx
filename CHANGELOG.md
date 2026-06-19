@@ -1,3 +1,9 @@
+## [2.13.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.12.6...v2.13.0) (2026-06-19)
+
+### Features
+
+* support github-style callout blocks ([4ef9e44](https://github.com/MohtashamMurshid/md-to-docx/commit/4ef9e44b49d615a80908c018ef7c1da5fa33f38a))
+
 ## [2.12.6](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.12.5...v2.12.6) (2026-06-19)
 
 ### Bug Fixes

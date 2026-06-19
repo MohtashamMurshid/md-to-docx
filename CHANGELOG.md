@@ -1,3 +1,10 @@
+## [2.12.5](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.12.4...v2.12.5) (2026-06-19)
+
+### Bug Fixes
+
+* add untrusted text replacement mode ([8ab25fc](https://github.com/MohtashamMurshid/md-to-docx/commit/8ab25fc305973b2249e1f82fa1bce672b86d754d))
+* align esm module resolution ([556500e](https://github.com/MohtashamMurshid/md-to-docx/commit/556500e13d1c2fd1e8eaad755a52e9679417f69e))
+
 ## [2.12.4](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.12.3...v2.12.4) (2026-06-10)
 
 ### Bug Fixes

@@ -1,3 +1,9 @@
+## [2.15.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.14.0...v2.15.0) (2026-06-19)
+
+### Features
+
+* add reference docx patch workflow ([4346b31](https://github.com/MohtashamMurshid/md-to-docx/commit/4346b31571bda5b01394edd6f7ae6ac1460f78fe))
+
 ## [2.14.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.13.0...v2.14.0) (2026-06-19)
 
 ### Features

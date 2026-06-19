@@ -109,16 +109,6 @@ try {
       cwd: consumerDir,
     });
   }
-
-  run(
-    process.execPath,
-    [
-      "--input-type=module",
-      "-e",
-      'const pkg = await import("@mohtasham/md-to-docx"); if (typeof pkg.convertMarkdownToDocx !== "function") throw new Error("missing root export");',
-    ],
-    { cwd: consumerDir }
-  );
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true });
 }

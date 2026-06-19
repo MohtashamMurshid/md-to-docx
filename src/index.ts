@@ -348,6 +348,7 @@ async function patchMarkdownInDocxWithOutput(
     const processedImageCounter = { count: 0 };
     const failedRemoteImageCounter = { count: 0 };
     const headingBookmarkCounter = { count: 0 };
+    let elementCount = 0;
 
     for (const [placeholder, patch] of Object.entries(patches)) {
       throwIfAborted(options.signal);
@@ -378,6 +379,7 @@ async function patchMarkdownInDocxWithOutput(
         style,
         renderOptions,
         {
+          currentElementCount: elementCount,
           processedImageCounter,
           failedRemoteImageCounter,
           headingBookmarkCounter,
@@ -386,6 +388,7 @@ async function patchMarkdownInDocxWithOutput(
             assertPatchCompatibleModel(model, placeholder),
         }
       );
+      elementCount = rendered.elementCount;
 
       docxPatches[placeholder] = {
         type: PatchType.DOCUMENT,

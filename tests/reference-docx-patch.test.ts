@@ -117,6 +117,21 @@ Hello **team**.
     expect(documentXml).toMatch(/<w:tblW[^>]+w:type="dxa"[^>]+w:w="4321"/);
   });
 
+  it("enforces maxElements across all patched placeholders", async () => {
+    const template = await createTemplateWithPlaceholders(["first", "second"]);
+
+    await expect(
+      patchMarkdownInDocxToBuffer(
+        template,
+        {
+          first: "First paragraph.",
+          second: "Second paragraph.",
+        },
+        { maxElements: 1 }
+      )
+    ).rejects.toThrow("Markdown element count exceeds maxElements");
+  });
+
   it("fails clearly for markdown that requires unsupported package merges", async () => {
     const template = fs.readFileSync(fixturePath);
 

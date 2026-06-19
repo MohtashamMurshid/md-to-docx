@@ -65,6 +65,10 @@ export {
   SectionTemplate,
   Style,
   TableData,
+  TextReplacement,
+  TextReplacementFunction,
+  TextReplacementFunctionResult,
+  TextReplacementMode,
   TocOptions,
 } from "./types.js";
 
@@ -154,7 +158,11 @@ export async function parseToDocxOptions(
       await yieldToAbortSignal(options.signal);
 
       if (options.textReplacements && options.textReplacements.length > 0) {
-        applyTextReplacements(ast, options.textReplacements);
+        applyTextReplacements(
+          ast,
+          options.textReplacements,
+          options.textReplacementMode
+        );
       }
       throwIfAborted(options.signal);
       elementCount = enforceElementLimit(

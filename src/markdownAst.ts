@@ -44,6 +44,10 @@ export function applyTextReplacements(
   replacements: TextReplacement[],
   mode: TextReplacementMode = "trusted"
 ): Root {
+  if (mode !== "trusted" && mode !== "untrusted") {
+    throw new Error("Invalid textReplacementMode: Must be trusted or untrusted");
+  }
+
   if (!replacements || replacements.length === 0) {
     return ast;
   }

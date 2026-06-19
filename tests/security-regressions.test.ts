@@ -119,6 +119,14 @@ describe("Security regressions", () => {
     );
   });
 
+  it("rejects invalid textReplacementMode values", async () => {
+    await expect(
+      convertMarkdownToDocx("Hello", {
+        textReplacementMode: "invalid" as unknown as "trusted",
+      })
+    ).rejects.toThrow("Invalid textReplacementMode");
+  });
+
   it("bounds bracket-heavy input without catastrophic scanning", async () => {
     const blob = await convertMarkdownToDocx("[".repeat(20_000));
     const documentXml = await getDocumentXml(blob);

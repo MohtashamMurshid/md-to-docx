@@ -8,7 +8,7 @@
 [types](https://www.npmjs.com/package/@mohtasham/md-to-docx)
 [node](https://nodejs.org)
 
-A TypeScript-first library and CLI that turns Markdown into production-ready Word documents: headings, tables, lists, images, code blocks with optional syntax highlighting, multi-section templates, per-section headers/footers, page numbering, TOC, and fine-grained style control.
+A TypeScript-first library and CLI that turns Markdown into production-ready Word documents: headings, tables, lists, footnotes, images, code blocks with optional syntax highlighting, multi-section templates, per-section headers/footers, page numbering, TOC, and fine-grained style control.
 
 ---
 
@@ -398,24 +398,34 @@ await convertMarkdownToDocx(markdown, {
 ## Supported Markdown
 
 
-| Feature           | Syntax                 | Notes                                                |
-| ----------------- | ---------------------- | ---------------------------------------------------- |
-| Headings          | `# … ######`           | H1–H6, individually styleable                        |
-| Bold / italic     | `**bold**`, `*italic*` |                                                      |
-| Underline         | `++underline++`        | Custom marker                                        |
-| Strikethrough     | `~~text~~`             | GFM                                                  |
-| Inline code       | `code`                 |                                                      |
-| Code blocks       | ````` fenced           | Optional syntax highlighting per block               |
-| Lists             | `-`, `*`, `1.`         | Bullet, numbered, nested, rich formatting inside     |
-| Tables            | `                      | a                                                    |
-| Blockquotes       | `> text`               |                                                      |
-| Links             | `[text](url)`          |                                                      |
-| Images            | `![alt](url)`          | HTTP(S) and `data:` URLs; supports `#w=…&h=…` sizing |
-| Horizontal rule   | `---`                  | Skipped during conversion                            |
-| Table of Contents | `[TOC]`                | Clickable, auto-populated                            |
-| Page break        | `\pagebreak`           | Place on its own line                                |
-| Comments          | `COMMENT: text`        | Rendered as Word comments                            |
+| Feature           | Syntax                         | Notes                                                |
+| ----------------- | ------------------------------ | ---------------------------------------------------- |
+| Headings          | `# ... ######`                 | H1-H6, individually styleable                        |
+| Bold / italic     | `**bold**`, `*italic*`         |                                                      |
+| Underline         | `++underline++`                | Custom marker                                        |
+| Strikethrough     | `~~text~~`                     | GFM                                                  |
+| Inline code       | `` `code` ``                   |                                                      |
+| Code blocks       | ````` fenced                   | Optional syntax highlighting per block               |
+| Lists             | `-`, `*`, `1.`                 | Bullet, numbered, nested, rich formatting inside     |
+| Tables            | `\| a \| b \|`                 | GFM tables                                           |
+| Blockquotes       | `> text`                       |                                                      |
+| Links             | `[text](url)`                  |                                                      |
+| Images            | `![alt](url)`                  | HTTP(S) and `data:` URLs; supports `#w=...&h=...` sizing |
+| Footnotes         | `Text[^1]` + `[^1]: Note text` | Native Word footnotes                                |
+| Horizontal rule   | `---`                          | Skipped during conversion                            |
+| Table of Contents | `[TOC]`                        | Clickable, auto-populated                            |
+| Page break        | `\pagebreak`                   | Place on its own line                                |
+| Comments          | `<!-- COMMENT: text -->`       | Rendered as Word comments                            |
 
+Markdown footnotes use the GFM/remark syntax:
+
+```markdown
+Text with a note[^1].
+
+[^1]: Footnote text with **formatting**, [links](https://example.com), and `code`.
+```
+
+Referenced definitions are emitted to `word/footnotes.xml` as native Word footnotes. Inline formatting, safe links, inline code, lists, blockquotes, images, and code blocks in footnote bodies are rendered where the DOCX footnote model supports them. Tables inside footnote definitions are flattened to plain ` | `-separated text rows, and nested footnote references inside footnote bodies are kept as literal `[^id]` text. Unresolved references are also kept as literal text so they remain visible in the output.
 
 ## API reference
 
@@ -603,7 +613,7 @@ cd md-to-docx
 npm install
 
 npm run build   # compile TypeScript to dist/
-npm test        # run the Jest suite (4 suites, 45 tests)
+npm test        # run the Jest suite
 ```
 
 Tests run offline against generated Word XML using JSZip. Set `DEBUG_DOCX=1` to have tests also write `.docx` artifacts under `test-output/` for manual inspection.

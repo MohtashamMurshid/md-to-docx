@@ -51,9 +51,17 @@ export interface DocxCodeBlockNode {
   value: string;
 }
 
+export type DocxCalloutType =
+  | "note"
+  | "tip"
+  | "important"
+  | "warning"
+  | "caution";
+
 export interface DocxBlockquoteNode {
   type: "blockquote";
   children: DocxBlockNode[];
+  calloutType?: DocxCalloutType;
 }
 
 export interface DocxImageNode {

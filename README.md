@@ -74,7 +74,7 @@ This document was generated from **Markdown** in TypeScript.
 
 - Supports lists
 - **Bold**, *italic*, ++underline++, ~~strikethrough~~
-- Tables, blockquotes, images, and code blocks
+- Tables, blockquotes, GitHub-style callouts, images, and code blocks
 
 \`\`\`ts
 const greet = (name: string) => \`Hello, \${name}!\`;
@@ -283,6 +283,39 @@ await convertMarkdownToDocx(markdown, {
 
 Set `headingAlignment` to provide a fallback for any level without its own override.
 
+### GitHub-style callouts
+
+GitHub-style blockquote callouts render as styled DOCX callout blocks:
+
+```markdown
+> [!NOTE]
+> Use callouts for supporting information with **inline formatting**.
+>
+> Additional quoted paragraphs stay inside the callout.
+
+> [!WARNING]
+> Warning content renders with warning styling.
+```
+
+Supported callout markers are `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, and `CAUTION`.
+Unsupported markers, such as `> [!INFO]`, are rendered as ordinary blockquotes with the marker text preserved. Container-directive syntax such as `:::note` is not parsed and falls back to normal Markdown text.
+
+Callout colors can be customized per type:
+
+```typescript
+await convertMarkdownToDocx(markdown, {
+  style: {
+    calloutStyles: {
+      warning: {
+        borderColor: "B45309",
+        backgroundColor: "FFF7ED",
+        titleColor: "92400E",
+      },
+    },
+  },
+});
+```
+
 ### Table of Contents styling
 
 Drop `[TOC]` on its own line in your markdown to render a clickable, auto-populated table of contents. Every TOC level is individually styleable:
@@ -307,7 +340,7 @@ await convertMarkdownToDocx(markdown, {
 
 ### Text find-and-replace
 
-Run string, regex, or functional replacements over the Markdown AST before conversion — they apply across every element type (headings, paragraphs, list items, table cells, etc.):
+Run string, regex, or trusted functional replacements over the Markdown AST before conversion — they apply across every element type (headings, paragraphs, list items, table cells, etc.):
 
 ```typescript
 await convertMarkdownToDocx(markdown, {
@@ -319,7 +352,9 @@ await convertMarkdownToDocx(markdown, {
 });
 ```
 
-For untrusted input, prefer literal string replacements. Regex replacements are accepted only when they fit bounded safety checks; patterns with nested quantifiers or excessive length are rejected before conversion to avoid ReDoS-style stalls.
+Function replacements execute JavaScript in the conversion process and must only be constructed by trusted programmatic callers. They are still supported by default for backward compatibility.
+
+For untrusted input, set `textReplacementMode: "untrusted"` and prefer literal string replacements. In untrusted mode, function replacements are rejected before conversion. Regex replacements are accepted only when they fit bounded safety checks; patterns with nested quantifiers or excessive length are rejected before conversion to avoid ReDoS-style stalls.
 
 Escaped link syntax such as `\[label](https://example.com)` stays plain text in the DOCX. Hyperlinks are emitted only from actual Markdown link nodes.
 
@@ -335,6 +370,7 @@ try {
   const blob = await convertMarkdownToDocx(markdown, {
     maxInputLength: 1_048_576,
     maxElements: 50_000,
+    textReplacementMode: "untrusted",
     signal: controller.signal,
     imageHandling: {
       remote: { enabled: false },
@@ -430,6 +466,7 @@ interface Options {
   sections?: DocumentSection[];
   codeHighlighting?: CodeHighlightOptions;
   textReplacements?: TextReplacement[];
+  textReplacementMode?: "trusted" | "untrusted";
   imageHandling?: ImageHandlingOptions;
 }
 ```
@@ -452,6 +489,7 @@ Text sizes
 | `inlineCodeColor`                             | `string`              | Inline code text color, RRGGBB           |
 | `inlineCodeBackground`                        | `string`              | Inline code background, RRGGBB           |
 | `blockquoteSize`                              | `number`              | Blockquote size                          |
+| `calloutStyles`                               | `Record<CalloutType, CalloutStyle>` | GitHub-style callout color overrides |
 | `tocFontSize`                                 | `number`              | TOC entry size (fallback for all levels) |
 | `tocHeading1FontSize` … `tocHeading6FontSize` | `number`              | Per-level TOC entry size                 |
 | `tocHeading1Bold` … `tocHeading6Bold`         | `boolean`             | Per-level TOC entry bold flag            |
@@ -530,10 +568,14 @@ Alignment & direction
 #### `TextReplacement`
 
 
-| Field     | Type    |
-| --------- | ------- |
-| `find`    | `string |
-| `replace` | `string |
+| Field     | Type                                                        | Description                                                                 |
+| --------- | ----------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `find`    | `string \| RegExp`                                         | Pattern to find. Regex patterns are checked for bounded safety before use.  |
+| `replace` | `string \| TextReplacementFunction`                        | Literal replacement or trusted function replacement.                        |
+
+`textReplacementMode` defaults to `"trusted"` to preserve existing programmatic behavior. Set it to `"untrusted"` when options come from users, API requests, webhooks, uploaded JSON, or any other external source; that mode rejects `TextReplacementFunction` values before they can run.
+
+`TextReplacementFunction` returns `string`, a Markdown phrasing node, an array of phrasing nodes, `false`, `null`, or `undefined`, matching the supported `mdast-util-find-and-replace` replacement results.
 
 
 ### Errors

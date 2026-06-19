@@ -191,6 +191,78 @@ Another paragraph with justified alignment.`;
     expect(xml).toContain("quoted item");
     expect(numberingLevels(xml)).toEqual(["0", "1", "0"]);
   });
+
+  const calloutCases = [
+    ["note", "NOTE", "Note", "0969DA", "EFF6FF"],
+    ["tip", "TIP", "Tip", "1A7F37", "F0FFF4"],
+    ["important", "IMPORTANT", "Important", "8250DF", "F6F0FF"],
+    ["warning", "WARNING", "Warning", "BF8700", "FFF8C5"],
+    ["caution", "CAUTION", "Caution", "CF222E", "FFF1F1"],
+  ] as const;
+
+  for (const [name, marker, label, borderColor, backgroundColor] of calloutCases) {
+    it(`renders GitHub-style ${name} callouts with variant styling`, async () => {
+      const xml = await render(`> [!${marker}]
+> ${label} body.`);
+
+      expect(xml).toContain(label);
+      expect(xml).toContain(`${label} body.`);
+      expect(xml).not.toContain(`[!${marker}]`);
+      expect(xml).toContain(`w:color="${borderColor}"`);
+      expect(xml).toContain(`w:fill="${backgroundColor}"`);
+    });
+  }
+
+  it("preserves inline formatting and nested paragraphs inside callouts", async () => {
+    const blob = await convertMarkdownToDocx(`> [!NOTE]
+> First **bold** paragraph with [lnk](https://example.com/callout) and \`code\`.
+>
+> Second paragraph.`);
+    const xml = await getDocumentXml(blob);
+    const rels = await (await getZip(blob))
+      .file("word/_rels/document.xml.rels")
+      ?.async("string");
+
+    expect(xml).toContain("Note");
+    expect(xml).toContain("First ");
+    expect(xml).toContain("Second paragraph.");
+    expect(xml).toMatch(/<w:b\/>(?:(?!<\/w:r>)[\s\S])*?>bold<\/w:t>/);
+    expect(xml).toContain("<w:hyperlink");
+    expect(rels).toContain("https://example.com/callout");
+    expect(xml).toContain('w:ascii="Courier New"');
+    expect(xml).not.toContain("[!NOTE]");
+  });
+
+  it("applies configured GitHub-style callout colors", async () => {
+    const xml = await render(`> [!WARNING]
+> Custom warning.`, {
+      style: {
+        calloutStyles: {
+          warning: {
+            borderColor: "112233",
+            backgroundColor: "FFEEDD",
+            titleColor: "445566",
+          },
+        },
+      },
+    });
+
+    expect(xml).toContain("Warning");
+    expect(xml).toContain("Custom warning.");
+    expect(xml).toContain('w:color="112233"');
+    expect(xml).toContain('w:fill="FFEEDD"');
+    expect(xml).toContain('w:val="445566"');
+  });
+
+  it("keeps unsupported GitHub-style callout markers as normal blockquotes", async () => {
+    const xml = await render(`> [!INFO]
+> Unsupported info callout.`);
+
+    expect(xml).toContain("[!INFO]");
+    expect(xml).toContain("Unsupported info callout.");
+    expect(xml).toContain('w:color="AAAAAA"');
+    expect(xml).not.toContain('w:fill="EFF6FF"');
+  });
 });
 
 describe("Rendering: inline formatting", () => {

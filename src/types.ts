@@ -1,3 +1,5 @@
+import type { PhrasingContent } from "mdast";
+
 export interface Style {
   titleSize: number;
   headingSpacing: number;
@@ -28,6 +30,7 @@ export interface Style {
   inlineCodeSize?: number;
   inlineCodeColor?: string;
   inlineCodeBackground?: string;
+  calloutStyles?: Partial<Record<CalloutType, CalloutStyle>>;
   tocFontSize?: number;
   // TOC level-specific styling
   tocHeading1FontSize?: number;
@@ -64,6 +67,28 @@ export interface Style {
 }
 
 export type AlignmentOption = "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
+
+export type CalloutType =
+  | "note"
+  | "tip"
+  | "important"
+  | "warning"
+  | "caution";
+
+export interface CalloutStyle {
+  /**
+   * Left border color for GitHub-style callouts, as RRGGBB.
+   */
+  borderColor?: string;
+  /**
+   * Paragraph shading fill for GitHub-style callouts, as RRGGBB.
+   */
+  backgroundColor?: string;
+  /**
+   * Label text color for GitHub-style callouts, as RRGGBB.
+   */
+  titleColor?: string;
+}
 
 export type SectionPageNumberDisplay =
   | "none"
@@ -229,8 +254,17 @@ export interface Options {
   /**
    * Array of text replacements to apply to the markdown AST before conversion
    * Uses mdast-util-find-and-replace for pattern matching and replacement
+   * Function replacements are for trusted programmatic callers only. Set
+   * textReplacementMode to "untrusted" when replacement options come from
+   * external input.
    */
   textReplacements?: TextReplacement[];
+  /**
+   * Controls whether function text replacements are accepted. Defaults to
+   * "trusted" for backward compatibility. Use "untrusted" for API, webhook,
+   * upload, or CLI JSON options sourced from external users.
+   */
+  textReplacementMode?: TextReplacementMode;
   /**
    * Optional syntax highlighting configuration for fenced code blocks.
    * When `enabled` is true, lowlight is used to tokenize the code and
@@ -373,9 +407,24 @@ export interface TableData {
 /**
  * Configuration for text find-and-replace operations
  * @property find - The pattern to find (string or RegExp)
- * @property replace - The replacement (string or function that returns string or array of nodes)
+ * @property replace - The replacement (string or trusted function)
  */
+export type TextReplacementMode = "trusted" | "untrusted";
+
+export type TextReplacementFunctionResult =
+  | string
+  | PhrasingContent
+  | PhrasingContent[]
+  | false
+  | null
+  | undefined;
+
+export type TextReplacementFunction = (
+  match: string,
+  ...args: unknown[]
+) => TextReplacementFunctionResult;
+
 export interface TextReplacement {
   find: string | RegExp;
-  replace: string | ((match: string, ...args: any[]) => string | any);
+  replace: string | TextReplacementFunction;
 }

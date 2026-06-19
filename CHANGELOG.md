@@ -1,3 +1,9 @@
+## [2.14.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.13.0...v2.14.0) (2026-06-19)
+
+### Features
+
+* support Markdown footnotes ([f645b50](https://github.com/MohtashamMurshid/md-to-docx/commit/f645b50d9baa2024f60a9ba90e9939b33ba3525e))
+
 ## [2.13.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.12.6...v2.13.0) (2026-06-19)
 
 ### Features

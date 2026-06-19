@@ -29,6 +29,12 @@ function numberingMarkerCount(xml: string): number {
   return xml.match(/<w:numPr>/g)?.length || 0;
 }
 
+function mediaFilesFromZip(zip: Awaited<ReturnType<typeof getZip>>): string[] {
+  return Object.entries(zip.files)
+    .filter(([p, file]) => p.startsWith("word/media/") && !file.dir)
+    .map(([p]) => p);
+}
+
 async function render(markdown: string, options?: Options): Promise<string> {
   const blob = await convertMarkdownToDocx(markdown, options);
   expect(blob).toBeInstanceOf(Blob);
@@ -293,6 +299,88 @@ Outro paragraph.`;
     expect(xml).toContain("Hello, ");
     expect(xml).toContain("Intro paragraph");
     expect(xml).toContain("Outro paragraph");
+  });
+});
+
+describe("Rendering: chart blocks", () => {
+  const chartJson = JSON.stringify({
+    type: "bar",
+    data: {
+      labels: ["Q1", "Q2", "Q3"],
+      datasets: [{ label: "Revenue", data: [12, 18, 9] }],
+    },
+    width: 160,
+    height: 90,
+    alt: "Revenue chart",
+  });
+
+  it("embeds enabled chart fences as DOCX images", async () => {
+    const blob = await convertMarkdownToDocx(`\`\`\`chart\n${chartJson}\n\`\`\``, {
+      chartRendering: { enabled: true },
+    });
+    const zip = await getZip(blob);
+    const documentXml = await zip.file("word/document.xml")!.async("string");
+    const mediaFiles = mediaFilesFromZip(zip);
+
+    expect(documentXml).toContain("<w:drawing>");
+    expect(documentXml).not.toContain("Revenue chart");
+    expect(mediaFiles).toHaveLength(1);
+    expect(mediaFiles[0]).toMatch(/\.png$/);
+  });
+
+  it("keeps chart fences as ordinary code blocks when disabled", async () => {
+    const blob = await convertMarkdownToDocx(`\`\`\`chart\n${chartJson}\n\`\`\``);
+    const zip = await getZip(blob);
+    const documentXml = await zip.file("word/document.xml")!.async("string");
+
+    expect(documentXml).not.toContain("<w:drawing>");
+    expect(documentXml).toContain("chart");
+    expect(documentXml).toContain("&quot;bar&quot;");
+    expect(mediaFilesFromZip(zip)).toHaveLength(0);
+  });
+
+  it("renders invalid chart definitions as clear placeholders by default", async () => {
+    const xml = await render(
+      "```chart\n{\"type\":\"bar\",\"data\":{\"datasets\":[{\"data\":[\"bad\"]}]}}\n```",
+      { chartRendering: { enabled: true } },
+    );
+
+    expect(xml).toContain("Chart could not be rendered");
+    expect(xml).toContain("finite numbers");
+  });
+
+  it("can throw on invalid chart definitions", async () => {
+    await expect(
+      convertMarkdownToDocx("```chart\n{\"type\":\"scatter\"}\n```", {
+        chartRendering: {
+          enabled: true,
+          invalidDefinitionBehavior: "throw",
+        },
+      }),
+    ).rejects.toThrow(MarkdownConversionError);
+  });
+
+  it("uses chart block dimensions for DOCX image sizing", async () => {
+    const width = 321;
+    const height = 123;
+    const sizedChart = JSON.stringify({
+      type: "line",
+      data: {
+        labels: ["A", "B", "C"],
+        datasets: [{ data: [1, 3, 2] }],
+      },
+      width,
+      height,
+    });
+
+    const blob = await convertMarkdownToDocx(`\`\`\`chartjs\n${sizedChart}\n\`\`\``, {
+      chartRendering: { enabled: true },
+    });
+    const xml = await getDocumentXml(blob);
+    const extentMatch = xml.match(/<wp:extent cx="(\d+)" cy="(\d+)"\/>/);
+
+    expect(extentMatch?.[1]).toBe(String(width * 9525));
+    expect(extentMatch?.[2]).toBe(String(height * 9525));
   });
 });
 

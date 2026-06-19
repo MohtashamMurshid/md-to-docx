@@ -52,6 +52,12 @@ const defaultOptions: Options = {
 export { MarkdownConversionError };
 
 export {
+  ChartBlockDefinition,
+  ChartBlockType,
+  ChartDataset,
+  ChartRenderer,
+  ChartRendererInput,
+  ChartRenderingOptions,
   CodeHighlightOptions,
   CodeHighlightTheme,
   DataUrlImageHandlingOptions,

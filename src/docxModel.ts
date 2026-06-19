@@ -43,6 +43,12 @@ export interface DocxCodeBlockNode {
   value: string;
 }
 
+export interface DocxChartBlockNode {
+  type: "chartBlock";
+  language?: string;
+  value: string;
+}
+
 export interface DocxBlockquoteNode {
   type: "blockquote";
   children: DocxBlockNode[];
@@ -79,6 +85,7 @@ export type DocxBlockNode =
   | DocxHeadingNode
   | DocxListNode
   | DocxCodeBlockNode
+  | DocxChartBlockNode
   | DocxBlockquoteNode
   | DocxImageNode
   | DocxTableNode

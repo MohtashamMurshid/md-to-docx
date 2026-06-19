@@ -211,9 +211,22 @@ export function mdastToDocxModel(
   }
 
   function processCodeBlock(code: Code): DocxBlockNode {
+    const language = code.lang || undefined;
+    const normalizedLanguage = language?.toLowerCase();
+    if (
+      _options.chartRendering?.enabled === true &&
+      (normalizedLanguage === "chart" || normalizedLanguage === "chartjs")
+    ) {
+      return {
+        type: "chartBlock",
+        language,
+        value: code.value || "",
+      };
+    }
+
     return {
       type: "codeBlock",
-      language: code.lang || undefined,
+      language,
       value: code.value || "",
     };
   }

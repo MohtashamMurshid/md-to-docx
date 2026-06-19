@@ -23,6 +23,10 @@ describe("Rust core bridge", () => {
   });
 
   it("invokes a JSON CLI contract and returns the document model", async () => {
+    if (process.platform === "win32") {
+      return;
+    }
+
     const executable = path.join(tempDir, "core.mjs");
     await fsp.writeFile(
       executable,
@@ -73,5 +77,30 @@ describe("Rust core bridge", () => {
         executablePath: missingExecutable,
       }),
     ).rejects.toBeInstanceOf(MarkdownConversionError);
+  });
+
+  it("times out hung Rust core processes", async () => {
+    if (process.platform === "win32") {
+      return;
+    }
+
+    const executable = path.join(tempDir, "hung-core.mjs");
+    await fsp.writeFile(
+      executable,
+      [
+        "#!/usr/bin/env node",
+        "process.stdin.resume();",
+        "setTimeout(() => {}, 60_000);",
+        "",
+      ].join(os.EOL),
+      { mode: 0o755 },
+    );
+
+    await expect(
+      convertMarkdownToDocxModelWithRust("# Hung", {
+        executablePath: executable,
+        timeoutMs: 10,
+      }),
+    ).rejects.toThrow("timed out");
   });
 });

@@ -4,6 +4,7 @@ import { MarkdownConversionError } from "./errors.js";
 export interface RustCoreOptions {
   executablePath?: string;
   mathEnabled?: boolean;
+  timeoutMs?: number;
 }
 
 interface RustCoreResponse {
@@ -24,7 +25,11 @@ export async function convertMarkdownToDocxModelWithRust(
     },
   });
 
-  const response = await runRustCoreExecutable(executablePath, request);
+  const response = await runRustCoreExecutable(
+    executablePath,
+    request,
+    options.timeoutMs,
+  );
   const parsed = parseRustCoreResponse(response);
   return parsed.model;
 }
@@ -91,6 +96,7 @@ function executableName(): string {
 async function runRustCoreExecutable(
   executablePath: string,
   request: string,
+  timeoutMs = 30_000,
 ): Promise<string> {
   const { spawn } = await import("node:child_process");
 
@@ -100,10 +106,25 @@ async function runRustCoreExecutable(
     });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
+    let settled = false;
+    const timeout = setTimeout(() => {
+      settled = true;
+      child.kill();
+      reject(
+        new MarkdownConversionError(
+          `Rust core process timed out after ${timeoutMs}ms`,
+        ),
+      );
+    }, timeoutMs);
 
     child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
     child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
     child.on("error", (error: Error) => {
+      clearTimeout(timeout);
+      if (settled) {
+        return;
+      }
+      settled = true;
       reject(
         new MarkdownConversionError(
           `Failed to start Rust core: ${error.message}`,
@@ -112,6 +133,11 @@ async function runRustCoreExecutable(
       );
     });
     child.on("close", (code: number | null) => {
+      clearTimeout(timeout);
+      if (settled) {
+        return;
+      }
+      settled = true;
       const output = Buffer.concat(stdout).toString("utf8");
       const errorOutput = Buffer.concat(stderr).toString("utf8").trim();
       if (code !== 0) {

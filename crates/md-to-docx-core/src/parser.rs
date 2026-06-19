@@ -231,10 +231,9 @@ fn parse_fenced_block(
     let mut value = String::new();
     while *index < lines.len() {
         let candidate = strip_indent(lines[*index].raw, min_indent);
-        if candidate
-            .trim_start()
-            .starts_with(&marker.to_string().repeat(fence_len))
-        {
+        let trimmed = candidate.trim();
+        let marker_count = trimmed.chars().take_while(|c| *c == marker).count();
+        if marker_count >= fence_len && trimmed[marker_count..].trim().is_empty() {
             *index += 1;
             break;
         }

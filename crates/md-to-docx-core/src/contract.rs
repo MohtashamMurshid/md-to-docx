@@ -45,7 +45,7 @@ impl CoreRequest {
             EmitKind::DocumentXml => CoreResponse {
                 ok: true,
                 document_xml: Some(render_document_xml(&model)),
-                model: Some(model),
+                model: None,
                 diagnostics: Vec::new(),
             },
         }

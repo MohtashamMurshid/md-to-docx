@@ -120,6 +120,22 @@ fn contract_can_emit_model_or_document_xml() {
         .as_deref()
         .unwrap()
         .contains("<w:document"));
+    assert!(xml_response.model.is_none());
+}
+
+#[test]
+fn fenced_blocks_only_close_on_bare_fence_lines() {
+    let model = parse_markdown(
+        "```text\n```not a close\nactual body\n```",
+        ParseOptions::default(),
+    );
+
+    let BlockNode::CodeBlock { value, .. } = &model.children[0] else {
+        panic!("expected code block");
+    };
+
+    assert!(value.contains("```not a close"));
+    assert!(value.contains("actual body"));
 }
 
 #[test]

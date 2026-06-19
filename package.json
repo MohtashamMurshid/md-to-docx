@@ -22,6 +22,9 @@
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.mjs",
     "test:consumer": "node tests/package-consumer.mjs",
     "test:single": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.mjs",
+    "rust:build": "cargo build --workspace",
+    "rust:test": "cargo test --workspace",
+    "rust:lint": "cargo fmt -- --check && cargo clippy --all-targets --all-features -- -D warnings",
     "prepare": "npm run build",
     "release": "semantic-release"
   },

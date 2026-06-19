@@ -45,6 +45,11 @@ import {
   throwIfAborted,
   yieldToAbortSignal,
 } from "./processingLimits.js";
+export {
+  convertMarkdownToDocxModelWithRust,
+  isRustCoreAvailable,
+} from "./rustCore.js";
+export type { RustCoreOptions } from "./rustCore.js";
 
 const defaultStyle: Style = {
   titleSize: 32,

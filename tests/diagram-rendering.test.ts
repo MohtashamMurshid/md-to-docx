@@ -33,6 +33,10 @@ async function mediaCount(markdown: string, options?: Options): Promise<number> 
   ).length;
 }
 
+function numberingMarkerCount(xml: string): number {
+  return xml.match(/<w:numPr>/g)?.length || 0;
+}
+
 describe("Diagram rendering: Mermaid fenced blocks", () => {
   it("keeps mermaid fences as ordinary code blocks by default", async () => {
     const xml = await render(MERMAID_MARKDOWN);
@@ -97,6 +101,49 @@ describe("Diagram rendering: Mermaid fenced blocks", () => {
     expect(xml).toContain("graph TD");
     expect(xml).toContain("mermaid");
     expect(xml).not.toContain("<w:drawing>");
+  });
+
+  it("preserves a list marker when Mermaid fallback is the first list item block", async () => {
+    const markdown = `- \`\`\`mermaid
+  graph TD
+    A --> B
+  \`\`\``;
+
+    const xml = await render(markdown, {
+      mermaidRendering: {
+        enabled: true,
+        render: () => undefined,
+      },
+    });
+
+    expect(xml).toContain("graph TD");
+    expect(numberingMarkerCount(xml)).toBe(1);
+  });
+
+  it("keeps a spacer between adjacent Mermaid blocks that fall back to code", async () => {
+    const markdown = `\`\`\`mermaid
+graph TD
+  A --> B
+\`\`\`
+
+\`\`\`mermaid
+graph TD
+  C --> D
+\`\`\``;
+
+    const xml = await render(markdown, {
+      mermaidRendering: {
+        enabled: true,
+        render: () => {
+          throw new Error("renderer unavailable");
+        },
+      },
+    });
+
+    expect(xml).toContain("A --&gt; B");
+    expect(xml).toContain("C --&gt; D");
+    expect(xml).toContain('w:before="0"');
+    expect(xml).toContain('w:after="0"');
   });
 
   it("can render a placeholder or throw on render failure", async () => {

@@ -114,6 +114,7 @@ export async function modelToDocx(
   // Full-width tables are sized in twips so docx emits a plain integer width.
   // Defaults to A4 portrait content width (page 11906 - default 1080 margins).
   const tableWidthTwips = renderOptions.tableWidthTwips ?? 9746;
+  const mermaidFallbackCodeParagraphs = new WeakSet<object>();
 
   // Track numbering sequences for nested lists
   let maxSequenceId = 0;
@@ -725,6 +726,8 @@ export async function modelToDocx(
     node: Extract<DocxBlockNode, { type: "mermaidBlock" }>,
     paragraphOptions: Partial<IParagraphOptions>,
     reason?: unknown,
+    context: RenderContext = {},
+    listMarker?: ListMarkerContext,
   ): Paragraph[] {
     const failureMode = options.mermaidRendering?.failureMode ?? "codeBlock";
 
@@ -741,13 +744,27 @@ export async function modelToDocx(
       return [mermaidCouldNotRenderParagraph(paragraphOptions)];
     }
 
+    const codeBlock = processCodeBlock(
+      node.value,
+      "mermaid",
+      style,
+      options.codeHighlighting,
+    );
+    mermaidFallbackCodeParagraphs.add(codeBlock);
+
+    if (!listMarker) {
+      return [codeBlock];
+    }
+
     return [
-      processCodeBlock(
-        node.value,
-        "mermaid",
-        style,
-        options.codeHighlighting,
+      listParagraphFromInlineNodes(
+        [],
+        listMarker.isOrdered,
+        listMarker.level,
+        listMarker.sequenceId,
+        context,
       ),
+      codeBlock,
     ];
   }
 
@@ -761,7 +778,13 @@ export async function modelToDocx(
     const paragraphOptions = imageParagraphOptions(context, listMarker);
     const render = options.mermaidRendering?.render;
     if (!render) {
-      return renderMermaidFallback(node, paragraphOptions);
+      return renderMermaidFallback(
+        node,
+        paragraphOptions,
+        undefined,
+        context,
+        listMarker,
+      );
     }
 
     if (processedImageCounter.count >= imageHandling.maxImages) {
@@ -769,6 +792,8 @@ export async function modelToDocx(
         node,
         paragraphOptions,
         new Error("Maximum embedded image count reached"),
+        context,
+        listMarker,
       );
     }
 
@@ -785,6 +810,8 @@ export async function modelToDocx(
           node,
           paragraphOptions,
           new Error("Mermaid renderer returned no image"),
+          context,
+          listMarker,
         );
       }
 
@@ -811,27 +838,37 @@ export async function modelToDocx(
       if (error instanceof MarkdownConversionError) {
         throw error;
       }
-      return renderMermaidFallback(node, paragraphOptions, error);
+      return renderMermaidFallback(
+        node,
+        paragraphOptions,
+        error,
+        context,
+        listMarker,
+      );
     }
   }
 
   // Process all top-level nodes
-  let previousNodeType: string | undefined;
+  let previousRenderedAsCode = false;
   for (const node of model.children) {
     throwIfAborted(options.signal);
 
+    const rendered = await renderBlockNode(node);
+    const currentRenderedAsCode =
+      node.type === "codeBlock" ||
+      rendered.some((child) => mermaidFallbackCodeParagraphs.has(child));
+
     // Insert a blank spacer paragraph between back-to-back code blocks so
     // Word doesn't collapse the shared borders into a single visual block.
-    if (node.type === "codeBlock" && previousNodeType === "codeBlock") {
+    if (currentRenderedAsCode && previousRenderedAsCode) {
       children.push(
         new Paragraph({ children: [], spacing: { before: 0, after: 0 } }),
       );
     }
 
-    const rendered = await renderBlockNode(node);
     children.push(...rendered);
 
-    previousNodeType = node.type;
+    previousRenderedAsCode = currentRenderedAsCode;
   }
 
   return { children, headings, maxSequenceId };

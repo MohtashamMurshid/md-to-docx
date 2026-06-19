@@ -14,6 +14,7 @@ import type { IParagraphOptions } from "docx";
 import type {
   DocxDocumentModel,
   DocxBlockNode,
+  DocxCalloutType,
   DocxListNode,
   DocxListItemNode,
   DocxTextNode,
@@ -21,7 +22,10 @@ import type {
 import { Style, Options } from "./types.js";
 import { processHeading } from "./renderers/headingRenderer.js";
 import { processCodeBlock } from "./renderers/codeRenderer.js";
-import { blockquoteParagraphStyle } from "./renderers/blockquoteRenderer.js";
+import {
+  blockquoteParagraphStyle,
+  resolveCalloutStyle,
+} from "./renderers/blockquoteRenderer.js";
 import { processComment } from "./renderers/commentRenderer.js";
 import {
   processImage,
@@ -37,11 +41,13 @@ import { MarkdownConversionError } from "./errors.js";
 interface InlineOverrides {
   forceBold?: boolean;
   forceItalic?: boolean;
+  color?: string;
   size?: number;
 }
 
 interface RenderContext {
   quoteLevel?: number;
+  calloutType?: DocxCalloutType;
 }
 
 interface ListMarkerContext {
@@ -136,7 +142,7 @@ export async function modelToDocx(
       italics: overrides.forceItalic || node.italic,
       strike: node.strikethrough,
       underline: node.underline ? { type: "single" } : undefined,
-      color: node.link ? "0000FF" : "000000",
+      color: overrides.color || (node.link ? "0000FF" : "000000"),
       size: overrides.size || style.paragraphSize || 24,
       font: resolveFontFamily(style),
       rightToLeft: style.direction === "RTL",
@@ -190,7 +196,11 @@ export async function modelToDocx(
       ? AlignmentType[style.paragraphAlignment]
       : AlignmentType.LEFT;
     const quoteStyle = context.quoteLevel
-      ? blockquoteParagraphStyle(style, context.quoteLevel)
+      ? blockquoteParagraphStyle(
+          style,
+          context.quoteLevel,
+          context.calloutType,
+        )
       : undefined;
     return new Paragraph({
       children: renderInlineNodes(nodes, overrides),
@@ -281,7 +291,11 @@ export async function modelToDocx(
     context: RenderContext = {},
   ): Paragraph {
     const quoteStyle = context.quoteLevel
-      ? blockquoteParagraphStyle(style, context.quoteLevel)
+      ? blockquoteParagraphStyle(
+          style,
+          context.quoteLevel,
+          context.calloutType,
+        )
       : undefined;
     const base = {
       children: renderInlineNodes(nodes, { size: style.listItemSize || 24 }),
@@ -315,7 +329,11 @@ export async function modelToDocx(
     context: RenderContext = {},
   ): Paragraph {
     const quoteStyle = context.quoteLevel
-      ? blockquoteParagraphStyle(style, context.quoteLevel)
+      ? blockquoteParagraphStyle(
+          style,
+          context.quoteLevel,
+          context.calloutType,
+        )
       : undefined;
 
     return new Paragraph({
@@ -403,7 +421,11 @@ export async function modelToDocx(
                 font: resolveFontFamily(style),
               }),
             ],
-            ...blockquoteParagraphStyle(style, context.quoteLevel),
+            ...blockquoteParagraphStyle(
+              style,
+              context.quoteLevel,
+              context.calloutType,
+            ),
           }),
         ];
       }
@@ -430,16 +452,42 @@ export async function modelToDocx(
   ): Promise<(Paragraph | Table)[]> {
     throwIfAborted(options.signal);
 
-    const quoteContext = { quoteLevel: (context.quoteLevel || 0) + 1 };
+    const quoteContext = {
+      quoteLevel: (context.quoteLevel || 0) + 1,
+      calloutType: node.calloutType || context.calloutType,
+    };
     const out: (Paragraph | Table)[] = [];
-
-    if (node.children.length === 0) {
-      out.push(
-        paragraphFromInlineNodes([], quoteContext, {
+    const blockquoteTextOverrides: InlineOverrides = node.calloutType
+      ? { size: style.blockquoteSize || 24 }
+      : {
           size: style.blockquoteSize || 24,
           forceItalic: true,
-        }),
+        };
+
+    if (node.calloutType) {
+      const calloutStyle = resolveCalloutStyle(style, node.calloutType);
+      out.push(
+        paragraphFromInlineNodes(
+          [{ type: "text", value: calloutStyle.label }],
+          quoteContext,
+          {
+            size: style.blockquoteSize || 24,
+            forceBold: true,
+            color: calloutStyle.titleColor,
+          },
+        ),
       );
+    }
+
+    if (node.children.length === 0) {
+      if (!node.calloutType) {
+        out.push(
+          paragraphFromInlineNodes([], quoteContext, {
+            size: style.blockquoteSize || 24,
+            forceItalic: true,
+          }),
+        );
+      }
       return out;
     }
 
@@ -448,10 +496,11 @@ export async function modelToDocx(
 
       if (child.type === "paragraph") {
         out.push(
-          paragraphFromInlineNodes(child.children, quoteContext, {
-            size: style.blockquoteSize || 24,
-            forceItalic: true,
-          }),
+          paragraphFromInlineNodes(
+            child.children,
+            quoteContext,
+            blockquoteTextOverrides,
+          ),
         );
         continue;
       }
@@ -579,7 +628,11 @@ export async function modelToDocx(
     if (context.quoteLevel) {
       options = {
         ...options,
-        ...blockquoteParagraphStyle(style, context.quoteLevel),
+        ...blockquoteParagraphStyle(
+          style,
+          context.quoteLevel,
+          context.calloutType,
+        ),
       };
     }
 

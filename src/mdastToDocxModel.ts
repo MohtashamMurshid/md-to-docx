@@ -20,10 +20,14 @@ import type {
 import type {
   DocxDocumentModel,
   DocxBlockNode,
+  DocxCalloutType,
   DocxTextNode,
   DocxListItemNode,
 } from "./docxModel.js";
 import { Style, Options } from "./types.js";
+
+const GITHUB_CALLOUT_MARKER =
+  /^\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*(?:\r?\n[ \t]*)?/i;
 
 /**
  * Classifies a raw HTML node value into a comment or page-break block, or
@@ -41,6 +45,40 @@ function classifyHtmlNode(value: string): DocxBlockNode | null {
     return { type: "pageBreak" };
   }
   return null;
+}
+
+function stripGithubCalloutMarker(
+  paragraph: Paragraph,
+): { calloutType: DocxCalloutType; paragraph: Paragraph | null } | null {
+  const firstChild = paragraph.children[0];
+  if (!firstChild || firstChild.type !== "text") {
+    return null;
+  }
+
+  const markerMatch = firstChild.value.match(GITHUB_CALLOUT_MARKER);
+  if (!markerMatch) {
+    return null;
+  }
+
+  const calloutType = markerMatch[1].toLowerCase() as DocxCalloutType;
+  const remainingValue = firstChild.value.slice(markerMatch[0].length);
+  const children = [
+    ...(remainingValue.length > 0
+      ? [{ ...firstChild, value: remainingValue }]
+      : []),
+    ...paragraph.children.slice(1),
+  ] as Paragraph["children"];
+
+  return {
+    calloutType,
+    paragraph:
+      children.length > 0
+        ? {
+            ...paragraph,
+            children,
+          }
+        : null,
+  };
 }
 
 /**
@@ -220,7 +258,19 @@ export function mdastToDocxModel(
 
   function processBlockquote(blockquote: Blockquote): DocxBlockNode {
     const children: DocxBlockNode[] = [];
-    for (const child of blockquote.children) {
+    const firstChild = blockquote.children[0];
+    const callout =
+      firstChild?.type === "paragraph"
+        ? stripGithubCalloutMarker(firstChild as Paragraph)
+        : null;
+    const blockquoteChildren = callout
+      ? [
+          ...(callout.paragraph ? [callout.paragraph] : []),
+          ...blockquote.children.slice(1),
+        ]
+      : blockquote.children;
+
+    for (const child of blockquoteChildren) {
       const processed = processNode(child);
       if (processed) {
         if (Array.isArray(processed)) {
@@ -233,6 +283,7 @@ export function mdastToDocxModel(
     return {
       type: "blockquote",
       children,
+      calloutType: callout?.calloutType,
     };
   }
 

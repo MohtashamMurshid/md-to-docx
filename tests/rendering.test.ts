@@ -442,18 +442,42 @@ describe("Rendering: chart blocks", () => {
     expect(extentMatch?.[2]).toBe(String(height * 9525));
   });
 
-  it("fills a single-slice pie chart instead of rendering a blank image", async () => {
-    const pieChart = JSON.stringify({
-      type: "pie",
+  it.each(["pie", "doughnut"] as const)(
+    "fills a single-slice %s chart instead of rendering a blank image",
+    async (type) => {
+      const chart = JSON.stringify({
+        type,
+        data: {
+          labels: ["Only"],
+          datasets: [{ data: [1], backgroundColor: ["#E15759"] }],
+        },
+        width: 96,
+        height: 96,
+      });
+
+      const blob = await convertMarkdownToDocx(`\`\`\`chart\n${chart}\n\`\`\``, {
+        chartRendering: { enabled: true },
+      });
+      const zip = await getZip(blob);
+      const mediaFile = mediaFilesFromZip(zip)[0];
+      const pngBytes = await zip.file(mediaFile)!.async("uint8array");
+
+      expect(countNonWhitePixelsInPng(pngBytes)).toBeGreaterThan(100);
+    },
+  );
+
+  it("fills a full-total doughnut slice in a multi-value chart", async () => {
+    const chart = JSON.stringify({
+      type: "doughnut",
       data: {
-        labels: ["Only"],
-        datasets: [{ data: [1], backgroundColor: ["#E15759"] }],
+        labels: ["All", "None"],
+        datasets: [{ data: [5, 0], backgroundColor: ["#E15759", "#4E79A7"] }],
       },
       width: 96,
       height: 96,
     });
 
-    const blob = await convertMarkdownToDocx(`\`\`\`chart\n${pieChart}\n\`\`\``, {
+    const blob = await convertMarkdownToDocx(`\`\`\`chart\n${chart}\n\`\`\``, {
       chartRendering: { enabled: true },
     });
     const zip = await getZip(blob);

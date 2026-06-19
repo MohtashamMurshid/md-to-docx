@@ -49,6 +49,7 @@ const validSectionTypes = [
   "ODD_PAGE",
 ] as const;
 const validPageOrientations = ["PORTRAIT", "LANDSCAPE"] as const;
+const validTextReplacementModes = ["trusted", "untrusted"] as const;
 
 function validateHexColorOption(
   value: string | undefined,
@@ -432,6 +433,31 @@ function validateProcessingLimitsInput(options: Options): void {
   }
 }
 
+function validateTextReplacementInput(options: Options): void {
+  const mode = options.textReplacementMode;
+
+  if (mode !== undefined && !validTextReplacementModes.includes(mode)) {
+    throw new MarkdownConversionError(
+      "Invalid textReplacementMode: Must be trusted or untrusted",
+      { textReplacementMode: options.textReplacementMode }
+    );
+  }
+
+  if (!options.textReplacements || (mode ?? "trusted") !== "untrusted") {
+    return;
+  }
+
+  if (
+    options.textReplacements.some(
+      (replacement) => typeof replacement.replace === "function"
+    )
+  ) {
+    throw new MarkdownConversionError(
+      'Function textReplacements are not allowed when textReplacementMode is "untrusted"'
+    );
+  }
+}
+
 /**
  * Validates markdown input and options
  * @throws {MarkdownConversionError} If input is invalid
@@ -453,6 +479,7 @@ export function validateInput(markdown: string, options: Options): void {
   validateTocOptionsInput(options.toc);
   validateImageHandlingInput(options.imageHandling);
   validateProcessingLimitsInput(options);
+  validateTextReplacementInput(options);
 
   const normalizedTemplate = normalizeSectionConfig(options.template);
   if (normalizedTemplate) {

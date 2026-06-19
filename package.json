@@ -1,6 +1,6 @@
 {
   "name": "@mohtasham/md-to-docx",
-  "version": "2.12.4",
+  "version": "2.16.0",
   "description": "Convert Markdown to Microsoft Word (.docx) documents with support for various Markdown features",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -20,6 +20,7 @@
     "build": "tsc",
     "lint": "eslint src tests",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.mjs",
+    "test:consumer": "node tests/package-consumer.mjs",
     "test:single": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.mjs",
     "prepare": "npm run build",
     "release": "semantic-release"
@@ -73,8 +74,9 @@
     "mdast-util-find-and-replace": "^3.0.2",
     "remark": "^15.0.1",
     "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
     "remark-parse": "^11.0.0",
-    "undici": "^7.25.0",
+    "undici": "^6.27.0",
     "unified": "^11.0.5",
     "unist-util-visit": "^5.0.0"
   }

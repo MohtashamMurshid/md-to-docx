@@ -171,6 +171,94 @@ export interface ProcessImageResult {
   paragraphs: Paragraph[];
 }
 
+export interface ProcessImageDataInput {
+  altText: string;
+  data: Uint8Array | ArrayBuffer | Buffer;
+  contentType?: string;
+  source?: string;
+  widthHint?: number;
+  heightHint?: number;
+  maxImageBytes?: number;
+  paragraphOptions?: Partial<IParagraphOptions>;
+  signal?: AbortSignal;
+}
+
+/**
+ * Embeds already-rendered raster bytes, applying the same type detection and
+ * dimension rules used by Markdown image URLs/data URLs.
+ */
+export function processImageData(
+  input: ProcessImageDataInput,
+  style: Style,
+): ProcessImageResult {
+  throwIfAborted(input.signal);
+
+  const bytes =
+    input.data instanceof Uint8Array
+      ? input.data
+      : new Uint8Array(input.data);
+
+  if (!bytes || bytes.length === 0) {
+    throw new Error("Invalid image data: data length is 0");
+  }
+  if (
+    input.maxImageBytes !== undefined &&
+    bytes.length > input.maxImageBytes
+  ) {
+    throw new Error("Image exceeds maximum size");
+  }
+
+  const imageType = detectImageType(
+    bytes,
+    input.contentType || "",
+    input.source || input.altText,
+  );
+  const { width: intrinsicWidth, height: intrinsicHeight } =
+    readIntrinsicDimensions(imageType, bytes);
+
+  const { width: outWidth, height: outHeight } = computeImageDimensions(
+    input.widthHint,
+    input.heightHint,
+    intrinsicWidth,
+    intrinsicHeight,
+  );
+
+  // docx expects Buffer in Node.js, Uint8Array in browsers.
+  const imageData =
+    typeof Buffer !== "undefined" && !(input.data instanceof Buffer)
+      ? Buffer.from(bytes)
+      : input.data instanceof Uint8Array
+        ? input.data
+        : Buffer.from(bytes);
+
+  const finalHeight =
+    outHeight || (outWidth ? Math.round(outWidth * 0.75) : 200);
+
+  return {
+    embedded: true,
+    paragraphs: [
+      new Paragraph({
+        ...(input.paragraphOptions || {}),
+        children: [
+          new ImageRun({
+            data: imageData,
+            transformation: {
+              width: outWidth,
+              height: finalHeight,
+            },
+            type: imageType,
+          }),
+        ],
+        alignment: AlignmentType.CENTER,
+        spacing: {
+          before: style.paragraphSpacing,
+          after: style.paragraphSpacing,
+        },
+      }),
+    ],
+  };
+}
+
 /**
  * Processes an image and returns paragraphs plus whether a raster was embedded.
  */
@@ -271,60 +359,20 @@ export async function processImage(
       urlForTypeDetection = remoteImage.finalUrl;
     }
 
-    if (!data || data.length === 0) {
-      throw new Error(
-        `Invalid image data: data length is ${data ? (data instanceof Uint8Array ? data.length : (data as Buffer).length) : 0}`,
-      );
-    }
-    throwIfAborted(signal);
-
-    const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
-    const imageType = detectImageType(bytes, contentType, urlForTypeDetection);
-    const { width: intrinsicWidth, height: intrinsicHeight } =
-      readIntrinsicDimensions(imageType, bytes);
-
-    const { width: outWidth, height: outHeight } = computeImageDimensions(
-      widthHint,
-      heightHint,
-      intrinsicWidth,
-      intrinsicHeight,
+    return processImageData(
+      {
+        altText,
+        data,
+        contentType,
+        source: urlForTypeDetection,
+        widthHint,
+        heightHint,
+        maxImageBytes: resolvedImageHandling.maxImageBytes,
+        paragraphOptions,
+        signal,
+      },
+      style,
     );
-
-    // docx expects Buffer in Node.js, Uint8Array in browsers
-    const imageData =
-      typeof Buffer !== "undefined" && !(data instanceof Buffer)
-        ? Buffer.from(data)
-        : data instanceof Uint8Array
-          ? data
-          : Buffer.from(data as Uint8Array);
-
-    // Fallback height if neither hints nor intrinsic dimensions provided one
-    const finalHeight =
-      outHeight || (outWidth ? Math.round(outWidth * 0.75) : 200);
-
-    return {
-      embedded: true,
-      paragraphs: [
-        new Paragraph({
-          ...paragraphOptions,
-          children: [
-            new ImageRun({
-              data: imageData,
-              transformation: {
-                width: outWidth,
-                height: finalHeight,
-              },
-              type: imageType,
-            }),
-          ],
-          alignment: AlignmentType.CENTER,
-          spacing: {
-            before: style.paragraphSpacing,
-            after: style.paragraphSpacing,
-          },
-        }),
-      ],
-    };
   } catch (error) {
     if (error instanceof MarkdownConversionError) {
       throw error;

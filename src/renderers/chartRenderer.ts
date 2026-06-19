@@ -409,16 +409,25 @@ function renderPieChart(raster: Raster, definition: ChartBlockDefinition): void 
 
   values.forEach((value, valueIndex) => {
     const angle = (value / total) * Math.PI * 2;
-    fillArc(
-      raster,
-      centerX,
-      centerY,
-      radius,
-      innerRadius,
-      start,
-      start + angle,
-      colorForDataset(dataset.backgroundColor, valueIndex, valueIndex),
+    const color = colorForDataset(
+      dataset.backgroundColor,
+      valueIndex,
+      valueIndex,
     );
+    if (angle >= Math.PI * 2 - Number.EPSILON) {
+      fillAnnulus(raster, centerX, centerY, radius, innerRadius, color);
+    } else {
+      fillArc(
+        raster,
+        centerX,
+        centerY,
+        radius,
+        innerRadius,
+        start,
+        start + angle,
+        color,
+      );
+    }
     start += angle;
   });
 }
@@ -505,6 +514,31 @@ function fillArc(
       if (distance > radius || distance < innerRadius) continue;
       const angle = normalizeAngle(Math.atan2(dy, dx));
       if (angleInRange(angle, normalizeAngle(start), normalizeAngle(end))) {
+        raster.setPixel(x, y, color);
+      }
+    }
+  }
+}
+
+function fillAnnulus(
+  raster: Raster,
+  centerX: number,
+  centerY: number,
+  radius: number,
+  innerRadius: number,
+  color: string,
+): void {
+  const minX = Math.floor(centerX - radius);
+  const maxX = Math.ceil(centerX + radius);
+  const minY = Math.floor(centerY - radius);
+  const maxY = Math.ceil(centerY + radius);
+
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      const dx = x - centerX;
+      const dy = y - centerY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      if (distance <= radius && distance >= innerRadius) {
         raster.setPixel(x, y, color);
       }
     }

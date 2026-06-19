@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@jest/globals";
+import { inflateSync } from "node:zlib";
 import {
   convertMarkdownToArrayBuffer,
   convertMarkdownToBuffer,
@@ -33,6 +34,64 @@ function mediaFilesFromZip(zip: Awaited<ReturnType<typeof getZip>>): string[] {
   return Object.entries(zip.files)
     .filter(([p, file]) => p.startsWith("word/media/") && !file.dir)
     .map(([p]) => p);
+}
+
+function readPngUint32(bytes: Uint8Array, offset: number): number {
+  return (
+    ((bytes[offset] << 24) |
+      (bytes[offset + 1] << 16) |
+      (bytes[offset + 2] << 8) |
+      bytes[offset + 3]) >>>
+    0
+  );
+}
+
+function countNonWhitePixelsInPng(bytes: Uint8Array): number {
+  let offset = 8;
+  let width = 0;
+  let height = 0;
+  const idatChunks: Uint8Array[] = [];
+
+  while (offset + 8 <= bytes.length) {
+    const length = readPngUint32(bytes, offset);
+    const type = String.fromCharCode(
+      bytes[offset + 4],
+      bytes[offset + 5],
+      bytes[offset + 6],
+      bytes[offset + 7],
+    );
+    const dataStart = offset + 8;
+    const dataEnd = dataStart + length;
+
+    if (type === "IHDR") {
+      width = readPngUint32(bytes, dataStart);
+      height = readPngUint32(bytes, dataStart + 4);
+    } else if (type === "IDAT") {
+      idatChunks.push(bytes.subarray(dataStart, dataEnd));
+    }
+
+    offset = dataEnd + 4;
+  }
+
+  const compressed = Buffer.concat(idatChunks.map((chunk) => Buffer.from(chunk)));
+  const raw = inflateSync(compressed);
+  let nonWhite = 0;
+  let rawIndex = 0;
+
+  for (let y = 0; y < height; y++) {
+    rawIndex++;
+    for (let x = 0; x < width; x++) {
+      const r = raw[rawIndex++];
+      const g = raw[rawIndex++];
+      const b = raw[rawIndex++];
+      rawIndex++;
+      if (r !== 255 || g !== 255 || b !== 255) {
+        nonWhite++;
+      }
+    }
+  }
+
+  return nonWhite;
 }
 
 async function render(markdown: string, options?: Options): Promise<string> {
@@ -381,6 +440,27 @@ describe("Rendering: chart blocks", () => {
 
     expect(extentMatch?.[1]).toBe(String(width * 9525));
     expect(extentMatch?.[2]).toBe(String(height * 9525));
+  });
+
+  it("fills a single-slice pie chart instead of rendering a blank image", async () => {
+    const pieChart = JSON.stringify({
+      type: "pie",
+      data: {
+        labels: ["Only"],
+        datasets: [{ data: [1], backgroundColor: ["#E15759"] }],
+      },
+      width: 96,
+      height: 96,
+    });
+
+    const blob = await convertMarkdownToDocx(`\`\`\`chart\n${pieChart}\n\`\`\``, {
+      chartRendering: { enabled: true },
+    });
+    const zip = await getZip(blob);
+    const mediaFile = mediaFilesFromZip(zip)[0];
+    const pngBytes = await zip.file(mediaFile)!.async("uint8array");
+
+    expect(countNonWhitePixelsInPng(pngBytes)).toBeGreaterThan(100);
   });
 });
 

@@ -20,6 +20,7 @@
     "build": "tsc",
     "lint": "eslint src tests",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.mjs",
+    "test:consumer": "node tests/package-consumer.mjs",
     "test:single": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.mjs",
     "prepare": "npm run build",
     "release": "semantic-release"

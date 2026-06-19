@@ -228,6 +228,12 @@ export interface Options {
   style?: Partial<Style>;
   toc?: TocOptions;
   /**
+   * Controls Markdown math parsing and native Word equation rendering.
+   * Enabled by default. Unsupported TeX falls back to literal source text
+   * unless `unsupported` is set to "throw".
+   */
+  mathRendering?: MathRenderingOptions;
+  /**
    * Optional maximum markdown input length, measured with JavaScript string
    * length. When `sections` is provided, all section markdown lengths are
    * summed. Omitted by default, preserving unlimited input behavior.
@@ -280,6 +286,18 @@ export interface Options {
   imageHandling?: ImageHandlingOptions;
 }
 
+export interface MathRenderingOptions {
+  /**
+   * Parse `$...$` and `$$...$$` math syntax. Defaults to true.
+   */
+  enabled?: boolean;
+  /**
+   * Behavior when the native renderer does not support an expression.
+   * Defaults to "text".
+   */
+  unsupported?: "text" | "throw";
+}
+
 export type ReferenceDocxInput = InputDataType;
 
 export type MarkdownDocxPatch =
@@ -308,6 +326,11 @@ export interface PatchMarkdownOptions {
    * patch markdown. Defaults to "trusted" for backward compatibility.
    */
   textReplacementMode?: TextReplacementMode;
+  /**
+   * Controls Markdown math parsing and native Word equation rendering for patch
+   * content. Enabled by default.
+   */
+  mathRendering?: MathRenderingOptions;
   /**
    * Optional syntax highlighting configuration for fenced code blocks.
    */

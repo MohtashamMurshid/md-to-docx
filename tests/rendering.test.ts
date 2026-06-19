@@ -29,6 +29,10 @@ function numberingMarkerCount(xml: string): number {
   return xml.match(/<w:numPr>/g)?.length || 0;
 }
 
+function mathObjectCount(xml: string): number {
+  return xml.match(/<m:oMath>/g)?.length || 0;
+}
+
 async function render(markdown: string, options?: Options): Promise<string> {
   const blob = await convertMarkdownToDocx(markdown, options);
   expect(blob).toBeInstanceOf(Blob);
@@ -297,6 +301,53 @@ describe("Rendering: inline formatting", () => {
     expect(xml).toContain('w:val="28"');
     expect(xml).toContain('w:val="AA00CC"');
     expect(xml).toContain('w:fill="EEFFAA"');
+  });
+});
+
+describe("Rendering: math", () => {
+  it("renders inline and block math as native Word math objects", async () => {
+    const xml = await render(`Inline $x^2$ appears here.
+
+$$
+\\frac{1}{2}
+$$`);
+
+    expect(mathObjectCount(xml)).toBe(2);
+    expect(xml).toContain("<m:sSup>");
+    expect(xml).toContain("<m:f>");
+    expect(xml).not.toContain("$x^2$");
+    expect(xml).not.toContain("\\frac");
+  });
+
+  it("keeps escaped dollar math syntax as literal text", async () => {
+    const xml = await render("Only escaped \\$x^2$ remains text.");
+
+    expect(mathObjectCount(xml)).toBe(0);
+    expect(xml).toContain("$x^2$ remains text.");
+  });
+
+  it("falls back to literal text for unsupported TeX by default", async () => {
+    const xml = await render("Unsupported $\\overline{x}$ stays literal.");
+
+    expect(mathObjectCount(xml)).toBe(0);
+    expect(xml).toContain("$\\overline{x}$");
+  });
+
+  it("throws for unsupported TeX when configured", async () => {
+    await expect(
+      convertMarkdownToDocx("Unsupported $\\overline{x}$", {
+        mathRendering: { unsupported: "throw" },
+      }),
+    ).rejects.toThrow(MarkdownConversionError);
+  });
+
+  it("can disable math parsing", async () => {
+    const xml = await render("Inline $x^2$ remains literal.", {
+      mathRendering: { enabled: false },
+    });
+
+    expect(mathObjectCount(xml)).toBe(0);
+    expect(xml).toContain("$x^2$ remains literal.");
   });
 });
 

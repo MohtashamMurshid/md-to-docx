@@ -33,6 +33,9 @@ interface ProcessOptions {
   allowFootnoteReferences?: boolean;
 }
 
+type MathBlock = { value?: string };
+type InlineMath = { value?: string };
+
 const GITHUB_CALLOUT_MARKER =
   /^\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*(?:\r?\n[ \t]*)?/i;
 
@@ -148,6 +151,8 @@ export function mdastToDocxModel(
         return processList(node as List, options);
       case "code":
         return processCodeBlock(node as Code);
+      case "math":
+        return processMathBlock(node as MathBlock);
       case "blockquote":
         return processBlockquote(node as Blockquote, options);
       case "image":
@@ -310,6 +315,13 @@ export function mdastToDocxModel(
     };
   }
 
+  function processMathBlock(math: MathBlock): DocxBlockNode {
+    return {
+      type: "mathBlock",
+      value: math.value || "",
+    };
+  }
+
   function processBlockquote(
     blockquote: Blockquote,
     options: ProcessOptions = {},
@@ -457,9 +469,7 @@ export function mdastToDocxModel(
           );
           for (const child of strikeChildren) {
             result.push(
-              child.type === "text"
-                ? { ...child, strikethrough: true }
-                : child,
+              child.type === "text" ? { ...child, strikethrough: true } : child,
             );
           }
           break;
@@ -514,6 +524,12 @@ export function mdastToDocxModel(
           }
           break;
         }
+        case "inlineMath":
+          result.push({
+            type: "mathInline",
+            value: String((node as InlineMath).value || ""),
+          });
+          break;
         case "break":
           result.push({
             type: "text",

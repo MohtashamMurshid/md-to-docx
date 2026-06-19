@@ -38,5 +38,11 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Run Rust core tests
+        run: npm run rust:test
+
       - name: Lint
         run: npm run lint
+
+      - name: Lint Rust core
+        run: npm run rust:lint

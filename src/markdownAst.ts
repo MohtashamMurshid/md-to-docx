@@ -2,8 +2,9 @@ import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 import { findAndReplace } from "mdast-util-find-and-replace";
+import type { FindAndReplaceList } from "mdast-util-find-and-replace";
 import type { Root } from "mdast";
-import type { TextReplacement } from "./types.js";
+import type { TextReplacement, TextReplacementMode } from "./types.js";
 
 const MAX_REPLACEMENTS = 50;
 const MAX_REPLACEMENT_PATTERN_LENGTH = 256;
@@ -40,7 +41,8 @@ export async function parseMarkdownToAst(markdown: string): Promise<Root> {
  */
 export function applyTextReplacements(
   ast: Root,
-  replacements: TextReplacement[]
+  replacements: TextReplacement[],
+  mode: TextReplacementMode = "trusted"
 ): Root {
   if (!replacements || replacements.length === 0) {
     return ast;
@@ -51,6 +53,11 @@ export function applyTextReplacements(
   }
 
   for (const replacement of replacements) {
+    if (mode === "untrusted" && typeof replacement.replace === "function") {
+      throw new Error(
+        'Function textReplacements are not allowed when textReplacementMode is "untrusted"'
+      );
+    }
     if (
       typeof replacement.replace === "string" &&
       replacement.replace.length > MAX_REPLACEMENT_TEXT_LENGTH
@@ -71,11 +78,10 @@ export function applyTextReplacements(
   // Convert replacements to the format expected by mdast-util-find-and-replace.
   // RegExp entries are intentionally constrained above; string entries are the
   // recommended mode for untrusted callers.
-  const findReplacePairs: Array<[string | RegExp, string | ((...args: any[]) => any)]> = 
-    replacements.map((replacement) => [
-      replacement.find,
-      replacement.replace,
-    ]);
+  const findReplacePairs: FindAndReplaceList = replacements.map((replacement) => [
+    replacement.find,
+    replacement.replace,
+  ]);
 
   // Apply all replacements to the AST
   findAndReplace(ast, findReplacePairs);

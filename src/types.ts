@@ -290,6 +290,11 @@ export interface Options {
    * image bytes.
    */
   mermaidRendering?: MermaidRenderingOptions;
+  /**
+   * Optional rendering for fenced `chart` and `chartjs` blocks. Disabled by
+   * default; when disabled, those fences render as ordinary code blocks.
+   */
+  chartRendering?: ChartRenderingOptions;
 }
 
 export interface MathRenderingOptions {
@@ -351,6 +356,11 @@ export interface PatchMarkdownOptions {
    * default; when enabled, callers must provide a renderer callback.
    */
   mermaidRendering?: MermaidRenderingOptions;
+  /**
+   * Optional chart fenced-block rendering for patch content. Disabled by
+   * default; when disabled, chart fences render as code blocks.
+   */
+  chartRendering?: ChartRenderingOptions;
   /**
    * Optional maximum markdown input length per patch.
    */
@@ -565,6 +575,92 @@ export interface MermaidRenderingOptions {
    * "codeBlock" so document content is preserved.
    */
   failureMode?: "codeBlock" | "placeholder" | "throw";
+}
+
+export type ChartBlockType = "bar" | "line" | "pie" | "doughnut";
+
+export interface ChartDataset {
+  label?: string;
+  data: number[];
+  backgroundColor?: string | string[];
+  borderColor?: string | string[];
+}
+
+export interface ChartBlockDefinition {
+  type: ChartBlockType;
+  data: {
+    labels?: string[];
+    datasets: ChartDataset[];
+  };
+  options?: {
+    plugins?: {
+      title?: {
+        display?: boolean;
+        text?: string;
+      };
+    };
+  };
+  /**
+   * Optional DOCX output width in pixels. Falls back to chartRendering.width
+   * and then the built-in default.
+   */
+  width?: number;
+  /**
+   * Optional DOCX output height in pixels. Falls back to chartRendering.height
+   * and then the built-in default.
+   */
+  height?: number;
+  /**
+   * Accessible fallback text used in error placeholders.
+   */
+  alt?: string;
+}
+
+export interface ChartRendererInput {
+  definition: ChartBlockDefinition;
+  width: number;
+  height: number;
+  signal?: AbortSignal;
+}
+
+export type ChartRenderer = (
+  input: ChartRendererInput
+) => string | Uint8Array | Promise<string | Uint8Array>;
+
+export interface ChartRenderingOptions {
+  /**
+   * Turn fenced chart rendering on. Defaults to false.
+   */
+  enabled?: boolean;
+  /**
+   * Default DOCX output width in pixels when a chart block does not specify
+   * `width`. Defaults to 640.
+   */
+  width?: number;
+  /**
+   * Default DOCX output height in pixels when a chart block does not specify
+   * `height`. Defaults to 360.
+   */
+  height?: number;
+  /**
+   * Maximum accepted chart width in pixels. Defaults to 2000.
+   */
+  maxWidth?: number;
+  /**
+   * Maximum accepted chart height in pixels. Defaults to 2000.
+   */
+  maxHeight?: number;
+  /**
+   * Behavior for invalid JSON/schema or renderer failures. Defaults to
+   * "placeholder", which keeps conversion running and inserts a visible
+   * message in the document.
+   */
+  invalidDefinitionBehavior?: "placeholder" | "throw";
+  /**
+   * Optional custom renderer. When omitted, a built-in offline PNG renderer
+   * handles the documented bar, line, pie, and doughnut subset.
+   */
+  renderer?: ChartRenderer;
 }
 
 export interface TableData {

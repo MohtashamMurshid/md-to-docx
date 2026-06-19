@@ -59,6 +59,12 @@ export interface DocxCodeBlockNode {
   value: string;
 }
 
+export interface DocxChartBlockNode {
+  type: "chartBlock";
+  language?: string;
+  value: string;
+}
+
 export interface DocxMermaidBlockNode {
   type: "mermaidBlock";
   value: string;
@@ -120,6 +126,7 @@ export type DocxBlockNode =
   | DocxHeadingNode
   | DocxListNode
   | DocxCodeBlockNode
+  | DocxChartBlockNode
   | DocxMermaidBlockNode
   | DocxMathBlockNode
   | DocxBlockquoteNode

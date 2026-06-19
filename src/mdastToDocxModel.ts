@@ -309,14 +309,27 @@ export function mdastToDocxModel(
 
   function processCodeBlock(code: Code): DocxBlockNode {
     const language = code.lang || undefined;
+    const normalizedLanguage = language?.trim().toLowerCase();
+
     if (
       options.mermaidRendering?.enabled === true &&
-      language?.trim().toLowerCase() === "mermaid"
+      normalizedLanguage === "mermaid"
     ) {
       return {
         type: "mermaidBlock",
         value: code.value || "",
         meta: code.meta || undefined,
+      };
+    }
+
+    if (
+      options.chartRendering?.enabled === true &&
+      (normalizedLanguage === "chart" || normalizedLanguage === "chartjs")
+    ) {
+      return {
+        type: "chartBlock",
+        language,
+        value: code.value || "",
       };
     }
 

@@ -34,6 +34,7 @@ import {
   processImageData,
   resolveImageHandlingOptions,
 } from "./renderers/imageRenderer.js";
+import { processChartBlock } from "./renderers/chartRenderer.js";
 import { parseTexMath, renderNativeMath } from "./renderers/mathRenderer.js";
 import { processInlineCode } from "./renderers/textRenderer.js";
 import { resolveFontFamily } from "./utils/styleUtils.js";
@@ -477,6 +478,10 @@ export async function modelToDocx(
         return renderMermaidNode(node, context);
       }
 
+      case "chartBlock": {
+        return renderChartNode(node, context);
+      }
+
       case "table": {
         return [tableFromNode(node)];
       }
@@ -737,8 +742,10 @@ export async function modelToDocx(
     context: RenderContext,
     listMarker?: ListMarkerContext,
   ): Promise<(Paragraph | Table)[]> {
-    if (node.type === "image") {
-      return renderImageNode(node, context, listMarker);
+    if (node.type === "image" || node.type === "chartBlock") {
+      return node.type === "image"
+        ? renderImageNode(node, context, listMarker)
+        : renderChartNode(node, context, listMarker);
     }
 
     if (node.type === "mermaidBlock") {
@@ -771,6 +778,23 @@ export async function modelToDocx(
       children: [
         new TextRun({
           text: `[Image could not be loaded: ${alt}]`,
+          italics: true,
+          color: "FF0000",
+        }),
+      ],
+      alignment: AlignmentType.CENTER,
+      bidirectional: style.direction === "RTL",
+    });
+  }
+
+  function chartCouldNotLoadParagraph(
+    paragraphOptions: Partial<IParagraphOptions> = {},
+  ): Paragraph {
+    return new Paragraph({
+      ...paragraphOptions,
+      children: [
+        new TextRun({
+          text: "[Chart could not be loaded: image limit reached]",
           italics: true,
           color: "FF0000",
         }),
@@ -823,6 +847,33 @@ export async function modelToDocx(
       }
       return [imageCouldNotLoadParagraph(node.alt, paragraphOptions)];
     }
+  }
+
+  async function renderChartNode(
+    node: Extract<DocxBlockNode, { type: "chartBlock" }>,
+    context: RenderContext = {},
+    listMarker?: ListMarkerContext,
+  ): Promise<Paragraph[]> {
+    throwIfAborted(options.signal);
+
+    const paragraphOptions = imageParagraphOptions(context, listMarker);
+
+    if (processedImageCounter.count >= imageHandling.maxImages) {
+      return [chartCouldNotLoadParagraph(paragraphOptions)];
+    }
+
+    const { embedded, paragraphs } = await processChartBlock(
+      node.value,
+      style,
+      options.chartRendering,
+      options.imageHandling,
+      paragraphOptions,
+      options.signal,
+    );
+    if (embedded) {
+      processedImageCounter.count++;
+    }
+    return paragraphs;
   }
 
   function mermaidCouldNotRenderParagraph(

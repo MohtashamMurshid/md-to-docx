@@ -25,6 +25,8 @@ A TypeScript-first library and CLI that turns Markdown into production-ready Wor
 - [Features](#features)
   - [Multi-section documents (template + sections)](#multi-section-documents-template--sections)
   - [Syntax-highlighted code blocks](#syntax-highlighted-code-blocks)
+  - [Chart fenced blocks](#chart-fenced-blocks)
+  - [Mermaid diagram blocks](#mermaid-diagram-blocks)
   - [Math rendering](#math-rendering)
   - [Custom heading and paragraph alignment](#custom-heading-and-paragraph-alignment)
   - [Table of Contents styling](#table-of-contents-styling)
@@ -324,6 +326,46 @@ await convertMarkdownToDocx(markdown, {
 
 Theme keys map 1:1 to `hljs-*` token classes (without the `hljs-` prefix); values are RRGGBB hex strings without `#`. Reserved keys: `default`, `background`, `border`, `languageLabel`. Unknown or non-whitelisted languages fall back to the plain rendering path, so conversion never throws on an unsupported fence.
 
+### Chart fenced blocks
+
+Chart rendering is **opt-in**. When disabled (the default), `chart` and `chartjs` fences render as ordinary code blocks. When enabled, the fence body must be JSON using the documented Chart.js-like subset below:
+
+````markdown
+```chart
+{
+  "type": "bar",
+  "data": {
+    "labels": ["Q1", "Q2", "Q3"],
+    "datasets": [
+      {
+        "label": "Revenue",
+        "data": [12, 18, 9],
+        "backgroundColor": ["#4E79A7", "#F28E2B", "#E15759"]
+      }
+    ]
+  },
+  "width": 640,
+  "height": 360,
+  "alt": "Quarterly revenue"
+}
+```
+````
+
+```typescript
+await convertMarkdownToDocx(markdown, {
+  chartRendering: {
+    enabled: true,
+    width: 640,
+    height: 360,
+    invalidDefinitionBehavior: "placeholder",
+  },
+});
+```
+
+Supported built-in chart types are `bar`, `line`, `pie`, and `doughnut`. `data.datasets[].data` must contain finite numbers; `data.labels` is optional and must be an array of strings when present. `width` and `height` can be set per block, otherwise `chartRendering.width` / `chartRendering.height` are used. Invalid chart JSON or schema issues render a visible placeholder by default; set `invalidDefinitionBehavior: "throw"` to fail conversion with `MarkdownConversionError`.
+
+The built-in renderer is offline and has no network, native canvas, or browser runtime dependency. It produces simple PNG geometry for the supported subset. For full Chart.js layout, fonts, plugins, or custom drawing, pass `chartRendering.renderer`; the callback receives the parsed definition plus resolved dimensions and must return a PNG data URL or PNG bytes. In Node, that renderer can use optional project dependencies such as `chart.js` with `canvas` or `skia-canvas`; those packages are not bundled by `@mohtasham/md-to-docx`.
+
 ### Mermaid diagram blocks
 
 Mermaid rendering is **opt-in** and requires a programmatic renderer callback. The package does not bundle Mermaid, Chromium, Playwright, a CLI runner, or any other diagram runtime, so converting untrusted Markdown cannot execute diagram tooling by default.
@@ -532,6 +574,8 @@ await convertMarkdownToDocx(markdown, {
 | Inline code       | `` `code` ``                   |                                                      |
 | Code blocks       | ````` fenced                   | Optional syntax highlighting per block               |
 | Math              | `$x^2$`, `$$...$$`             | Native Word math subset; literal fallback            |
+| Mermaid diagrams  | `````mermaid                   | Opt-in image rendering; code fallback                |
+| Chart blocks      | `````chart / chartjs           | Opt-in PNG rendering; Chart.js-like JSON subset      |
 | Lists             | `-`, `*`, `1.`                 | Bullet, numbered, nested, rich formatting inside     |
 | Tables            | `\| a \| b \|`                 | GFM tables                                           |
 | Blockquotes       | `> text`                       |                                                      |
@@ -606,6 +650,7 @@ interface Options {
   sections?: DocumentSection[];
   codeHighlighting?: CodeHighlightOptions;
   mermaidRendering?: MermaidRenderingOptions;
+  chartRendering?: ChartRenderingOptions;
   textReplacements?: TextReplacement[];
   textReplacementMode?: "trusted" | "untrusted";
   imageHandling?: ImageHandlingOptions;
@@ -626,6 +671,9 @@ interface PatchMarkdownOptions {
   documentType?: "document" | "report";
   style?: Partial<Style>;
   codeHighlighting?: CodeHighlightOptions;
+  mathRendering?: MathRenderingOptions;
+  mermaidRendering?: MermaidRenderingOptions;
+  chartRendering?: ChartRenderingOptions;
   textReplacements?: TextReplacement[];
   imageHandling?: ImageHandlingOptions;
   maxInputLength?: number;
@@ -732,6 +780,18 @@ Alignment & direction
 | `theme`             | `Partial<CodeHighlightTheme>` | GitHub-light | Partial override merged over the default theme. Values are RRGGBB hex.                 |
 | `languages`         | `string[]`                    | `common`     | Whitelist of language grammars to load. Excluded/unknown languages fall back to plain. |
 | `showLanguageLabel` | `boolean`                     | `true`       | Render the language name as a bold label above the block.                              |
+
+#### `ChartRenderingOptions`
+
+| Option                      | Type                              | Default       | Description                                                        |
+| --------------------------- | --------------------------------- | ------------- | ------------------------------------------------------------------ |
+| `enabled`                   | `boolean`                         | `false`       | Render `chart` / `chartjs` fences as PNG images.                   |
+| `width`                     | `number`                          | `640`         | Default output width in pixels.                                    |
+| `height`                    | `number`                          | `360`         | Default output height in pixels.                                   |
+| `maxWidth`                  | `number`                          | `2000`        | Maximum accepted chart width.                                      |
+| `maxHeight`                 | `number`                          | `2000`        | Maximum accepted chart height.                                     |
+| `invalidDefinitionBehavior` | `"placeholder" \| "throw"`        | `placeholder` | Keep converting with a visible placeholder, or throw on invalid definitions. |
+| `renderer`                  | `ChartRenderer`                   | built-in      | Optional callback that returns a PNG data URL or PNG bytes.        |
 
 
 #### `MermaidRenderingOptions`

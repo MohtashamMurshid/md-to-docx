@@ -434,16 +434,16 @@ function validateProcessingLimitsInput(options: Options): void {
 }
 
 function validateTextReplacementInput(options: Options): void {
-  const mode = options.textReplacementMode ?? "trusted";
+  const mode = options.textReplacementMode;
 
-  if (!validTextReplacementModes.includes(mode)) {
+  if (mode !== undefined && !validTextReplacementModes.includes(mode)) {
     throw new MarkdownConversionError(
       "Invalid textReplacementMode: Must be trusted or untrusted",
       { textReplacementMode: options.textReplacementMode }
     );
   }
 
-  if (!options.textReplacements || mode !== "untrusted") {
+  if (!options.textReplacements || (mode ?? "trusted") !== "untrusted") {
     return;
   }
 

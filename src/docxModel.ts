@@ -19,7 +19,16 @@ export interface DocxMathInlineNode {
   value: string;
 }
 
-export type DocxInlineNode = DocxTextNode | DocxMathInlineNode;
+export interface DocxFootnoteReferenceNode {
+  type: "footnoteReference";
+  identifier: string;
+  id: number;
+}
+
+export type DocxInlineNode =
+  | DocxTextNode
+  | DocxMathInlineNode
+  | DocxFootnoteReferenceNode;
 
 export interface DocxParagraphNode {
   type: "paragraph";
@@ -55,9 +64,17 @@ export interface DocxMathBlockNode {
   value: string;
 }
 
+export type DocxCalloutType =
+  | "note"
+  | "tip"
+  | "important"
+  | "warning"
+  | "caution";
+
 export interface DocxBlockquoteNode {
   type: "blockquote";
   children: DocxBlockNode[];
+  calloutType?: DocxCalloutType;
 }
 
 export interface DocxImageNode {
@@ -86,6 +103,12 @@ export interface DocxTocPlaceholderNode {
   type: "tocPlaceholder";
 }
 
+export interface DocxFootnoteDefinitionNode {
+  identifier: string;
+  id: number;
+  children: DocxBlockNode[];
+}
+
 export type DocxBlockNode =
   | DocxParagraphNode
   | DocxHeadingNode
@@ -101,4 +124,5 @@ export type DocxBlockNode =
 
 export interface DocxDocumentModel {
   children: DocxBlockNode[];
+  footnotes?: DocxFootnoteDefinitionNode[];
 }

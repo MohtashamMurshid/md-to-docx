@@ -1,3 +1,28 @@
+## [2.14.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.13.0...v2.14.0) (2026-06-19)
+
+### Features
+
+* support Markdown footnotes ([f645b50](https://github.com/MohtashamMurshid/md-to-docx/commit/f645b50d9baa2024f60a9ba90e9939b33ba3525e))
+
+## [2.13.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.12.6...v2.13.0) (2026-06-19)
+
+### Features
+
+* support github-style callout blocks ([4ef9e44](https://github.com/MohtashamMurshid/md-to-docx/commit/4ef9e44b49d615a80908c018ef7c1da5fa33f38a))
+
+## [2.12.6](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.12.5...v2.12.6) (2026-06-19)
+
+### Bug Fixes
+
+* update undici security dependency ([bb99336](https://github.com/MohtashamMurshid/md-to-docx/commit/bb993367378443784e0c6d9020babec156e5dd52))
+
+## [2.12.5](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.12.4...v2.12.5) (2026-06-19)
+
+### Bug Fixes
+
+* add untrusted text replacement mode ([8ab25fc](https://github.com/MohtashamMurshid/md-to-docx/commit/8ab25fc305973b2249e1f82fa1bce672b86d754d))
+* align esm module resolution ([556500e](https://github.com/MohtashamMurshid/md-to-docx/commit/556500e13d1c2fd1e8eaad755a52e9679417f69e))
+
 ## [2.12.4](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.12.3...v2.12.4) (2026-06-10)
 
 ### Bug Fixes

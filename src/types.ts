@@ -1,3 +1,6 @@
+import type { InputDataType } from "docx";
+import type { PhrasingContent } from "mdast";
+
 export interface Style {
   titleSize: number;
   headingSpacing: number;
@@ -28,6 +31,7 @@ export interface Style {
   inlineCodeSize?: number;
   inlineCodeColor?: string;
   inlineCodeBackground?: string;
+  calloutStyles?: Partial<Record<CalloutType, CalloutStyle>>;
   tocFontSize?: number;
   // TOC level-specific styling
   tocHeading1FontSize?: number;
@@ -64,6 +68,28 @@ export interface Style {
 }
 
 export type AlignmentOption = "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
+
+export type CalloutType =
+  | "note"
+  | "tip"
+  | "important"
+  | "warning"
+  | "caution";
+
+export interface CalloutStyle {
+  /**
+   * Left border color for GitHub-style callouts, as RRGGBB.
+   */
+  borderColor?: string;
+  /**
+   * Paragraph shading fill for GitHub-style callouts, as RRGGBB.
+   */
+  backgroundColor?: string;
+  /**
+   * Label text color for GitHub-style callouts, as RRGGBB.
+   */
+  titleColor?: string;
+}
 
 export type SectionPageNumberDisplay =
   | "none"
@@ -235,8 +261,17 @@ export interface Options {
   /**
    * Array of text replacements to apply to the markdown AST before conversion
    * Uses mdast-util-find-and-replace for pattern matching and replacement
+   * Function replacements are for trusted programmatic callers only. Set
+   * textReplacementMode to "untrusted" when replacement options come from
+   * external input.
    */
   textReplacements?: TextReplacement[];
+  /**
+   * Controls whether function text replacements are accepted. Defaults to
+   * "trusted" for backward compatibility. Use "untrusted" for API, webhook,
+   * upload, or CLI JSON options sourced from external users.
+   */
+  textReplacementMode?: TextReplacementMode;
   /**
    * Optional syntax highlighting configuration for fenced code blocks.
    * When `enabled` is true, lowlight is used to tokenize the code and
@@ -261,6 +296,84 @@ export interface MathRenderingOptions {
    * Defaults to "text".
    */
   unsupported?: "text" | "throw";
+}
+
+export type ReferenceDocxInput = InputDataType;
+
+export type MarkdownDocxPatch =
+  | string
+  | {
+      /**
+       * Markdown content inserted at the matching DOCX placeholder.
+       */
+      markdown: string;
+      /**
+       * Optional style overrides for this placeholder's generated content.
+       */
+      style?: Partial<Style>;
+    };
+
+export interface PatchMarkdownOptions {
+  documentType?: "document" | "report";
+  style?: Partial<Style>;
+  /**
+   * Array of text replacements to apply to each patch's markdown AST before
+   * rendering.
+   */
+  textReplacements?: TextReplacement[];
+  /**
+   * Controls whether function text replacements are accepted while rendering
+   * patch markdown. Defaults to "trusted" for backward compatibility.
+   */
+  textReplacementMode?: TextReplacementMode;
+  /**
+   * Controls Markdown math parsing and native Word equation rendering for patch
+   * content. Enabled by default.
+   */
+  mathRendering?: MathRenderingOptions;
+  /**
+   * Optional syntax highlighting configuration for fenced code blocks.
+   */
+  codeHighlighting?: CodeHighlightOptions;
+  /**
+   * Controls image loading and embedding for markdown inserted into the
+   * reference DOCX.
+   */
+  imageHandling?: ImageHandlingOptions;
+  /**
+   * Optional maximum markdown input length per patch.
+   */
+  maxInputLength?: number;
+  /**
+   * Optional maximum parsed markdown AST element count per patch.
+   */
+  maxElements?: number;
+  /**
+   * Optional cancellation signal for programmatic patching.
+   */
+  signal?: AbortSignal;
+  /**
+   * Preserve the run styles around placeholder text when the underlying docx
+   * patcher can apply them. Defaults to true.
+   */
+  keepOriginalStyles?: boolean;
+  /**
+   * Placeholder delimiters used in the reference DOCX. Defaults to {{ and }}.
+   */
+  placeholderDelimiters?: {
+    start: string;
+    end: string;
+  };
+  /**
+   * Whether repeated placeholders should all be replaced. Defaults to true.
+   */
+  recursive?: boolean;
+  /**
+   * Table width, in twips, for markdown tables inserted into the reference
+   * DOCX. Defaults to the converter's A4 portrait content width because the
+   * patcher does not infer section geometry from the reference package.
+   */
+  tableWidthTwips?: number;
 }
 
 export interface TocOptions {
@@ -391,9 +504,24 @@ export interface TableData {
 /**
  * Configuration for text find-and-replace operations
  * @property find - The pattern to find (string or RegExp)
- * @property replace - The replacement (string or function that returns string or array of nodes)
+ * @property replace - The replacement (string or trusted function)
  */
+export type TextReplacementMode = "trusted" | "untrusted";
+
+export type TextReplacementFunctionResult =
+  | string
+  | PhrasingContent
+  | PhrasingContent[]
+  | false
+  | null
+  | undefined;
+
+export type TextReplacementFunction = (
+  match: string,
+  ...args: unknown[]
+) => TextReplacementFunctionResult;
+
 export interface TextReplacement {
   find: string | RegExp;
-  replace: string | ((match: string, ...args: any[]) => string | any);
+  replace: string | TextReplacementFunction;
 }

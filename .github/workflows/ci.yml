@@ -32,6 +32,9 @@ jobs:
       - name: Type check
         run: npm run build
 
+      - name: Verify package consumer imports
+        run: npm run test:consumer
+
       - name: Run tests
         run: npm test
 

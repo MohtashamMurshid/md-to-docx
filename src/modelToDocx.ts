@@ -5,6 +5,7 @@ import {
   TableCell,
   TextRun,
   ExternalHyperlink,
+  FootnoteReferenceRun,
   PageBreak,
   AlignmentType,
   TableLayoutType,
@@ -14,15 +15,19 @@ import type { IParagraphOptions, ParagraphChild } from "docx";
 import type {
   DocxDocumentModel,
   DocxBlockNode,
-  DocxInlineNode,
+  DocxCalloutType,
   DocxListNode,
   DocxListItemNode,
+  DocxInlineNode,
   DocxTextNode,
 } from "./docxModel.js";
 import { Style, Options } from "./types.js";
 import { processHeading } from "./renderers/headingRenderer.js";
 import { processCodeBlock } from "./renderers/codeRenderer.js";
-import { blockquoteParagraphStyle } from "./renderers/blockquoteRenderer.js";
+import {
+  blockquoteParagraphStyle,
+  resolveCalloutStyle,
+} from "./renderers/blockquoteRenderer.js";
 import { processComment } from "./renderers/commentRenderer.js";
 import {
   processImage,
@@ -39,11 +44,14 @@ import { MarkdownConversionError } from "./errors.js";
 interface InlineOverrides {
   forceBold?: boolean;
   forceItalic?: boolean;
+  color?: string;
   size?: number;
 }
 
 interface RenderContext {
   quoteLevel?: number;
+  inFootnote?: boolean;
+  calloutType?: DocxCalloutType;
 }
 
 interface ListMarkerContext {
@@ -95,16 +103,20 @@ export async function modelToDocx(
      * avoiding the percentage form that Word 2007 treats as corrupt.
      */
     tableWidthTwips?: number;
+    /** Offset applied so footnote IDs remain unique across sections. */
+    footnoteIdOffset?: number;
   } = {},
 ): Promise<{
   children: (Paragraph | Table)[];
   headings: { text: string; level: number; bookmarkId: string }[];
   maxSequenceId: number;
+  footnotes: Record<string, { children: Paragraph[] }>;
 }> {
   const children: (Paragraph | Table)[] = [];
   const headings: { text: string; level: number; bookmarkId: string }[] = [];
   const documentType = options.documentType || "document";
   const sequenceIdOffset = renderOptions.sequenceIdOffset || 0;
+  const footnoteIdOffset = renderOptions.footnoteIdOffset || 0;
   const imageHandling = resolveImageHandlingOptions(options.imageHandling);
   const processedImageCounter = renderOptions.processedImageCounter ?? {
     count: 0,
@@ -138,7 +150,7 @@ export async function modelToDocx(
       italics: overrides.forceItalic || node.italic,
       strike: node.strikethrough,
       underline: node.underline ? { type: "single" } : undefined,
-      color: node.link ? "0000FF" : "000000",
+      color: overrides.color || (node.link ? "0000FF" : "000000"),
       size: overrides.size || style.paragraphSize || 24,
       font: resolveFontFamily(style),
       rightToLeft: style.direction === "RTL",
@@ -172,9 +184,11 @@ export async function modelToDocx(
     nodes: DocxInlineNode[],
     overrides: InlineOverrides = {},
   ): ParagraphChild[] {
-    const out: ParagraphChild[] = [];
-    for (const node of nodes) {
-      if (node.type === "mathInline") {
+  const out: ParagraphChild[] = [];
+  for (const node of nodes) {
+      if (node.type === "footnoteReference") {
+        out.push(new FootnoteReferenceRun(node.id + footnoteIdOffset));
+      } else if (node.type === "mathInline") {
         out.push(renderMathNode(node.value, false));
       } else if (node.link && !isSafeLinkUrl(node.link)) {
         out.push(textRunFromNode({ ...node, link: undefined }, overrides));
@@ -217,7 +231,11 @@ export async function modelToDocx(
       ? AlignmentType[style.paragraphAlignment]
       : AlignmentType.LEFT;
     const quoteStyle = context.quoteLevel
-      ? blockquoteParagraphStyle(style, context.quoteLevel)
+      ? blockquoteParagraphStyle(
+          style,
+          context.quoteLevel,
+          context.calloutType,
+        )
       : undefined;
     return new Paragraph({
       children: renderInlineNodes(nodes, overrides),
@@ -308,7 +326,11 @@ export async function modelToDocx(
     context: RenderContext = {},
   ): Paragraph {
     const quoteStyle = context.quoteLevel
-      ? blockquoteParagraphStyle(style, context.quoteLevel)
+      ? blockquoteParagraphStyle(
+          style,
+          context.quoteLevel,
+          context.calloutType,
+        )
       : undefined;
     const base = {
       children: renderInlineNodes(nodes, { size: style.listItemSize || 24 }),
@@ -342,7 +364,11 @@ export async function modelToDocx(
     context: RenderContext = {},
   ): Paragraph {
     const quoteStyle = context.quoteLevel
-      ? blockquoteParagraphStyle(style, context.quoteLevel)
+      ? blockquoteParagraphStyle(
+          style,
+          context.quoteLevel,
+          context.calloutType,
+        )
       : undefined;
 
     return new Paragraph({
@@ -359,6 +385,17 @@ export async function modelToDocx(
     });
   }
 
+  function textFromInlineNodes(nodes: DocxInlineNode[]): string {
+    return nodes
+      .map((node) => {
+        if (node.type === "text") {
+          return node.value;
+        }
+        return "";
+      })
+      .join("");
+  }
+
   async function renderBlockNode(
     node: DocxBlockNode,
     listLevel: number = 0,
@@ -368,7 +405,11 @@ export async function modelToDocx(
 
     switch (node.type) {
       case "heading": {
-        const headingText = node.children.map((c) => c.value).join("");
+        if (context.inFootnote) {
+          return [paragraphFromInlineNodes(node.children, context)];
+        }
+
+        const headingText = textFromInlineNodes(node.children);
         headingBookmarkCounter.count++;
         const bookmarkId = `_Toc_${sanitizeForBookmarkId(headingText)}_${headingBookmarkCounter.count}`;
         const { paragraph } = processHeading(
@@ -448,7 +489,11 @@ export async function modelToDocx(
                 font: resolveFontFamily(style),
               }),
             ],
-            ...blockquoteParagraphStyle(style, context.quoteLevel),
+            ...blockquoteParagraphStyle(
+              style,
+              context.quoteLevel,
+              context.calloutType,
+            ),
           }),
         ];
       }
@@ -475,16 +520,43 @@ export async function modelToDocx(
   ): Promise<(Paragraph | Table)[]> {
     throwIfAborted(options.signal);
 
-    const quoteContext = { quoteLevel: (context.quoteLevel || 0) + 1 };
+    const quoteContext = {
+      ...context,
+      quoteLevel: (context.quoteLevel || 0) + 1,
+      calloutType: node.calloutType || context.calloutType,
+    };
     const out: (Paragraph | Table)[] = [];
-
-    if (node.children.length === 0) {
-      out.push(
-        paragraphFromInlineNodes([], quoteContext, {
+    const blockquoteTextOverrides: InlineOverrides = node.calloutType
+      ? { size: style.blockquoteSize || 24 }
+      : {
           size: style.blockquoteSize || 24,
           forceItalic: true,
-        }),
+        };
+
+    if (node.calloutType) {
+      const calloutStyle = resolveCalloutStyle(style, node.calloutType);
+      out.push(
+        paragraphFromInlineNodes(
+          [{ type: "text", value: calloutStyle.label }],
+          quoteContext,
+          {
+            size: style.blockquoteSize || 24,
+            forceBold: true,
+            color: calloutStyle.titleColor,
+          },
+        ),
       );
+    }
+
+    if (node.children.length === 0) {
+      if (!node.calloutType) {
+        out.push(
+          paragraphFromInlineNodes([], quoteContext, {
+            size: style.blockquoteSize || 24,
+            forceItalic: true,
+          }),
+        );
+      }
       return out;
     }
 
@@ -493,10 +565,11 @@ export async function modelToDocx(
 
       if (child.type === "paragraph") {
         out.push(
-          paragraphFromInlineNodes(child.children, quoteContext, {
-            size: style.blockquoteSize || 24,
-            forceItalic: true,
-          }),
+          paragraphFromInlineNodes(
+            child.children,
+            quoteContext,
+            blockquoteTextOverrides,
+          ),
         );
         continue;
       }
@@ -624,7 +697,11 @@ export async function modelToDocx(
     if (context.quoteLevel) {
       options = {
         ...options,
-        ...blockquoteParagraphStyle(style, context.quoteLevel),
+        ...blockquoteParagraphStyle(
+          style,
+          context.quoteLevel,
+          context.calloutType,
+        ),
       };
     }
 
@@ -738,6 +815,75 @@ export async function modelToDocx(
     }
   }
 
+  function footnoteFallbackParagraph(text: string): Paragraph {
+    return paragraphFromInlineNodes([
+      {
+        type: "text",
+        value: text,
+        italic: true,
+      },
+    ]);
+  }
+
+  function tableFootnoteFallbackParagraphs(
+    node: Extract<DocxBlockNode, { type: "table" }>,
+  ): Paragraph[] {
+    const rows = [node.headers, ...node.rows];
+    return rows.map((row) =>
+      paragraphFromInlineNodes([
+        {
+          type: "text",
+          value: row.map((cell) => textFromInlineNodes(cell)).join(" | "),
+        },
+      ]),
+    );
+  }
+
+  async function renderFootnoteBlockNode(
+    node: DocxBlockNode,
+  ): Promise<Paragraph[]> {
+    if (node.type === "table") {
+      return tableFootnoteFallbackParagraphs(node);
+    }
+
+    const rendered = await renderBlockNode(node, 0, { inFootnote: true });
+    const paragraphs: Paragraph[] = [];
+
+    for (const child of rendered) {
+      if (child instanceof Paragraph) {
+        paragraphs.push(child);
+      } else {
+        paragraphs.push(
+          footnoteFallbackParagraph("[Unsupported footnote content omitted]"),
+        );
+      }
+    }
+
+    return paragraphs;
+  }
+
+  async function renderFootnotes(): Promise<
+    Record<string, { children: Paragraph[] }>
+  > {
+    const footnotes: Record<string, { children: Paragraph[] }> = {};
+
+    for (const footnote of model.footnotes ?? []) {
+      const footnoteChildren: Paragraph[] = [];
+      for (const child of footnote.children) {
+        footnoteChildren.push(...(await renderFootnoteBlockNode(child)));
+      }
+
+      footnotes[String(footnote.id + footnoteIdOffset)] = {
+        children:
+          footnoteChildren.length > 0
+            ? footnoteChildren
+            : [paragraphFromInlineNodes([])],
+      };
+    }
+
+    return footnotes;
+  }
+
   // Process all top-level nodes
   let previousNodeType: string | undefined;
   for (const node of model.children) {
@@ -757,5 +903,10 @@ export async function modelToDocx(
     previousNodeType = node.type;
   }
 
-  return { children, headings, maxSequenceId };
+  return {
+    children,
+    headings,
+    maxSequenceId,
+    footnotes: await renderFootnotes(),
+  };
 }

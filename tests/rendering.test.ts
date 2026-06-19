@@ -228,6 +228,112 @@ describe("Rendering: inline formatting", () => {
   });
 });
 
+describe("Rendering: footnotes", () => {
+  it("renders a basic Markdown footnote as native DOCX footnote markup", async () => {
+    const blob = await convertMarkdownToDocx(
+      "Text with a footnote[^1].\n\n[^1]: Footnote body.",
+    );
+    const zip = await getZip(blob);
+    const documentXml = await zip.file("word/document.xml")!.async("string");
+    const footnotesXml = await zip.file("word/footnotes.xml")?.async("string");
+
+    expect(documentXml).toContain("<w:footnoteReference");
+    expect(documentXml).toContain('w:id="1"');
+    expect(documentXml).not.toContain("Footnote body.");
+    expect(footnotesXml).toBeDefined();
+    expect(footnotesXml).toContain('<w:footnote w:id="1"');
+    expect(footnotesXml).toContain("Footnote body.");
+  });
+
+  it("preserves inline formatting, links, and code inside footnote content", async () => {
+    const blob = await convertMarkdownToDocx(
+      "Formatted note[^fmt].\n\n[^fmt]: **bold**, *italic*, [link](https://example.com/fn), and `code`.",
+    );
+    const zip = await getZip(blob);
+    const footnotesXml = await zip.file("word/footnotes.xml")!.async("string");
+    const footnoteRels = await zip
+      .file("word/_rels/footnotes.xml.rels")
+      ?.async("string");
+
+    expect(footnotesXml).toContain("bold");
+    expect(footnotesXml).toContain("italic");
+    expect(footnotesXml).toContain("code");
+    expect(footnotesXml).toMatch(/<w:b\/>(?:(?!<\/w:r>)[\s\S])*?>bold<\/w:t>/);
+    expect(footnotesXml).toMatch(/<w:i\/>(?:(?!<\/w:r>)[\s\S])*?>italic<\/w:t>/);
+    expect(footnotesXml).toContain("<w:hyperlink");
+    expect(footnotesXml).toContain('w:ascii="Courier New"');
+    expect(footnoteRels).toContain("https://example.com/fn");
+  });
+
+  it("handles multiple footnotes and repeated references deterministically", async () => {
+    const blob = await convertMarkdownToDocx(
+      "First[^alpha], second[^beta], first again[^alpha].\n\n[^beta]: Beta body.\n[^alpha]: Alpha body.",
+    );
+    const zip = await getZip(blob);
+    const documentXml = await zip.file("word/document.xml")!.async("string");
+    const footnotesXml = await zip.file("word/footnotes.xml")!.async("string");
+
+    expect(
+      Array.from(
+        documentXml.matchAll(/<w:footnoteReference w:id="(\d+)"\/>/g),
+        (match) => match[1],
+      ),
+    ).toEqual(["1", "2", "1"]);
+    expect(footnotesXml.indexOf('w:id="1"')).toBeLessThan(
+      footnotesXml.indexOf('w:id="2"'),
+    );
+    expect(footnotesXml.indexOf("Alpha body.")).toBeLessThan(
+      footnotesXml.indexOf("Beta body."),
+    );
+  });
+
+  it("keeps unresolved footnote references as literal text", async () => {
+    const xml = await render("Missing note[^missing] stays visible.");
+
+    expect(xml).toContain("[^missing]");
+    expect(xml).not.toContain("<w:footnoteReference");
+  });
+
+  it("keeps nested footnote references inside footnote content as literal text", async () => {
+    const blob = await convertMarkdownToDocx(
+      "Outer note[^outer].\n\n[^outer]: Nested reference [^inner] stays visible.\n[^inner]: Inner body.",
+    );
+    const zip = await getZip(blob);
+    const footnotesXml = await zip.file("word/footnotes.xml")!.async("string");
+
+    expect(footnotesXml).toContain("Nested reference ");
+    expect(footnotesXml).toContain("[^inner]");
+    expect(footnotesXml).not.toContain("Inner body.");
+  });
+
+  it("keeps footnote IDs unique across sections", async () => {
+    const blob = await convertMarkdownToDocx("", {
+      sections: [
+        {
+          markdown: "Section one[^one].\n\n[^one]: First section footnote.",
+        },
+        {
+          markdown: "Section two[^two].\n\n[^two]: Second section footnote.",
+        },
+      ],
+    });
+    const zip = await getZip(blob);
+    const documentXml = await zip.file("word/document.xml")!.async("string");
+    const footnotesXml = await zip.file("word/footnotes.xml")!.async("string");
+
+    expect(
+      Array.from(
+        documentXml.matchAll(/<w:footnoteReference w:id="(\d+)"\/>/g),
+        (match) => match[1],
+      ),
+    ).toEqual(["1", "2"]);
+    expect(footnotesXml).toContain('<w:footnote w:id="1"');
+    expect(footnotesXml).toContain('<w:footnote w:id="2"');
+    expect(footnotesXml).toContain("First section footnote.");
+    expect(footnotesXml).toContain("Second section footnote.");
+  });
+});
+
 describe("Rendering: lists", () => {
   it("renders bullet and numbered lists with numbering references", async () => {
     const markdown = `## Bullets

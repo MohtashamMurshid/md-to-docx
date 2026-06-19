@@ -14,15 +14,23 @@ export interface DocxTextNode {
   link?: string;
 }
 
+export interface DocxFootnoteReferenceNode {
+  type: "footnoteReference";
+  identifier: string;
+  id: number;
+}
+
+export type DocxInlineNode = DocxTextNode | DocxFootnoteReferenceNode;
+
 export interface DocxParagraphNode {
   type: "paragraph";
-  children: DocxTextNode[];
+  children: DocxInlineNode[];
 }
 
 export interface DocxHeadingNode {
   type: "heading";
   level: number;
-  children: DocxTextNode[];
+  children: DocxInlineNode[];
 }
 
 export interface DocxListItemNode {
@@ -56,8 +64,8 @@ export interface DocxImageNode {
 
 export interface DocxTableNode {
   type: "table";
-  headers: DocxTextNode[][];
-  rows: DocxTextNode[][][];
+  headers: DocxInlineNode[][];
+  rows: DocxInlineNode[][][];
   align?: (string | null)[];
 }
 
@@ -74,6 +82,12 @@ export interface DocxTocPlaceholderNode {
   type: "tocPlaceholder";
 }
 
+export interface DocxFootnoteDefinitionNode {
+  identifier: string;
+  id: number;
+  children: DocxBlockNode[];
+}
+
 export type DocxBlockNode =
   | DocxParagraphNode
   | DocxHeadingNode
@@ -88,4 +102,5 @@ export type DocxBlockNode =
 
 export interface DocxDocumentModel {
   children: DocxBlockNode[];
+  footnotes?: DocxFootnoteDefinitionNode[];
 }

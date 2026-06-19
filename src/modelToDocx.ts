@@ -5,17 +5,19 @@ import {
   TableCell,
   TextRun,
   ExternalHyperlink,
+  FootnoteReferenceRun,
   PageBreak,
   AlignmentType,
   TableLayoutType,
   WidthType,
 } from "docx";
-import type { IParagraphOptions } from "docx";
+import type { IParagraphOptions, ParagraphChild } from "docx";
 import type {
   DocxDocumentModel,
   DocxBlockNode,
   DocxListNode,
   DocxListItemNode,
+  DocxInlineNode,
   DocxTextNode,
 } from "./docxModel.js";
 import { Style, Options } from "./types.js";
@@ -42,6 +44,7 @@ interface InlineOverrides {
 
 interface RenderContext {
   quoteLevel?: number;
+  inFootnote?: boolean;
 }
 
 interface ListMarkerContext {
@@ -93,16 +96,20 @@ export async function modelToDocx(
      * avoiding the percentage form that Word 2007 treats as corrupt.
      */
     tableWidthTwips?: number;
+    /** Offset applied so footnote IDs remain unique across sections. */
+    footnoteIdOffset?: number;
   } = {},
 ): Promise<{
   children: (Paragraph | Table)[];
   headings: { text: string; level: number; bookmarkId: string }[];
   maxSequenceId: number;
+  footnotes: Record<string, { children: Paragraph[] }>;
 }> {
   const children: (Paragraph | Table)[] = [];
   const headings: { text: string; level: number; bookmarkId: string }[] = [];
   const documentType = options.documentType || "document";
   const sequenceIdOffset = renderOptions.sequenceIdOffset || 0;
+  const footnoteIdOffset = renderOptions.footnoteIdOffset || 0;
   const imageHandling = resolveImageHandlingOptions(options.imageHandling);
   const processedImageCounter = renderOptions.processedImageCounter ?? {
     count: 0,
@@ -144,12 +151,14 @@ export async function modelToDocx(
   }
 
   function renderInlineNodes(
-    nodes: DocxTextNode[],
+    nodes: DocxInlineNode[],
     overrides: InlineOverrides = {},
-  ): (TextRun | ExternalHyperlink)[] {
-    const out: (TextRun | ExternalHyperlink)[] = [];
+  ): ParagraphChild[] {
+    const out: ParagraphChild[] = [];
     for (const node of nodes) {
-      if (node.link && !isSafeLinkUrl(node.link)) {
+      if (node.type === "footnoteReference") {
+        out.push(new FootnoteReferenceRun(node.id + footnoteIdOffset));
+      } else if (node.link && !isSafeLinkUrl(node.link)) {
         out.push(textRunFromNode({ ...node, link: undefined }, overrides));
       } else if (node.link) {
         out.push(
@@ -182,7 +191,7 @@ export async function modelToDocx(
   }
 
   function paragraphFromInlineNodes(
-    nodes: DocxTextNode[],
+    nodes: DocxInlineNode[],
     context: RenderContext = {},
     overrides: InlineOverrides = {},
   ): Paragraph {
@@ -274,7 +283,7 @@ export async function modelToDocx(
   }
 
   function listParagraphFromInlineNodes(
-    nodes: DocxTextNode[],
+    nodes: DocxInlineNode[],
     isOrdered: boolean,
     level: number,
     sequenceId: number | undefined,
@@ -310,7 +319,7 @@ export async function modelToDocx(
   }
 
   function listContinuationParagraphFromInlineNodes(
-    nodes: DocxTextNode[],
+    nodes: DocxInlineNode[],
     level: number,
     context: RenderContext = {},
   ): Paragraph {
@@ -332,6 +341,17 @@ export async function modelToDocx(
     });
   }
 
+  function textFromInlineNodes(nodes: DocxInlineNode[]): string {
+    return nodes
+      .map((node) => {
+        if (node.type === "text") {
+          return node.value;
+        }
+        return "";
+      })
+      .join("");
+  }
+
   async function renderBlockNode(
     node: DocxBlockNode,
     listLevel: number = 0,
@@ -341,7 +361,11 @@ export async function modelToDocx(
 
     switch (node.type) {
       case "heading": {
-        const headingText = node.children.map((c) => c.value).join("");
+        if (context.inFootnote) {
+          return [paragraphFromInlineNodes(node.children, context)];
+        }
+
+        const headingText = textFromInlineNodes(node.children);
         headingBookmarkCounter.count++;
         const bookmarkId = `_Toc_${sanitizeForBookmarkId(headingText)}_${headingBookmarkCounter.count}`;
         const { paragraph } = processHeading(
@@ -430,7 +454,10 @@ export async function modelToDocx(
   ): Promise<(Paragraph | Table)[]> {
     throwIfAborted(options.signal);
 
-    const quoteContext = { quoteLevel: (context.quoteLevel || 0) + 1 };
+    const quoteContext = {
+      ...context,
+      quoteLevel: (context.quoteLevel || 0) + 1,
+    };
     const out: (Paragraph | Table)[] = [];
 
     if (node.children.length === 0) {
@@ -693,6 +720,75 @@ export async function modelToDocx(
     }
   }
 
+  function footnoteFallbackParagraph(text: string): Paragraph {
+    return paragraphFromInlineNodes([
+      {
+        type: "text",
+        value: text,
+        italic: true,
+      },
+    ]);
+  }
+
+  function tableFootnoteFallbackParagraphs(
+    node: Extract<DocxBlockNode, { type: "table" }>,
+  ): Paragraph[] {
+    const rows = [node.headers, ...node.rows];
+    return rows.map((row) =>
+      paragraphFromInlineNodes([
+        {
+          type: "text",
+          value: row.map((cell) => textFromInlineNodes(cell)).join(" | "),
+        },
+      ]),
+    );
+  }
+
+  async function renderFootnoteBlockNode(
+    node: DocxBlockNode,
+  ): Promise<Paragraph[]> {
+    if (node.type === "table") {
+      return tableFootnoteFallbackParagraphs(node);
+    }
+
+    const rendered = await renderBlockNode(node, 0, { inFootnote: true });
+    const paragraphs: Paragraph[] = [];
+
+    for (const child of rendered) {
+      if (child instanceof Paragraph) {
+        paragraphs.push(child);
+      } else {
+        paragraphs.push(
+          footnoteFallbackParagraph("[Unsupported footnote content omitted]"),
+        );
+      }
+    }
+
+    return paragraphs;
+  }
+
+  async function renderFootnotes(): Promise<
+    Record<string, { children: Paragraph[] }>
+  > {
+    const footnotes: Record<string, { children: Paragraph[] }> = {};
+
+    for (const footnote of model.footnotes ?? []) {
+      const footnoteChildren: Paragraph[] = [];
+      for (const child of footnote.children) {
+        footnoteChildren.push(...(await renderFootnoteBlockNode(child)));
+      }
+
+      footnotes[String(footnote.id + footnoteIdOffset)] = {
+        children:
+          footnoteChildren.length > 0
+            ? footnoteChildren
+            : [paragraphFromInlineNodes([])],
+      };
+    }
+
+    return footnotes;
+  }
+
   // Process all top-level nodes
   let previousNodeType: string | undefined;
   for (const node of model.children) {
@@ -712,5 +808,10 @@ export async function modelToDocx(
     previousNodeType = node.type;
   }
 
-  return { children, headings, maxSequenceId };
+  return {
+    children,
+    headings,
+    maxSequenceId,
+    footnotes: await renderFootnotes(),
+  };
 }

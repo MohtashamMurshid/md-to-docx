@@ -139,8 +139,10 @@ export async function parseToDocxOptions(
       style: Style;
       config: SectionConfig;
     }[] = [];
+    const footnotes: Record<string, { children: Paragraph[] }> = {};
     const headings: TocHeadingEntry[] = [];
     let maxSequenceId = 0;
+    let maxFootnoteId = 0;
     const processedImageCounter = { count: 0 };
     const failedRemoteImageCounter = { count: 0 };
     const headingBookmarkCounter = { count: 0 };
@@ -173,9 +175,14 @@ export async function parseToDocxOptions(
         headingBookmarkCounter,
         tocPlaceholders,
         tableWidthTwips: getSectionContentWidthTwips(section.config),
+        footnoteIdOffset: maxFootnoteId,
       });
 
       maxSequenceId = Math.max(maxSequenceId, renderedModel.maxSequenceId);
+      for (const [id, footnote] of Object.entries(renderedModel.footnotes)) {
+        footnotes[id] = footnote;
+        maxFootnoteId = Math.max(maxFootnoteId, Number(id));
+      }
       headings.push(...renderedModel.headings);
 
       renderedSections.push({
@@ -240,6 +247,7 @@ export async function parseToDocxOptions(
         config: numberingConfigs,
       },
       sections: docSections,
+      ...(Object.keys(footnotes).length > 0 ? { footnotes } : {}),
       styles: {
         paragraphStyles: buildParagraphStyles(style),
       },

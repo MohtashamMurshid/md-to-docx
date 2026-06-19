@@ -2,6 +2,7 @@ import { describe, expect, it } from "@jest/globals";
 import fs from "node:fs";
 import path from "node:path";
 import JSZip from "jszip";
+import { Document, Packer, Paragraph } from "docx";
 import {
   MarkdownConversionError,
   patchMarkdownInDocx,
@@ -14,6 +15,22 @@ const fixturePath = path.join(
   "fixtures",
   "reference-template.docx"
 );
+
+async function createTemplateWithPlaceholders(
+  placeholders: string[]
+): Promise<Buffer> {
+  return Packer.toBuffer(
+    new Document({
+      sections: [
+        {
+          children: placeholders.map(
+            (placeholder) => new Paragraph(`{{${placeholder}}}`)
+          ),
+        },
+      ],
+    })
+  );
+}
 
 async function loadPatchedZip(markdown: string): Promise<JSZip> {
   const template = fs.readFileSync(fixturePath);
@@ -63,6 +80,41 @@ Hello **team**.
 
     expect(output).toBeInstanceOf(Blob);
     expect(output.size).toBeGreaterThan(0);
+  });
+
+  it("shares heading bookmark counters across patched placeholders", async () => {
+    const template = await createTemplateWithPlaceholders(["first", "second"]);
+    const output = await patchMarkdownInDocxToBuffer(template, {
+      first: "# Repeat",
+      second: "# Repeat",
+    });
+    const zip = await JSZip.loadAsync(output);
+    const documentXml = await zip.file("word/document.xml")?.async("string");
+    const bookmarkNames = Array.from(
+      documentXml?.matchAll(/<w:bookmarkStart[^>]+w:name="([^"]+)"/g) || [],
+      (match) => match[1]
+    );
+
+    expect(bookmarkNames).toContain("_Toc_Repeat_1");
+    expect(bookmarkNames).toContain("_Toc_Repeat_2");
+    expect(new Set(bookmarkNames).size).toBe(bookmarkNames.length);
+  });
+
+  it("uses the configured patch table width for inserted markdown tables", async () => {
+    const template = fs.readFileSync(fixturePath);
+    const output = await patchMarkdownInDocxToBuffer(
+      template,
+      {
+        body: `| Metric | Value |
+| --- | --- |
+| Score | 42 |`,
+      },
+      { tableWidthTwips: 4321 }
+    );
+    const zip = await JSZip.loadAsync(output);
+    const documentXml = await zip.file("word/document.xml")?.async("string");
+
+    expect(documentXml).toMatch(/<w:tblW[^>]+w:type="dxa"[^>]+w:w="4321"/);
   });
 
   it("fails clearly for markdown that requires unsupported package merges", async () => {

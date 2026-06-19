@@ -345,6 +345,9 @@ async function patchMarkdownInDocxWithOutput(
       string,
       { type: typeof PatchType.DOCUMENT; children: readonly FileChild[] }
     > = {};
+    const processedImageCounter = { count: 0 };
+    const failedRemoteImageCounter = { count: 0 };
+    const headingBookmarkCounter = { count: 0 };
 
     for (const [placeholder, patch] of Object.entries(patches)) {
       throwIfAborted(options.signal);
@@ -375,6 +378,10 @@ async function patchMarkdownInDocxWithOutput(
         style,
         renderOptions,
         {
+          processedImageCounter,
+          failedRemoteImageCounter,
+          headingBookmarkCounter,
+          tableWidthTwips: options.tableWidthTwips,
           validateModel: (model) =>
             assertPatchCompatibleModel(model, placeholder),
         }
@@ -448,6 +455,18 @@ function validatePatchInputs(
   ) {
     throw new MarkdownConversionError(
       "Invalid placeholderDelimiters: start and end must be non-empty strings"
+    );
+  }
+
+  if (
+    options.tableWidthTwips !== undefined &&
+    (!Number.isInteger(options.tableWidthTwips) ||
+      !Number.isFinite(options.tableWidthTwips) ||
+      options.tableWidthTwips <= 0)
+  ) {
+    throw new MarkdownConversionError(
+      "Invalid tableWidthTwips: Must be a positive integer",
+      { tableWidthTwips: options.tableWidthTwips }
     );
   }
 }

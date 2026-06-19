@@ -307,6 +307,12 @@ export interface PatchMarkdownOptions {
    * Whether repeated placeholders should all be replaced. Defaults to true.
    */
   recursive?: boolean;
+  /**
+   * Table width, in twips, for markdown tables inserted into the reference
+   * DOCX. Defaults to the converter's A4 portrait content width because the
+   * patcher does not infer section geometry from the reference package.
+   */
+  tableWidthTwips?: number;
 }
 
 export interface TocOptions {

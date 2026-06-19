@@ -265,6 +265,7 @@ Hello **team**.
   {
     style: { fontFamily: "Aptos" },
     keepOriginalStyles: true,
+    tableWidthTwips: 9746,
   }
 );
 
@@ -284,11 +285,13 @@ Supported in this first mode:
 - Node-first `.docx` patching from an existing DOCX buffer.
 - Document-level placeholder replacement with generated paragraphs, headings, tables, blockquotes, code blocks, links, images, bullet lists, and page breaks.
 - Preserving existing package parts that are not replaced by the placeholder patch.
+- Configurable markdown table width through `tableWidthTwips` when the reference template uses non-default margins or page geometry.
 
 Current limitations:
 
 - This is not a "reference styles" mode for generating a brand-new DOCX from another DOCX.
 - This does not append to the end of a document unless the template contains a placeholder at that location.
+- Markdown table width is not inferred from the reference DOCX. Set `tableWidthTwips` to match the placeholder section's content width when the template differs from the default A4 portrait width.
 - Ordered lists, generated `[TOC]`, and Word comments are rejected in patch markdown because they require package-level merges that are not supported yet.
 - Browser use may work when you provide DOCX bytes, but this workflow is designed and tested for Node.
 
@@ -512,6 +515,7 @@ interface PatchMarkdownOptions {
   keepOriginalStyles?: boolean;
   placeholderDelimiters?: { start: string; end: string };
   recursive?: boolean;
+  tableWidthTwips?: number;
 }
 ```
 

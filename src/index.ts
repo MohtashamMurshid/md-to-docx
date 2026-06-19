@@ -1,14 +1,25 @@
 import {
   Document,
+  FileChild,
   Paragraph,
   Packer,
+  PatchType,
   Table,
   AlignmentType,
   LevelFormat,
   IPropertiesOptions,
   ISectionOptions,
+  patchDocument,
 } from "docx";
-import { Options, SectionConfig, Style } from "./types.js";
+import {
+  MarkdownDocxPatch,
+  Options,
+  PatchMarkdownOptions,
+  ReferenceDocxInput,
+  SectionConfig,
+  Style,
+} from "./types.js";
+import type { DocxBlockNode, DocxDocumentModel } from "./docxModel.js";
 import { parseMarkdownToAst, applyTextReplacements } from "./markdownAst.js";
 import { mdastToDocxModel } from "./mdastToDocxModel.js";
 import { modelToDocx } from "./modelToDocx.js";
@@ -49,6 +60,12 @@ const defaultOptions: Options = {
   style: defaultStyle,
 };
 
+type RenderedMarkdownContent = {
+  children: (Paragraph | Table)[];
+  headings: TocHeadingEntry[];
+  maxSequenceId: number;
+};
+
 export { MarkdownConversionError };
 
 export {
@@ -61,7 +78,10 @@ export {
   HeaderFooterContent,
   HeaderFooterGroup,
   ImageHandlingOptions,
+  MarkdownDocxPatch,
   Options,
+  PatchMarkdownOptions,
+  ReferenceDocxInput,
   RemoteImageHandlingOptions,
   SectionConfig,
   SectionTemplate,
@@ -121,6 +141,51 @@ export async function convertMarkdownToBuffer(
 }
 
 /**
+ * Insert generated Markdown content into an existing DOCX at named placeholders.
+ *
+ * Placeholders use docx patch syntax by default, e.g. `{{body}}` in the
+ * reference document is replaced by the `body` patch entry.
+ */
+export async function patchMarkdownInDocx(
+  referenceDocx: ReferenceDocxInput,
+  patches: Record<string, MarkdownDocxPatch>,
+  options: PatchMarkdownOptions = {}
+): Promise<Blob> {
+  return patchMarkdownInDocxWithOutput(
+    referenceDocx,
+    patches,
+    "blob",
+    options
+  );
+}
+
+export async function patchMarkdownInDocxToArrayBuffer(
+  referenceDocx: ReferenceDocxInput,
+  patches: Record<string, MarkdownDocxPatch>,
+  options: PatchMarkdownOptions = {}
+): Promise<ArrayBuffer> {
+  return patchMarkdownInDocxWithOutput(
+    referenceDocx,
+    patches,
+    "arraybuffer",
+    options
+  );
+}
+
+export async function patchMarkdownInDocxToBuffer(
+  referenceDocx: ReferenceDocxInput,
+  patches: Record<string, MarkdownDocxPatch>,
+  options: PatchMarkdownOptions = {}
+): Promise<Buffer> {
+  return patchMarkdownInDocxWithOutput(
+    referenceDocx,
+    patches,
+    "nodebuffer",
+    options
+  );
+}
+
+/**
  * Convert Markdown to Docx options
  * @param markdown - The Markdown string to convert
  * @param options - The options for the conversion
@@ -156,42 +221,29 @@ export async function parseToDocxOptions(
     for (const section of resolvedSections) {
       throwIfAborted(options.signal);
       await yieldToAbortSignal(options.signal);
-      const ast = await parseMarkdownToAst(section.markdown);
-      await yieldToAbortSignal(options.signal);
-
-      if (options.textReplacements && options.textReplacements.length > 0) {
-        applyTextReplacements(
-          ast,
-          options.textReplacements,
-          options.textReplacementMode
-        );
-      }
-      throwIfAborted(options.signal);
-      elementCount = enforceElementLimit(
-        ast,
-        options.maxElements,
-        elementCount,
-        options.signal
+      const rendered = await renderMarkdownContent(
+        section.markdown,
+        section.style,
+        options,
+        {
+          currentElementCount: elementCount,
+          sequenceIdOffset: maxSequenceId,
+          processedImageCounter,
+          failedRemoteImageCounter,
+          headingBookmarkCounter,
+          tocPlaceholders,
+          tableWidthTwips: getSectionContentWidthTwips(section.config),
+        }
       );
+      elementCount = rendered.elementCount;
 
-      const model = mdastToDocxModel(ast, section.style, options);
-      throwIfAborted(options.signal);
-      const renderedModel = await modelToDocx(model, section.style, options, {
-        sequenceIdOffset: maxSequenceId,
-        processedImageCounter,
-        failedRemoteImageCounter,
-        headingBookmarkCounter,
-        tocPlaceholders,
-        tableWidthTwips: getSectionContentWidthTwips(section.config),
-      });
-
-      maxSequenceId = Math.max(maxSequenceId, renderedModel.maxSequenceId);
-      headings.push(...renderedModel.headings);
+      maxSequenceId = Math.max(maxSequenceId, rendered.content.maxSequenceId);
+      headings.push(...rendered.content.headings);
 
       renderedSections.push({
         children:
-          renderedModel.children.length > 0
-            ? renderedModel.children
+          rendered.content.children.length > 0
+            ? rendered.content.children
             : [new Paragraph({})],
         style: section.style,
         config: section.config,
@@ -264,6 +316,287 @@ export async function parseToDocxOptions(
       }`,
       { originalError: error }
     );
+  }
+}
+
+async function patchMarkdownInDocxWithOutput(
+  referenceDocx: ReferenceDocxInput,
+  patches: Record<string, MarkdownDocxPatch>,
+  outputType: "blob",
+  options?: PatchMarkdownOptions
+): Promise<Blob>;
+async function patchMarkdownInDocxWithOutput(
+  referenceDocx: ReferenceDocxInput,
+  patches: Record<string, MarkdownDocxPatch>,
+  outputType: "arraybuffer",
+  options?: PatchMarkdownOptions
+): Promise<ArrayBuffer>;
+async function patchMarkdownInDocxWithOutput(
+  referenceDocx: ReferenceDocxInput,
+  patches: Record<string, MarkdownDocxPatch>,
+  outputType: "nodebuffer",
+  options?: PatchMarkdownOptions
+): Promise<Buffer>;
+async function patchMarkdownInDocxWithOutput(
+  referenceDocx: ReferenceDocxInput,
+  patches: Record<string, MarkdownDocxPatch>,
+  outputType: "blob" | "arraybuffer" | "nodebuffer",
+  options: PatchMarkdownOptions = {}
+): Promise<Blob | ArrayBuffer | Buffer> {
+  try {
+    validatePatchInputs(patches, options);
+    throwIfAborted(options.signal);
+
+    const docxPatches: Record<
+      string,
+      { type: typeof PatchType.DOCUMENT; children: readonly FileChild[] }
+    > = {};
+    const processedImageCounter = { count: 0 };
+    const failedRemoteImageCounter = { count: 0 };
+    const headingBookmarkCounter = { count: 0 };
+    let elementCount = 0;
+
+    for (const [placeholder, patch] of Object.entries(patches)) {
+      throwIfAborted(options.signal);
+      await yieldToAbortSignal(options.signal);
+
+      const normalizedPatch = normalizeMarkdownPatch(patch);
+      const normalizedStyle = normalizeStyleInput({
+        ...(options.style || {}),
+        ...(normalizedPatch.style || {}),
+      });
+      const style: Style = { ...defaultStyle, ...normalizedStyle };
+      const renderOptions: Options = {
+        documentType: options.documentType || defaultOptions.documentType,
+        style,
+        textReplacements: options.textReplacements,
+        textReplacementMode: options.textReplacementMode,
+        codeHighlighting: options.codeHighlighting,
+        imageHandling: options.imageHandling,
+        maxInputLength: options.maxInputLength,
+        maxElements: options.maxElements,
+        signal: options.signal,
+      };
+
+      validateInput(normalizedPatch.markdown, renderOptions);
+      enforceInputLength(normalizedPatch.markdown, renderOptions);
+
+      const rendered = await renderMarkdownContent(
+        normalizedPatch.markdown,
+        style,
+        renderOptions,
+        {
+          currentElementCount: elementCount,
+          processedImageCounter,
+          failedRemoteImageCounter,
+          headingBookmarkCounter,
+          tableWidthTwips: options.tableWidthTwips,
+          validateModel: (model) =>
+            assertPatchCompatibleModel(model, placeholder),
+        }
+      );
+      elementCount = rendered.elementCount;
+
+      docxPatches[placeholder] = {
+        type: PatchType.DOCUMENT,
+        children: rendered.content.children as FileChild[],
+      };
+    }
+
+    const patched = await patchDocument({
+      outputType,
+      data: referenceDocx,
+      patches: docxPatches,
+      keepOriginalStyles: options.keepOriginalStyles ?? true,
+      placeholderDelimiters: options.placeholderDelimiters,
+      recursive: options.recursive ?? true,
+    });
+
+    await yieldToAbortSignal(options.signal);
+    return patched;
+  } catch (error) {
+    if (error instanceof MarkdownConversionError) {
+      throw error;
+    }
+    throw new MarkdownConversionError(
+      `Failed to patch docx with markdown: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`,
+      { originalError: error }
+    );
+  }
+}
+
+function validatePatchInputs(
+  patches: Record<string, MarkdownDocxPatch>,
+  options: PatchMarkdownOptions
+): void {
+  if (!patches || typeof patches !== "object" || Array.isArray(patches)) {
+    throw new MarkdownConversionError(
+      "Invalid patches: Must be an object keyed by placeholder name"
+    );
+  }
+
+  const entries = Object.entries(patches);
+  if (entries.length === 0) {
+    throw new MarkdownConversionError(
+      "Invalid patches: At least one placeholder patch is required"
+    );
+  }
+
+  for (const [placeholder, patch] of entries) {
+    if (placeholder.trim().length === 0) {
+      throw new MarkdownConversionError(
+        "Invalid patch placeholder: Must be a non-empty string",
+        { placeholder }
+      );
+    }
+
+    normalizeMarkdownPatch(patch);
+  }
+
+  const delimiters = options.placeholderDelimiters;
+  if (
+    delimiters &&
+    (typeof delimiters.start !== "string" ||
+      delimiters.start.trim().length === 0 ||
+      typeof delimiters.end !== "string" ||
+      delimiters.end.trim().length === 0)
+  ) {
+    throw new MarkdownConversionError(
+      "Invalid placeholderDelimiters: start and end must be non-empty strings"
+    );
+  }
+
+  if (
+    options.tableWidthTwips !== undefined &&
+    (!Number.isInteger(options.tableWidthTwips) ||
+      !Number.isFinite(options.tableWidthTwips) ||
+      options.tableWidthTwips <= 0)
+  ) {
+    throw new MarkdownConversionError(
+      "Invalid tableWidthTwips: Must be a positive integer",
+      { tableWidthTwips: options.tableWidthTwips }
+    );
+  }
+}
+
+function normalizeMarkdownPatch(patch: MarkdownDocxPatch): {
+  markdown: string;
+  style?: Partial<Style>;
+} {
+  if (typeof patch === "string") {
+    return { markdown: patch };
+  }
+
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+    throw new MarkdownConversionError(
+      "Invalid patch: Must be a markdown string or patch object"
+    );
+  }
+
+  if (typeof patch.markdown !== "string") {
+    throw new MarkdownConversionError(
+      "Invalid patch markdown: Must be a string"
+    );
+  }
+
+  return patch;
+}
+
+async function renderMarkdownContent(
+  markdown: string,
+  style: Style,
+  options: Options,
+  renderOptions: {
+    currentElementCount?: number;
+    sequenceIdOffset?: number;
+    processedImageCounter?: { count: number };
+    failedRemoteImageCounter?: { count: number };
+    headingBookmarkCounter?: { count: number };
+    tocPlaceholders?: WeakSet<object>;
+    tableWidthTwips?: number;
+    validateModel?: (model: DocxDocumentModel) => void;
+  } = {}
+): Promise<{ content: RenderedMarkdownContent; elementCount: number }> {
+  const ast = await parseMarkdownToAst(markdown);
+  await yieldToAbortSignal(options.signal);
+
+  if (options.textReplacements && options.textReplacements.length > 0) {
+    applyTextReplacements(
+      ast,
+      options.textReplacements,
+      options.textReplacementMode
+    );
+  }
+
+  throwIfAborted(options.signal);
+  const elementCount = enforceElementLimit(
+    ast,
+    options.maxElements,
+    renderOptions.currentElementCount ?? 0,
+    options.signal
+  );
+
+  const model = mdastToDocxModel(ast, style, options);
+  renderOptions.validateModel?.(model);
+  throwIfAborted(options.signal);
+
+  const content = await modelToDocx(model, style, options, {
+    sequenceIdOffset: renderOptions.sequenceIdOffset,
+    processedImageCounter: renderOptions.processedImageCounter,
+    failedRemoteImageCounter: renderOptions.failedRemoteImageCounter,
+    headingBookmarkCounter: renderOptions.headingBookmarkCounter,
+    tocPlaceholders: renderOptions.tocPlaceholders,
+    tableWidthTwips: renderOptions.tableWidthTwips,
+  });
+
+  return { content, elementCount };
+}
+
+function assertPatchCompatibleModel(
+  model: DocxDocumentModel,
+  placeholder: string
+): void {
+  const stack: DocxBlockNode[] = [...model.children];
+
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node) {
+      continue;
+    }
+
+    if (node.type === "list" && node.ordered) {
+      throw new MarkdownConversionError(
+        "Patch markdown does not support ordered lists yet",
+        { placeholder }
+      );
+    }
+
+    if (node.type === "tocPlaceholder") {
+      throw new MarkdownConversionError(
+        "Patch markdown does not support generated tables of contents yet",
+        { placeholder }
+      );
+    }
+
+    if (node.type === "comment") {
+      throw new MarkdownConversionError(
+        "Patch markdown does not support Word comments yet",
+        { placeholder }
+      );
+    }
+
+    if (node.type === "list") {
+      for (const item of node.children) {
+        stack.push(...item.children);
+      }
+      continue;
+    }
+
+    if (node.type === "blockquote") {
+      stack.push(...node.children);
+    }
   }
 }
 

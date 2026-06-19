@@ -28,3 +28,5 @@ jest.config.js
 
 # docx
 *.docx
+!tests/fixtures/
+!tests/fixtures/*.docx

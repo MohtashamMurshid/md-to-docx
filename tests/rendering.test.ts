@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@jest/globals";
+import { inflateSync } from "node:zlib";
 import {
   convertMarkdownToArrayBuffer,
   convertMarkdownToBuffer,
@@ -27,6 +28,74 @@ function numberingLevels(xml: string): string[] {
 
 function numberingMarkerCount(xml: string): number {
   return xml.match(/<w:numPr>/g)?.length || 0;
+}
+
+function mathObjectCount(xml: string): number {
+  return xml.match(/<m:oMath>/g)?.length || 0;
+}
+
+function mediaFilesFromZip(zip: Awaited<ReturnType<typeof getZip>>): string[] {
+  return Object.entries(zip.files)
+    .filter(([p, file]) => p.startsWith("word/media/") && !file.dir)
+    .map(([p]) => p);
+}
+
+function readPngUint32(bytes: Uint8Array, offset: number): number {
+  return (
+    ((bytes[offset] << 24) |
+      (bytes[offset + 1] << 16) |
+      (bytes[offset + 2] << 8) |
+      bytes[offset + 3]) >>>
+    0
+  );
+}
+
+function countNonWhitePixelsInPng(bytes: Uint8Array): number {
+  let offset = 8;
+  let width = 0;
+  let height = 0;
+  const idatChunks: Uint8Array[] = [];
+
+  while (offset + 8 <= bytes.length) {
+    const length = readPngUint32(bytes, offset);
+    const type = String.fromCharCode(
+      bytes[offset + 4],
+      bytes[offset + 5],
+      bytes[offset + 6],
+      bytes[offset + 7],
+    );
+    const dataStart = offset + 8;
+    const dataEnd = dataStart + length;
+
+    if (type === "IHDR") {
+      width = readPngUint32(bytes, dataStart);
+      height = readPngUint32(bytes, dataStart + 4);
+    } else if (type === "IDAT") {
+      idatChunks.push(bytes.subarray(dataStart, dataEnd));
+    }
+
+    offset = dataEnd + 4;
+  }
+
+  const compressed = Buffer.concat(idatChunks.map((chunk) => Buffer.from(chunk)));
+  const raw = inflateSync(compressed);
+  let nonWhite = 0;
+  let rawIndex = 0;
+
+  for (let y = 0; y < height; y++) {
+    rawIndex++;
+    for (let x = 0; x < width; x++) {
+      const r = raw[rawIndex++];
+      const g = raw[rawIndex++];
+      const b = raw[rawIndex++];
+      rawIndex++;
+      if (r !== 255 || g !== 255 || b !== 255) {
+        nonWhite++;
+      }
+    }
+  }
+
+  return nonWhite;
 }
 
 async function render(markdown: string, options?: Options): Promise<string> {
@@ -191,6 +260,78 @@ Another paragraph with justified alignment.`;
     expect(xml).toContain("quoted item");
     expect(numberingLevels(xml)).toEqual(["0", "1", "0"]);
   });
+
+  const calloutCases = [
+    ["note", "NOTE", "Note", "0969DA", "EFF6FF"],
+    ["tip", "TIP", "Tip", "1A7F37", "F0FFF4"],
+    ["important", "IMPORTANT", "Important", "8250DF", "F6F0FF"],
+    ["warning", "WARNING", "Warning", "BF8700", "FFF8C5"],
+    ["caution", "CAUTION", "Caution", "CF222E", "FFF1F1"],
+  ] as const;
+
+  for (const [name, marker, label, borderColor, backgroundColor] of calloutCases) {
+    it(`renders GitHub-style ${name} callouts with variant styling`, async () => {
+      const xml = await render(`> [!${marker}]
+> ${label} body.`);
+
+      expect(xml).toContain(label);
+      expect(xml).toContain(`${label} body.`);
+      expect(xml).not.toContain(`[!${marker}]`);
+      expect(xml).toContain(`w:color="${borderColor}"`);
+      expect(xml).toContain(`w:fill="${backgroundColor}"`);
+    });
+  }
+
+  it("preserves inline formatting and nested paragraphs inside callouts", async () => {
+    const blob = await convertMarkdownToDocx(`> [!NOTE]
+> First **bold** paragraph with [lnk](https://example.com/callout) and \`code\`.
+>
+> Second paragraph.`);
+    const xml = await getDocumentXml(blob);
+    const rels = await (await getZip(blob))
+      .file("word/_rels/document.xml.rels")
+      ?.async("string");
+
+    expect(xml).toContain("Note");
+    expect(xml).toContain("First ");
+    expect(xml).toContain("Second paragraph.");
+    expect(xml).toMatch(/<w:b\/>(?:(?!<\/w:r>)[\s\S])*?>bold<\/w:t>/);
+    expect(xml).toContain("<w:hyperlink");
+    expect(rels).toContain("https://example.com/callout");
+    expect(xml).toContain('w:ascii="Courier New"');
+    expect(xml).not.toContain("[!NOTE]");
+  });
+
+  it("applies configured GitHub-style callout colors", async () => {
+    const xml = await render(`> [!WARNING]
+> Custom warning.`, {
+      style: {
+        calloutStyles: {
+          warning: {
+            borderColor: "112233",
+            backgroundColor: "FFEEDD",
+            titleColor: "445566",
+          },
+        },
+      },
+    });
+
+    expect(xml).toContain("Warning");
+    expect(xml).toContain("Custom warning.");
+    expect(xml).toContain('w:color="112233"');
+    expect(xml).toContain('w:fill="FFEEDD"');
+    expect(xml).toContain('w:val="445566"');
+  });
+
+  it("keeps unsupported GitHub-style callout markers as normal blockquotes", async () => {
+    const xml = await render(`> [!INFO]
+> Unsupported info callout.`);
+
+    expect(xml).toContain("[!INFO]");
+    expect(xml).toContain("Unsupported info callout.");
+    expect(xml).toContain('w:color="AAAAAA"');
+    expect(xml).not.toContain('w:fill="EFF6FF"');
+  });
 });
 
 describe("Rendering: inline formatting", () => {
@@ -225,6 +366,159 @@ describe("Rendering: inline formatting", () => {
     expect(xml).toContain('w:val="28"');
     expect(xml).toContain('w:val="AA00CC"');
     expect(xml).toContain('w:fill="EEFFAA"');
+  });
+});
+
+describe("Rendering: footnotes", () => {
+  it("renders a basic Markdown footnote as native DOCX footnote markup", async () => {
+    const blob = await convertMarkdownToDocx(
+      "Text with a footnote[^1].\n\n[^1]: Footnote body.",
+    );
+    const zip = await getZip(blob);
+    const documentXml = await zip.file("word/document.xml")!.async("string");
+    const footnotesXml = await zip.file("word/footnotes.xml")?.async("string");
+
+    expect(documentXml).toContain("<w:footnoteReference");
+    expect(documentXml).toContain('w:id="1"');
+    expect(documentXml).not.toContain("Footnote body.");
+    expect(footnotesXml).toBeDefined();
+    expect(footnotesXml).toContain('<w:footnote w:id="1"');
+    expect(footnotesXml).toContain("Footnote body.");
+  });
+
+  it("preserves inline formatting, links, and code inside footnote content", async () => {
+    const blob = await convertMarkdownToDocx(
+      "Formatted note[^fmt].\n\n[^fmt]: **bold**, *italic*, [link](https://example.com/fn), and `code`.",
+    );
+    const zip = await getZip(blob);
+    const footnotesXml = await zip.file("word/footnotes.xml")!.async("string");
+    const footnoteRels = await zip
+      .file("word/_rels/footnotes.xml.rels")
+      ?.async("string");
+
+    expect(footnotesXml).toContain("bold");
+    expect(footnotesXml).toContain("italic");
+    expect(footnotesXml).toContain("code");
+    expect(footnotesXml).toMatch(/<w:b\/>(?:(?!<\/w:r>)[\s\S])*?>bold<\/w:t>/);
+    expect(footnotesXml).toMatch(/<w:i\/>(?:(?!<\/w:r>)[\s\S])*?>italic<\/w:t>/);
+    expect(footnotesXml).toContain("<w:hyperlink");
+    expect(footnotesXml).toContain('w:ascii="Courier New"');
+    expect(footnoteRels).toContain("https://example.com/fn");
+  });
+
+  it("handles multiple footnotes and repeated references deterministically", async () => {
+    const blob = await convertMarkdownToDocx(
+      "First[^alpha], second[^beta], first again[^alpha].\n\n[^beta]: Beta body.\n[^alpha]: Alpha body.",
+    );
+    const zip = await getZip(blob);
+    const documentXml = await zip.file("word/document.xml")!.async("string");
+    const footnotesXml = await zip.file("word/footnotes.xml")!.async("string");
+
+    expect(
+      Array.from(
+        documentXml.matchAll(/<w:footnoteReference w:id="(\d+)"\/>/g),
+        (match) => match[1],
+      ),
+    ).toEqual(["1", "2", "1"]);
+    expect(footnotesXml.indexOf('w:id="1"')).toBeLessThan(
+      footnotesXml.indexOf('w:id="2"'),
+    );
+    expect(footnotesXml.indexOf("Alpha body.")).toBeLessThan(
+      footnotesXml.indexOf("Beta body."),
+    );
+  });
+
+  it("keeps unresolved footnote references as literal text", async () => {
+    const xml = await render("Missing note[^missing] stays visible.");
+
+    expect(xml).toContain("[^missing]");
+    expect(xml).not.toContain("<w:footnoteReference");
+  });
+
+  it("keeps nested footnote references inside footnote content as literal text", async () => {
+    const blob = await convertMarkdownToDocx(
+      "Outer note[^outer].\n\n[^outer]: Nested reference [^inner] stays visible.\n[^inner]: Inner body.",
+    );
+    const zip = await getZip(blob);
+    const footnotesXml = await zip.file("word/footnotes.xml")!.async("string");
+
+    expect(footnotesXml).toContain("Nested reference ");
+    expect(footnotesXml).toContain("[^inner]");
+    expect(footnotesXml).not.toContain("Inner body.");
+  });
+
+  it("keeps footnote IDs unique across sections", async () => {
+    const blob = await convertMarkdownToDocx("", {
+      sections: [
+        {
+          markdown: "Section one[^one].\n\n[^one]: First section footnote.",
+        },
+        {
+          markdown: "Section two[^two].\n\n[^two]: Second section footnote.",
+        },
+      ],
+    });
+    const zip = await getZip(blob);
+    const documentXml = await zip.file("word/document.xml")!.async("string");
+    const footnotesXml = await zip.file("word/footnotes.xml")!.async("string");
+
+    expect(
+      Array.from(
+        documentXml.matchAll(/<w:footnoteReference w:id="(\d+)"\/>/g),
+        (match) => match[1],
+      ),
+    ).toEqual(["1", "2"]);
+    expect(footnotesXml).toContain('<w:footnote w:id="1"');
+    expect(footnotesXml).toContain('<w:footnote w:id="2"');
+    expect(footnotesXml).toContain("First section footnote.");
+    expect(footnotesXml).toContain("Second section footnote.");
+  });
+});
+
+describe("Rendering: math", () => {
+  it("renders inline and block math as native Word math objects", async () => {
+    const xml = await render(`Inline $x^2$ appears here.
+
+$$
+\\frac{1}{2}
+$$`);
+
+    expect(mathObjectCount(xml)).toBe(2);
+    expect(xml).toContain("<m:sSup>");
+    expect(xml).toContain("<m:f>");
+    expect(xml).not.toContain("$x^2$");
+    expect(xml).not.toContain("\\frac");
+  });
+
+  it("keeps escaped dollar math syntax as literal text", async () => {
+    const xml = await render("Only escaped \\$x^2$ remains text.");
+
+    expect(mathObjectCount(xml)).toBe(0);
+    expect(xml).toContain("$x^2$ remains text.");
+  });
+
+  it("falls back to literal text for unsupported TeX by default", async () => {
+    const xml = await render("Unsupported $\\overline{x}$ stays literal.");
+
+    expect(mathObjectCount(xml)).toBe(0);
+    expect(xml).toContain("$\\overline{x}$");
+  });
+
+  it("throws for unsupported TeX when configured", async () => {
+    await expect(
+      convertMarkdownToDocx("Unsupported $\\overline{x}$", {
+        mathRendering: { unsupported: "throw" },
+      }),
+    ).rejects.toThrow(MarkdownConversionError);
+  });
+
+  it("can disable math parsing", async () => {
+    const xml = await render("Inline $x^2$ remains literal.", {
+      mathRendering: { enabled: false },
+    });
+
+    expect(mathObjectCount(xml)).toBe(0);
+    expect(xml).toContain("$x^2$ remains literal.");
   });
 });
 
@@ -293,6 +587,133 @@ Outro paragraph.`;
     expect(xml).toContain("Hello, ");
     expect(xml).toContain("Intro paragraph");
     expect(xml).toContain("Outro paragraph");
+  });
+});
+
+describe("Rendering: chart blocks", () => {
+  const chartJson = JSON.stringify({
+    type: "bar",
+    data: {
+      labels: ["Q1", "Q2", "Q3"],
+      datasets: [{ label: "Revenue", data: [12, 18, 9] }],
+    },
+    width: 160,
+    height: 90,
+    alt: "Revenue chart",
+  });
+
+  it("embeds enabled chart fences as DOCX images", async () => {
+    const blob = await convertMarkdownToDocx(`\`\`\`chart\n${chartJson}\n\`\`\``, {
+      chartRendering: { enabled: true },
+    });
+    const zip = await getZip(blob);
+    const documentXml = await zip.file("word/document.xml")!.async("string");
+    const mediaFiles = mediaFilesFromZip(zip);
+
+    expect(documentXml).toContain("<w:drawing>");
+    expect(documentXml).not.toContain("Revenue chart");
+    expect(mediaFiles).toHaveLength(1);
+    expect(mediaFiles[0]).toMatch(/\.png$/);
+  });
+
+  it("keeps chart fences as ordinary code blocks when disabled", async () => {
+    const blob = await convertMarkdownToDocx(`\`\`\`chart\n${chartJson}\n\`\`\``);
+    const zip = await getZip(blob);
+    const documentXml = await zip.file("word/document.xml")!.async("string");
+
+    expect(documentXml).not.toContain("<w:drawing>");
+    expect(documentXml).toContain("chart");
+    expect(documentXml).toContain("&quot;bar&quot;");
+    expect(mediaFilesFromZip(zip)).toHaveLength(0);
+  });
+
+  it("renders invalid chart definitions as clear placeholders by default", async () => {
+    const xml = await render(
+      "```chart\n{\"type\":\"bar\",\"data\":{\"datasets\":[{\"data\":[\"bad\"]}]}}\n```",
+      { chartRendering: { enabled: true } },
+    );
+
+    expect(xml).toContain("Chart could not be rendered");
+    expect(xml).toContain("finite numbers");
+  });
+
+  it("can throw on invalid chart definitions", async () => {
+    await expect(
+      convertMarkdownToDocx("```chart\n{\"type\":\"scatter\"}\n```", {
+        chartRendering: {
+          enabled: true,
+          invalidDefinitionBehavior: "throw",
+        },
+      }),
+    ).rejects.toThrow(MarkdownConversionError);
+  });
+
+  it("uses chart block dimensions for DOCX image sizing", async () => {
+    const width = 321;
+    const height = 123;
+    const sizedChart = JSON.stringify({
+      type: "line",
+      data: {
+        labels: ["A", "B", "C"],
+        datasets: [{ data: [1, 3, 2] }],
+      },
+      width,
+      height,
+    });
+
+    const blob = await convertMarkdownToDocx(`\`\`\`chartjs\n${sizedChart}\n\`\`\``, {
+      chartRendering: { enabled: true },
+    });
+    const xml = await getDocumentXml(blob);
+    const extentMatch = xml.match(/<wp:extent cx="(\d+)" cy="(\d+)"\/>/);
+
+    expect(extentMatch?.[1]).toBe(String(width * 9525));
+    expect(extentMatch?.[2]).toBe(String(height * 9525));
+  });
+
+  it.each(["pie", "doughnut"] as const)(
+    "fills a single-slice %s chart instead of rendering a blank image",
+    async (type) => {
+      const chart = JSON.stringify({
+        type,
+        data: {
+          labels: ["Only"],
+          datasets: [{ data: [1], backgroundColor: ["#E15759"] }],
+        },
+        width: 96,
+        height: 96,
+      });
+
+      const blob = await convertMarkdownToDocx(`\`\`\`chart\n${chart}\n\`\`\``, {
+        chartRendering: { enabled: true },
+      });
+      const zip = await getZip(blob);
+      const mediaFile = mediaFilesFromZip(zip)[0];
+      const pngBytes = await zip.file(mediaFile)!.async("uint8array");
+
+      expect(countNonWhitePixelsInPng(pngBytes)).toBeGreaterThan(100);
+    },
+  );
+
+  it("fills a full-total doughnut slice in a multi-value chart", async () => {
+    const chart = JSON.stringify({
+      type: "doughnut",
+      data: {
+        labels: ["All", "None"],
+        datasets: [{ data: [5, 0], backgroundColor: ["#E15759", "#4E79A7"] }],
+      },
+      width: 96,
+      height: 96,
+    });
+
+    const blob = await convertMarkdownToDocx(`\`\`\`chart\n${chart}\n\`\`\``, {
+      chartRendering: { enabled: true },
+    });
+    const zip = await getZip(blob);
+    const mediaFile = mediaFilesFromZip(zip)[0];
+    const pngBytes = await zip.file(mediaFile)!.async("uint8array");
+
+    expect(countNonWhitePixelsInPng(pngBytes)).toBeGreaterThan(100);
   });
 });
 

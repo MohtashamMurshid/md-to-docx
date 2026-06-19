@@ -1,3 +1,6 @@
+import type { InputDataType } from "docx";
+import type { PhrasingContent } from "mdast";
+
 export interface Style {
   titleSize: number;
   headingSpacing: number;
@@ -28,6 +31,7 @@ export interface Style {
   inlineCodeSize?: number;
   inlineCodeColor?: string;
   inlineCodeBackground?: string;
+  calloutStyles?: Partial<Record<CalloutType, CalloutStyle>>;
   tocFontSize?: number;
   // TOC level-specific styling
   tocHeading1FontSize?: number;
@@ -64,6 +68,28 @@ export interface Style {
 }
 
 export type AlignmentOption = "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
+
+export type CalloutType =
+  | "note"
+  | "tip"
+  | "important"
+  | "warning"
+  | "caution";
+
+export interface CalloutStyle {
+  /**
+   * Left border color for GitHub-style callouts, as RRGGBB.
+   */
+  borderColor?: string;
+  /**
+   * Paragraph shading fill for GitHub-style callouts, as RRGGBB.
+   */
+  backgroundColor?: string;
+  /**
+   * Label text color for GitHub-style callouts, as RRGGBB.
+   */
+  titleColor?: string;
+}
 
 export type SectionPageNumberDisplay =
   | "none"
@@ -202,6 +228,12 @@ export interface Options {
   style?: Partial<Style>;
   toc?: TocOptions;
   /**
+   * Controls Markdown math parsing and native Word equation rendering.
+   * Enabled by default. Unsupported TeX falls back to literal source text
+   * unless `unsupported` is set to "throw".
+   */
+  mathRendering?: MathRenderingOptions;
+  /**
    * Optional maximum markdown input length, measured with JavaScript string
    * length. When `sections` is provided, all section markdown lengths are
    * summed. Omitted by default, preserving unlimited input behavior.
@@ -229,8 +261,17 @@ export interface Options {
   /**
    * Array of text replacements to apply to the markdown AST before conversion
    * Uses mdast-util-find-and-replace for pattern matching and replacement
+   * Function replacements are for trusted programmatic callers only. Set
+   * textReplacementMode to "untrusted" when replacement options come from
+   * external input.
    */
   textReplacements?: TextReplacement[];
+  /**
+   * Controls whether function text replacements are accepted. Defaults to
+   * "trusted" for backward compatibility. Use "untrusted" for API, webhook,
+   * upload, or CLI JSON options sourced from external users.
+   */
+  textReplacementMode?: TextReplacementMode;
   /**
    * Optional syntax highlighting configuration for fenced code blocks.
    * When `enabled` is true, lowlight is used to tokenize the code and
@@ -243,6 +284,115 @@ export interface Options {
    * to fetch internal network resources.
    */
   imageHandling?: ImageHandlingOptions;
+  /**
+   * Optional Mermaid fenced-block rendering. Disabled by default; when enabled,
+   * callers must provide a renderer that converts Mermaid fences into raster
+   * image bytes.
+   */
+  mermaidRendering?: MermaidRenderingOptions;
+  /**
+   * Optional rendering for fenced `chart` and `chartjs` blocks. Disabled by
+   * default; when disabled, those fences render as ordinary code blocks.
+   */
+  chartRendering?: ChartRenderingOptions;
+}
+
+export interface MathRenderingOptions {
+  /**
+   * Parse `$...$` and `$$...$$` math syntax. Defaults to true.
+   */
+  enabled?: boolean;
+  /**
+   * Behavior when the native renderer does not support an expression.
+   * Defaults to "text".
+   */
+  unsupported?: "text" | "throw";
+}
+
+export type ReferenceDocxInput = InputDataType;
+
+export type MarkdownDocxPatch =
+  | string
+  | {
+      /**
+       * Markdown content inserted at the matching DOCX placeholder.
+       */
+      markdown: string;
+      /**
+       * Optional style overrides for this placeholder's generated content.
+       */
+      style?: Partial<Style>;
+    };
+
+export interface PatchMarkdownOptions {
+  documentType?: "document" | "report";
+  style?: Partial<Style>;
+  /**
+   * Array of text replacements to apply to each patch's markdown AST before
+   * rendering.
+   */
+  textReplacements?: TextReplacement[];
+  /**
+   * Controls whether function text replacements are accepted while rendering
+   * patch markdown. Defaults to "trusted" for backward compatibility.
+   */
+  textReplacementMode?: TextReplacementMode;
+  /**
+   * Controls Markdown math parsing and native Word equation rendering in patch
+   * markdown. Defaults to enabled, matching normal conversion.
+   */
+  mathRendering?: MathRenderingOptions;
+  /**
+   * Controls opt-in Mermaid fenced-block rendering in patch markdown.
+   */
+  mermaidRendering?: MermaidRenderingOptions;
+  /**
+   * Controls opt-in chart fenced-block rendering in patch markdown.
+   */
+  chartRendering?: ChartRenderingOptions;
+  /**
+   * Optional syntax highlighting configuration for fenced code blocks.
+   */
+  codeHighlighting?: CodeHighlightOptions;
+  /**
+   * Controls image loading and embedding for markdown inserted into the
+   * reference DOCX.
+   */
+  imageHandling?: ImageHandlingOptions;
+  /**
+   * Optional maximum markdown input length per patch.
+   */
+  maxInputLength?: number;
+  /**
+   * Optional maximum parsed markdown AST element count per patch.
+   */
+  maxElements?: number;
+  /**
+   * Optional cancellation signal for programmatic patching.
+   */
+  signal?: AbortSignal;
+  /**
+   * Preserve the run styles around placeholder text when the underlying docx
+   * patcher can apply them. Defaults to true.
+   */
+  keepOriginalStyles?: boolean;
+  /**
+   * Placeholder delimiters used in the reference DOCX. Defaults to {{ and }}.
+   */
+  placeholderDelimiters?: {
+    start: string;
+    end: string;
+  };
+  /**
+   * Whether repeated placeholders should all be replaced. Defaults to true.
+   */
+  recursive?: boolean;
+  /**
+   * Table width, in twips, for markdown tables inserted into the reference
+   * DOCX. Defaults to the converter's A4 portrait content width because the
+   * patcher does not infer section geometry from the reference package.
+   */
+  tableWidthTwips?: number;
 }
 
 export interface TocOptions {
@@ -364,6 +514,153 @@ export interface CodeHighlightOptions {
   showLanguageLabel?: boolean;
 }
 
+export interface MermaidRenderInput {
+  /**
+   * Raw fenced code block body.
+   */
+  code: string;
+  /**
+   * Optional mdast code fence metadata.
+   */
+  meta?: string;
+  /**
+   * Abort signal from the conversion options, when provided.
+   */
+  signal?: AbortSignal;
+}
+
+export interface MermaidRenderResult {
+  /**
+   * Raster image bytes. Supported output formats match normal embedded images:
+   * PNG, JPEG, or GIF.
+   */
+  data: Uint8Array | ArrayBuffer | Buffer;
+  /**
+   * Optional content type used as a hint when detecting the image format.
+   */
+  contentType?: string;
+  /**
+   * Optional output width hint in pixels. If omitted, intrinsic image metadata
+   * and normal image sizing defaults are used.
+   */
+  width?: number;
+  /**
+   * Optional output height hint in pixels. If omitted, intrinsic image metadata
+   * and normal image sizing defaults are used.
+   */
+  height?: number;
+  /**
+   * Optional source label for diagnostics. This is not fetched.
+   */
+  source?: string;
+}
+
+export interface MermaidRenderingOptions {
+  /**
+   * Turn Mermaid rendering on. Defaults to false, preserving Mermaid fences
+   * as ordinary code blocks.
+   */
+  enabled?: boolean;
+  /**
+   * Converts a Mermaid fence into raster image bytes. The package does not
+   * bundle Mermaid, Graphviz, browser automation, or a subprocess runner.
+   */
+  render?: (
+    input: MermaidRenderInput
+  ) => Promise<MermaidRenderResult | null | undefined> | MermaidRenderResult | null | undefined;
+  /**
+   * Behavior when rendering is enabled but unavailable or failed. Defaults to
+   * "codeBlock" so document content is preserved.
+   */
+  failureMode?: "codeBlock" | "placeholder" | "throw";
+}
+
+export type ChartBlockType = "bar" | "line" | "pie" | "doughnut";
+
+export interface ChartDataset {
+  label?: string;
+  data: number[];
+  backgroundColor?: string | string[];
+  borderColor?: string | string[];
+}
+
+export interface ChartBlockDefinition {
+  type: ChartBlockType;
+  data: {
+    labels?: string[];
+    datasets: ChartDataset[];
+  };
+  options?: {
+    plugins?: {
+      title?: {
+        display?: boolean;
+        text?: string;
+      };
+    };
+  };
+  /**
+   * Optional DOCX output width in pixels. Falls back to chartRendering.width
+   * and then the built-in default.
+   */
+  width?: number;
+  /**
+   * Optional DOCX output height in pixels. Falls back to chartRendering.height
+   * and then the built-in default.
+   */
+  height?: number;
+  /**
+   * Accessible fallback text used in error placeholders.
+   */
+  alt?: string;
+}
+
+export interface ChartRendererInput {
+  definition: ChartBlockDefinition;
+  width: number;
+  height: number;
+  signal?: AbortSignal;
+}
+
+export type ChartRenderer = (
+  input: ChartRendererInput
+) => string | Uint8Array | Promise<string | Uint8Array>;
+
+export interface ChartRenderingOptions {
+  /**
+   * Turn fenced chart rendering on. Defaults to false.
+   */
+  enabled?: boolean;
+  /**
+   * Default DOCX output width in pixels when a chart block does not specify
+   * `width`. Defaults to 640.
+   */
+  width?: number;
+  /**
+   * Default DOCX output height in pixels when a chart block does not specify
+   * `height`. Defaults to 360.
+   */
+  height?: number;
+  /**
+   * Maximum accepted chart width in pixels. Defaults to 2000.
+   */
+  maxWidth?: number;
+  /**
+   * Maximum accepted chart height in pixels. Defaults to 2000.
+   */
+  maxHeight?: number;
+  /**
+   * Behavior for invalid JSON/schema or renderer failures. Defaults to
+   * "placeholder", which keeps conversion running and inserts a visible
+   * message in the document.
+   */
+  invalidDefinitionBehavior?: "placeholder" | "throw";
+  /**
+   * Optional custom renderer. When omitted, a built-in offline PNG renderer
+   * handles the documented bar, line, pie, and doughnut subset.
+   */
+  renderer?: ChartRenderer;
+}
+
 export interface TableData {
   headers: string[];
   rows: string[][];
@@ -373,9 +670,24 @@ export interface TableData {
 /**
  * Configuration for text find-and-replace operations
  * @property find - The pattern to find (string or RegExp)
- * @property replace - The replacement (string or function that returns string or array of nodes)
+ * @property replace - The replacement (string or trusted function)
  */
+export type TextReplacementMode = "trusted" | "untrusted";
+
+export type TextReplacementFunctionResult =
+  | string
+  | PhrasingContent
+  | PhrasingContent[]
+  | false
+  | null
+  | undefined;
+
+export type TextReplacementFunction = (
+  match: string,
+  ...args: unknown[]
+) => TextReplacementFunctionResult;
+
 export interface TextReplacement {
   find: string | RegExp;
-  replace: string | ((match: string, ...args: any[]) => string | any);
+  replace: string | TextReplacementFunction;
 }

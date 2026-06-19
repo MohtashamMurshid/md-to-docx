@@ -80,6 +80,7 @@ export {
   HeaderFooterGroup,
   ImageHandlingOptions,
   MarkdownDocxPatch,
+  MathRenderingOptions,
   Options,
   PatchMarkdownOptions,
   ReferenceDocxInput,
@@ -380,6 +381,7 @@ async function patchMarkdownInDocxWithOutput(
         style,
         textReplacements: options.textReplacements,
         textReplacementMode: options.textReplacementMode,
+        mathRendering: options.mathRendering,
         codeHighlighting: options.codeHighlighting,
         imageHandling: options.imageHandling,
         maxInputLength: options.maxInputLength,
@@ -529,7 +531,10 @@ async function renderMarkdownContent(
     validateModel?: (model: DocxDocumentModel) => void;
   } = {}
 ): Promise<{ content: RenderedMarkdownContent; elementCount: number }> {
-  const ast = await parseMarkdownToAst(markdown);
+  const ast = await parseMarkdownToAst(
+    markdown,
+    options.mathRendering?.enabled !== false
+  );
   await yieldToAbortSignal(options.signal);
 
   if (options.textReplacements && options.textReplacements.length > 0) {

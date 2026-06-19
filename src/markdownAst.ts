@@ -1,6 +1,7 @@
 import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import { findAndReplace } from "mdast-util-find-and-replace";
 import type { FindAndReplaceList } from "mdast-util-find-and-replace";
 import type { Root } from "mdast";
@@ -25,10 +26,17 @@ function isUnsafeRegex(pattern: RegExp): boolean {
 /**
  * Parses markdown string into an mdast AST tree
  * @param markdown - The markdown string to parse
+ * @param mathEnabled - Whether TeX math syntax should become mdast math nodes
  * @returns The parsed AST root node
  */
-export async function parseMarkdownToAst(markdown: string): Promise<Root> {
+export async function parseMarkdownToAst(
+  markdown: string,
+  mathEnabled = true
+): Promise<Root> {
   const processor = unified().use(remarkParse).use(remarkGfm);
+  if (mathEnabled) {
+    processor.use(remarkMath);
+  }
   const result = await processor.parse(markdown);
   return result as Root;
 }

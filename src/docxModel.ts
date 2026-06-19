@@ -14,13 +14,21 @@ export interface DocxTextNode {
   link?: string;
 }
 
+export interface DocxMathInlineNode {
+  type: "mathInline";
+  value: string;
+}
+
 export interface DocxFootnoteReferenceNode {
   type: "footnoteReference";
   identifier: string;
   id: number;
 }
 
-export type DocxInlineNode = DocxTextNode | DocxFootnoteReferenceNode;
+export type DocxInlineNode =
+  | DocxTextNode
+  | DocxMathInlineNode
+  | DocxFootnoteReferenceNode;
 
 export interface DocxParagraphNode {
   type: "paragraph";
@@ -48,6 +56,11 @@ export interface DocxListNode {
 export interface DocxCodeBlockNode {
   type: "codeBlock";
   language?: string;
+  value: string;
+}
+
+export interface DocxMathBlockNode {
+  type: "mathBlock";
   value: string;
 }
 
@@ -101,6 +114,7 @@ export type DocxBlockNode =
   | DocxHeadingNode
   | DocxListNode
   | DocxCodeBlockNode
+  | DocxMathBlockNode
   | DocxBlockquoteNode
   | DocxImageNode
   | DocxTableNode

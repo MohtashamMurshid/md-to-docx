@@ -148,6 +148,8 @@ export function mdastToDocxModel(
         return processList(node as List, options);
       case "code":
         return processCodeBlock(node as Code);
+      case "math":
+        return processMathBlock(node as { value?: string });
       case "blockquote":
         return processBlockquote(node as Blockquote, options);
       case "image":
@@ -307,6 +309,13 @@ export function mdastToDocxModel(
       type: "codeBlock",
       language: code.lang || undefined,
       value: code.value || "",
+    };
+  }
+
+  function processMathBlock(math: { value?: string }): DocxBlockNode {
+    return {
+      type: "mathBlock",
+      value: math.value || "",
     };
   }
 
@@ -514,6 +523,12 @@ export function mdastToDocxModel(
           }
           break;
         }
+        case "inlineMath":
+          result.push({
+            type: "mathInline",
+            value: String((node as { value?: string }).value || ""),
+          });
+          break;
         case "break":
           result.push({
             type: "text",

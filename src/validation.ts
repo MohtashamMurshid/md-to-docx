@@ -503,6 +503,34 @@ function validateImageHandlingInput(
   }
 }
 
+function validateMermaidRenderingInput(
+  mermaidRendering: Options["mermaidRendering"]
+): void {
+  if (!mermaidRendering) {
+    return;
+  }
+
+  if (
+    mermaidRendering.render !== undefined &&
+    typeof mermaidRendering.render !== "function"
+  ) {
+    throw new MarkdownConversionError(
+      "Invalid mermaidRendering.render: must be a function"
+    );
+  }
+
+  if (
+    mermaidRendering.failureMode !== undefined &&
+    !["codeBlock", "placeholder", "throw"].includes(
+      mermaidRendering.failureMode
+    )
+  ) {
+    throw new MarkdownConversionError(
+      "Invalid mermaidRendering.failureMode: must be codeBlock, placeholder, or throw"
+    );
+  }
+}
+
 function validateProcessingLimitsInput(options: Options): void {
   validatePositiveIntegerOption(options.maxInputLength, "maxInputLength");
   validatePositiveIntegerOption(options.maxElements, "maxElements");
@@ -565,6 +593,7 @@ export function validateInput(markdown: string, options: Options): void {
   validateTocOptionsInput(options.toc);
   validateMathRenderingInput(options.mathRendering);
   validateImageHandlingInput(options.imageHandling);
+  validateMermaidRenderingInput(options.mermaidRendering);
   validateProcessingLimitsInput(options);
   validateTextReplacementInput(options);
 

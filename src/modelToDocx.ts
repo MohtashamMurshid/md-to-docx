@@ -31,6 +31,7 @@ import {
 import { processComment } from "./renderers/commentRenderer.js";
 import {
   processImage,
+  processImageData,
   resolveImageHandlingOptions,
 } from "./renderers/imageRenderer.js";
 import { parseTexMath, renderNativeMath } from "./renderers/mathRenderer.js";
@@ -127,6 +128,7 @@ export async function modelToDocx(
   // Full-width tables are sized in twips so docx emits a plain integer width.
   // Defaults to A4 portrait content width (page 11906 - default 1080 margins).
   const tableWidthTwips = renderOptions.tableWidthTwips ?? 9746;
+  const mermaidFallbackCodeParagraphs = new WeakSet<object>();
 
   // Track numbering sequences for nested lists
   let maxSequenceId = 0;
@@ -184,8 +186,8 @@ export async function modelToDocx(
     nodes: DocxInlineNode[],
     overrides: InlineOverrides = {},
   ): ParagraphChild[] {
-  const out: ParagraphChild[] = [];
-  for (const node of nodes) {
+    const out: ParagraphChild[] = [];
+    for (const node of nodes) {
       if (node.type === "footnoteReference") {
         out.push(new FootnoteReferenceRun(node.id + footnoteIdOffset));
       } else if (node.type === "mathInline") {
@@ -471,6 +473,10 @@ export async function modelToDocx(
         return renderImageNode(node, context);
       }
 
+      case "mermaidBlock": {
+        return renderMermaidNode(node, context);
+      }
+
       case "table": {
         return [tableFromNode(node)];
       }
@@ -735,6 +741,10 @@ export async function modelToDocx(
       return renderImageNode(node, context, listMarker);
     }
 
+    if (node.type === "mermaidBlock") {
+      return renderMermaidNode(node, context, listMarker);
+    }
+
     if (listMarker) {
       const rendered = await renderBlockNode(node, listLevel, context);
       return [
@@ -815,6 +825,151 @@ export async function modelToDocx(
     }
   }
 
+  function mermaidCouldNotRenderParagraph(
+    paragraphOptions: Partial<IParagraphOptions> = {},
+  ): Paragraph {
+    return new Paragraph({
+      ...paragraphOptions,
+      children: [
+        new TextRun({
+          text: "[Mermaid diagram could not be rendered]",
+          italics: true,
+          color: "FF0000",
+          font: resolveFontFamily(style),
+          rightToLeft: style.direction === "RTL",
+        }),
+      ],
+      alignment: AlignmentType.CENTER,
+      bidirectional: style.direction === "RTL",
+    });
+  }
+
+  function renderMermaidFallback(
+    node: Extract<DocxBlockNode, { type: "mermaidBlock" }>,
+    paragraphOptions: Partial<IParagraphOptions>,
+    reason?: unknown,
+    context: RenderContext = {},
+    listMarker?: ListMarkerContext,
+  ): Paragraph[] {
+    const failureMode = options.mermaidRendering?.failureMode ?? "codeBlock";
+
+    if (failureMode === "throw") {
+      throw new MarkdownConversionError(
+        `Failed to render Mermaid diagram${
+          reason instanceof Error ? `: ${reason.message}` : ""
+        }`,
+        { language: "mermaid", originalError: reason },
+      );
+    }
+
+    if (failureMode === "placeholder") {
+      return [mermaidCouldNotRenderParagraph(paragraphOptions)];
+    }
+
+    const codeBlock = processCodeBlock(
+      node.value,
+      "mermaid",
+      style,
+      options.codeHighlighting,
+    );
+    mermaidFallbackCodeParagraphs.add(codeBlock);
+
+    if (!listMarker) {
+      return [codeBlock];
+    }
+
+    return [
+      listParagraphFromInlineNodes(
+        [],
+        listMarker.isOrdered,
+        listMarker.level,
+        listMarker.sequenceId,
+        context,
+      ),
+      codeBlock,
+    ];
+  }
+
+  async function renderMermaidNode(
+    node: Extract<DocxBlockNode, { type: "mermaidBlock" }>,
+    context: RenderContext = {},
+    listMarker?: ListMarkerContext,
+  ): Promise<Paragraph[]> {
+    throwIfAborted(options.signal);
+
+    const paragraphOptions = imageParagraphOptions(context, listMarker);
+    const render = options.mermaidRendering?.render;
+    if (!render) {
+      return renderMermaidFallback(
+        node,
+        paragraphOptions,
+        undefined,
+        context,
+        listMarker,
+      );
+    }
+
+    if (processedImageCounter.count >= imageHandling.maxImages) {
+      return renderMermaidFallback(
+        node,
+        paragraphOptions,
+        new Error("Maximum embedded image count reached"),
+        context,
+        listMarker,
+      );
+    }
+
+    try {
+      const result = await render({
+        code: node.value,
+        meta: node.meta,
+        signal: options.signal,
+      });
+      throwIfAborted(options.signal);
+
+      if (!result) {
+        return renderMermaidFallback(
+          node,
+          paragraphOptions,
+          new Error("Mermaid renderer returned no image"),
+          context,
+          listMarker,
+        );
+      }
+
+      const { embedded, paragraphs } = processImageData(
+        {
+          altText: "Mermaid diagram",
+          data: result.data,
+          contentType: result.contentType,
+          source: result.source || "Mermaid diagram",
+          widthHint: result.width,
+          heightHint: result.height,
+          maxImageBytes: imageHandling.maxImageBytes,
+          paragraphOptions,
+          signal: options.signal,
+        },
+        style,
+      );
+
+      if (embedded) {
+        processedImageCounter.count++;
+      }
+      return paragraphs;
+    } catch (error) {
+      if (error instanceof MarkdownConversionError) {
+        throw error;
+      }
+      return renderMermaidFallback(
+        node,
+        paragraphOptions,
+        error,
+        context,
+        listMarker,
+      );
+    }
+  }
+
   function footnoteFallbackParagraph(text: string): Paragraph {
     return paragraphFromInlineNodes([
       {
@@ -885,22 +1040,27 @@ export async function modelToDocx(
   }
 
   // Process all top-level nodes
-  let previousNodeType: string | undefined;
+  let previousRenderedAsCode = false;
   for (const node of model.children) {
     throwIfAborted(options.signal);
 
+    const rendered = await renderBlockNode(node);
+    const currentRenderedAsCode =
+      node.type === "codeBlock" ||
+      (node.type === "mermaidBlock" &&
+        rendered.some((child) => mermaidFallbackCodeParagraphs.has(child)));
+
     // Insert a blank spacer paragraph between back-to-back code blocks so
     // Word doesn't collapse the shared borders into a single visual block.
-    if (node.type === "codeBlock" && previousNodeType === "codeBlock") {
+    if (currentRenderedAsCode && previousRenderedAsCode) {
       children.push(
         new Paragraph({ children: [], spacing: { before: 0, after: 0 } }),
       );
     }
 
-    const rendered = await renderBlockNode(node);
     children.push(...rendered);
 
-    previousNodeType = node.type;
+    previousRenderedAsCode = currentRenderedAsCode;
   }
 
   return {

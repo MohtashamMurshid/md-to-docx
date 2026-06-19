@@ -324,6 +324,41 @@ await convertMarkdownToDocx(markdown, {
 
 Theme keys map 1:1 to `hljs-*` token classes (without the `hljs-` prefix); values are RRGGBB hex strings without `#`. Reserved keys: `default`, `background`, `border`, `languageLabel`. Unknown or non-whitelisted languages fall back to the plain rendering path, so conversion never throws on an unsupported fence.
 
+### Mermaid diagram blocks
+
+Mermaid rendering is **opt-in** and requires a programmatic renderer callback. The package does not bundle Mermaid, Chromium, Playwright, a CLI runner, or any other diagram runtime, so converting untrusted Markdown cannot execute diagram tooling by default.
+
+When disabled (the default), Mermaid fences render exactly like ordinary code blocks:
+
+````markdown
+```mermaid
+graph TD
+  A[Start] --> B[Done]
+```
+````
+
+To embed Mermaid diagrams as DOCX images, provide a callback that returns PNG, JPEG, or GIF bytes:
+
+```typescript
+await convertMarkdownToDocx(markdown, {
+  mermaidRendering: {
+    enabled: true,
+    render: async ({ code, signal }) => {
+      const pngBytes = await renderMermaidToPng(code, { signal });
+      return {
+        data: pngBytes,
+        contentType: "image/png",
+        width: 640,
+      };
+    },
+  },
+});
+```
+
+Rendered diagrams use the same image sizing and `imageHandling.maxImages` / `maxImageBytes` limits as normal embedded images. If rendering is unavailable or fails, the default `failureMode` is `"codeBlock"` so the original Mermaid source remains in the document. Set `failureMode: "placeholder"` to emit a visible failure paragraph, or `"throw"` to fail conversion with `MarkdownConversionError`.
+
+Security note: run Mermaid or browser-based renderers with the same care as any server-side rendering pipeline for untrusted input. Use request timeouts, `AbortSignal`, process isolation or sandboxing, memory limits, and a vetted Mermaid configuration. The CLI options JSON cannot provide a renderer function, so CLI-only usage preserves Mermaid fences as code unless wrapped by a host application.
+
 ### Math rendering
 
 Markdown math is enabled by default. Inline math uses single-dollar delimiters, and block math uses `$$` fences on their own lines:
@@ -570,6 +605,7 @@ interface Options {
   template?: DocumentSection;
   sections?: DocumentSection[];
   codeHighlighting?: CodeHighlightOptions;
+  mermaidRendering?: MermaidRenderingOptions;
   textReplacements?: TextReplacement[];
   textReplacementMode?: "trusted" | "untrusted";
   imageHandling?: ImageHandlingOptions;
@@ -696,6 +732,15 @@ Alignment & direction
 | `theme`             | `Partial<CodeHighlightTheme>` | GitHub-light | Partial override merged over the default theme. Values are RRGGBB hex.                 |
 | `languages`         | `string[]`                    | `common`     | Whitelist of language grammars to load. Excluded/unknown languages fall back to plain. |
 | `showLanguageLabel` | `boolean`                     | `true`       | Render the language name as a bold label above the block.                              |
+
+
+#### `MermaidRenderingOptions`
+
+| Option        | Default       | Description                                                          |
+| ------------- | ------------- | -------------------------------------------------------------------- |
+| `enabled`     | `false`       | Turn fenced Mermaid rendering on.                                    |
+| `render`      | `undefined`   | Converts a Mermaid block into PNG, JPEG, or GIF bytes.               |
+| `failureMode` | `"codeBlock"` | Behavior when rendering is unavailable, returns no image, or throws. |
 
 
 #### `TextReplacement`

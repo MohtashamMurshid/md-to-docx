@@ -16,18 +16,25 @@ import type {
   InlineCode,
   Link,
   Delete,
+  FootnoteDefinition,
+  FootnoteReference,
 } from "mdast";
 import type {
   DocxDocumentModel,
   DocxBlockNode,
   DocxCalloutType,
-  DocxTextNode,
+  DocxInlineNode,
   DocxListItemNode,
+  DocxFootnoteDefinitionNode,
 } from "./docxModel.js";
 import { Style, Options } from "./types.js";
 
 const GITHUB_CALLOUT_MARKER =
   /^\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*(?:\r?\n[ \t]*)?/i;
+
+interface ProcessOptions {
+  allowFootnoteReferences?: boolean;
+}
 
 /**
  * Classifies a raw HTML node value into a comment or page-break block, or
@@ -91,25 +98,62 @@ export function mdastToDocxModel(
   _options: Options,
 ): DocxDocumentModel {
   const children: DocxBlockNode[] = [];
+  const footnoteDefinitions = new Map<string, FootnoteDefinition>();
+  const referencedFootnoteIds = new Map<string, number>();
   let numberedListSequenceId = 0;
   const listSequenceMap = new Map<List, number>();
 
-  function processNode(node: Node): DocxBlockNode | DocxBlockNode[] | null {
+  for (const child of root.children) {
+    if (child.type === "footnoteDefinition") {
+      const definition = child as FootnoteDefinition;
+      footnoteDefinitions.set(
+        normalizeFootnoteIdentifier(definition.identifier),
+        definition,
+      );
+    }
+  }
+
+  function normalizeFootnoteIdentifier(identifier: string): string {
+    return identifier.trim().toLowerCase();
+  }
+
+  function footnoteLabel(
+    node: Pick<FootnoteReference | FootnoteDefinition, "identifier" | "label">,
+  ): string {
+    return node.label || node.identifier;
+  }
+
+  function footnoteReferenceId(identifier: string): number {
+    const normalizedIdentifier = normalizeFootnoteIdentifier(identifier);
+    const existingId = referencedFootnoteIds.get(normalizedIdentifier);
+    if (existingId) {
+      return existingId;
+    }
+
+    const id = referencedFootnoteIds.size + 1;
+    referencedFootnoteIds.set(normalizedIdentifier, id);
+    return id;
+  }
+
+  function processNode(
+    node: Node,
+    options: ProcessOptions = {},
+  ): DocxBlockNode | DocxBlockNode[] | null {
     switch (node.type) {
       case "heading":
-        return processHeading(node as Heading);
+        return processHeading(node as Heading, options);
       case "paragraph":
-        return processParagraph(node as Paragraph);
+        return processParagraph(node as Paragraph, options);
       case "list":
-        return processList(node as List);
+        return processList(node as List, options);
       case "code":
         return processCodeBlock(node as Code);
       case "blockquote":
-        return processBlockquote(node as Blockquote);
+        return processBlockquote(node as Blockquote, options);
       case "image":
         return processImage(node as Image);
       case "table":
-        return processTable(node as Table);
+        return processTable(node as Table, options);
       case "html":
         return classifyHtmlNode((node as { value?: string }).value || "");
       case "thematicBreak":
@@ -120,8 +164,11 @@ export function mdastToDocxModel(
     }
   }
 
-  function processHeading(heading: Heading): DocxBlockNode {
-    const children = processInlineNodes(heading.children);
+  function processHeading(
+    heading: Heading,
+    options: ProcessOptions = {},
+  ): DocxBlockNode {
+    const children = processInlineNodes(heading.children, options);
     return {
       type: "heading",
       level: heading.depth,
@@ -131,6 +178,7 @@ export function mdastToDocxModel(
 
   function processParagraph(
     paragraph: Paragraph,
+    options: ProcessOptions = {},
   ): DocxBlockNode | DocxBlockNode[] {
     // If the paragraph consists of a single image, treat it as a block image
     if (
@@ -156,7 +204,7 @@ export function mdastToDocxModel(
 
         blocks.push({
           type: "paragraph",
-          children: processInlineNodes(inlineBuffer),
+          children: processInlineNodes(inlineBuffer, options),
         });
         inlineBuffer = [];
       };
@@ -180,14 +228,17 @@ export function mdastToDocxModel(
     }
 
     // Regular paragraph with inline content
-    const children = processInlineNodes(paragraph.children);
+    const children = processInlineNodes(paragraph.children, options);
     return {
       type: "paragraph",
       children,
     };
   }
 
-  function processList(list: List): DocxBlockNode {
+  function processList(
+    list: List,
+    options: ProcessOptions = {},
+  ): DocxBlockNode {
     // Assign sequence ID for numbered lists
     if (list.ordered && !listSequenceMap.has(list)) {
       numberedListSequenceId++;
@@ -202,12 +253,15 @@ export function mdastToDocxModel(
       for (const child of item.children) {
         if (child.type === "list") {
           // Nested list - process recursively
-          const nestedList = processList(child as List);
+          const nestedList = processList(child as List, options);
           if (nestedList) {
             itemChildren.push(nestedList);
           }
         } else if (child.type === "paragraph") {
-          const processedParagraph = processParagraph(child as Paragraph);
+          const processedParagraph = processParagraph(
+            child as Paragraph,
+            options,
+          );
           if (Array.isArray(processedParagraph)) {
             itemChildren.push(...processedParagraph);
           } else {
@@ -215,7 +269,7 @@ export function mdastToDocxModel(
           }
         } else {
           // Other block content (headings, code blocks, etc.)
-          const processed = processNode(child);
+          const processed = processNode(child, options);
           if (processed) {
             if (Array.isArray(processed)) {
               itemChildren.push(...processed);
@@ -256,7 +310,10 @@ export function mdastToDocxModel(
     };
   }
 
-  function processBlockquote(blockquote: Blockquote): DocxBlockNode {
+  function processBlockquote(
+    blockquote: Blockquote,
+    options: ProcessOptions = {},
+  ): DocxBlockNode {
     const children: DocxBlockNode[] = [];
     const firstChild = blockquote.children[0];
     const callout =
@@ -271,7 +328,7 @@ export function mdastToDocxModel(
       : blockquote.children;
 
     for (const child of blockquoteChildren) {
-      const processed = processNode(child);
+      const processed = processNode(child, options);
       if (processed) {
         if (Array.isArray(processed)) {
           children.push(...processed);
@@ -295,21 +352,24 @@ export function mdastToDocxModel(
     };
   }
 
-  function processTable(table: Table): DocxBlockNode {
-    const headers: DocxTextNode[][] = [];
-    const rows: DocxTextNode[][][] = [];
+  function processTable(
+    table: Table,
+    options: ProcessOptions = {},
+  ): DocxBlockNode {
+    const headers: DocxInlineNode[][] = [];
+    const rows: DocxInlineNode[][][] = [];
 
     if (table.children.length > 0) {
       const headerRow = table.children[0] as TableRow;
       for (const cell of headerRow.children) {
-        headers.push(extractRichTextFromTableCell(cell as TableCell));
+        headers.push(extractRichTextFromTableCell(cell as TableCell, options));
       }
 
       for (let i = 1; i < table.children.length; i++) {
         const row = table.children[i] as TableRow;
-        const rowData: DocxTextNode[][] = [];
+        const rowData: DocxInlineNode[][] = [];
         for (const cell of row.children) {
-          rowData.push(extractRichTextFromTableCell(cell as TableCell));
+          rowData.push(extractRichTextFromTableCell(cell as TableCell, options));
         }
         rows.push(rowData);
       }
@@ -323,20 +383,27 @@ export function mdastToDocxModel(
     };
   }
 
-  function extractRichTextFromTableCell(cell: TableCell): DocxTextNode[] {
-    const nodes: DocxTextNode[] = [];
+  function extractRichTextFromTableCell(
+    cell: TableCell,
+    options: ProcessOptions = {},
+  ): DocxInlineNode[] {
+    const nodes: DocxInlineNode[] = [];
     for (const child of cell.children as any[]) {
       if (child.type === "paragraph") {
-        nodes.push(...processInlineNodes(child.children));
+        nodes.push(...processInlineNodes(child.children, options));
       } else {
-        nodes.push(...processInlineNodes([child]));
+        nodes.push(...processInlineNodes([child], options));
       }
     }
     return nodes;
   }
 
-  function processInlineNodes(nodes: any[]): DocxTextNode[] {
-    const result: DocxTextNode[] = [];
+  function processInlineNodes(
+    nodes: any[],
+    options: ProcessOptions = {},
+  ): DocxInlineNode[] {
+    const result: DocxInlineNode[] = [];
+    const allowFootnoteReferences = options.allowFootnoteReferences ?? true;
 
     function pushTextWithUnderline(value: string): void {
       const parts = value.split(/(\+\+[^+\n][\s\S]*?\+\+)/g);
@@ -364,32 +431,36 @@ export function mdastToDocxModel(
         case "emphasis": {
           const emphasisChildren = processInlineNodes(
             (node as Emphasis).children,
+            options,
           );
           for (const child of emphasisChildren) {
-            result.push({
-              ...child,
-              italic: true,
-            });
+            result.push(
+              child.type === "text" ? { ...child, italic: true } : child,
+            );
           }
           break;
         }
         case "strong": {
-          const strongChildren = processInlineNodes((node as Strong).children);
+          const strongChildren = processInlineNodes(
+            (node as Strong).children,
+            options,
+          );
           for (const child of strongChildren) {
-            result.push({
-              ...child,
-              bold: true,
-            });
+            result.push(child.type === "text" ? { ...child, bold: true } : child);
           }
           break;
         }
         case "delete": {
-          const strikeChildren = processInlineNodes((node as Delete).children);
+          const strikeChildren = processInlineNodes(
+            (node as Delete).children,
+            options,
+          );
           for (const child of strikeChildren) {
-            result.push({
-              ...child,
-              strikethrough: true,
-            });
+            result.push(
+              child.type === "text"
+                ? { ...child, strikethrough: true }
+                : child,
+            );
           }
           break;
         }
@@ -412,11 +483,33 @@ export function mdastToDocxModel(
             previous.value += (node as Link).url;
             break;
           }
-          const linkChildren = processInlineNodes((node as Link).children);
+          const linkChildren = processInlineNodes((node as Link).children, options);
           for (const child of linkChildren) {
+            result.push(
+              child.type === "text" ? { ...child, link: (node as Link).url } : child,
+            );
+          }
+          break;
+        }
+        case "footnoteReference": {
+          const footnoteReference = node as FootnoteReference;
+          const normalizedIdentifier = normalizeFootnoteIdentifier(
+            footnoteReference.identifier,
+          );
+
+          if (
+            allowFootnoteReferences &&
+            footnoteDefinitions.has(normalizedIdentifier)
+          ) {
             result.push({
-              ...child,
-              link: (node as Link).url,
+              type: "footnoteReference",
+              identifier: normalizedIdentifier,
+              id: footnoteReferenceId(normalizedIdentifier),
+            });
+          } else {
+            result.push({
+              type: "text",
+              value: `[^${footnoteLabel(footnoteReference)}]`,
             });
           }
           break;
@@ -439,6 +532,53 @@ export function mdastToDocxModel(
     }
 
     return result;
+  }
+
+  function processFootnoteDefinition(
+    definition: FootnoteDefinition,
+    id: number,
+  ): DocxFootnoteDefinitionNode {
+    const footnoteChildren: DocxBlockNode[] = [];
+
+    for (const child of definition.children) {
+      const processed = processFootnoteDefinitionChild(child);
+      if (processed) {
+        if (Array.isArray(processed)) {
+          footnoteChildren.push(...processed);
+        } else {
+          footnoteChildren.push(processed);
+        }
+      }
+    }
+
+    if (footnoteChildren.length === 0) {
+      footnoteChildren.push({
+        type: "paragraph",
+        children: [],
+      });
+    }
+
+    return {
+      identifier: normalizeFootnoteIdentifier(definition.identifier),
+      id,
+      children: footnoteChildren,
+    };
+  }
+
+  function processFootnoteDefinitionChild(
+    node: Node,
+  ): DocxBlockNode | DocxBlockNode[] | null {
+    if (node.type === "paragraph") {
+      const paragraph = node as Paragraph;
+      return {
+        type: "paragraph",
+        children: processInlineNodes(paragraph.children, {
+          allowFootnoteReferences: false,
+        }),
+      };
+    }
+
+    return processNode(node, { allowFootnoteReferences: false });
   }
 
   // Process root children
@@ -473,6 +613,10 @@ export function mdastToDocxModel(
       continue;
     }
 
+    if (child.type === "footnoteDefinition") {
+      continue;
+    }
+
     const processed = processNode(child);
     if (processed) {
       if (Array.isArray(processed)) {
@@ -483,5 +627,10 @@ export function mdastToDocxModel(
     }
   }
 
-  return { children };
+  const footnotes = Array.from(referencedFootnoteIds.entries()).map(
+    ([identifier, id]) =>
+      processFootnoteDefinition(footnoteDefinitions.get(identifier)!, id),
+  );
+
+  return { children, footnotes };
 }

@@ -1,3 +1,9 @@
+## [2.16.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.15.0...v2.16.0) (2026-06-19)
+
+### Features
+
+* add markdown math rendering ([714f960](https://github.com/MohtashamMurshid/md-to-docx/commit/714f960999163b542ae797ec8c7e64b719a8d38f))
+
 ## [2.15.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.14.0...v2.15.0) (2026-06-19)
 
 ### Features

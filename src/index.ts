@@ -52,6 +52,8 @@ const defaultOptions: Options = {
 export { MarkdownConversionError };
 
 export {
+  CalloutStyle,
+  CalloutType,
   CodeHighlightOptions,
   CodeHighlightTheme,
   DataUrlImageHandlingOptions,

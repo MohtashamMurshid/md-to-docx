@@ -1,3 +1,9 @@
+## [2.12.6](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.12.5...v2.12.6) (2026-06-19)
+
+### Bug Fixes
+
+* update undici security dependency ([bb99336](https://github.com/MohtashamMurshid/md-to-docx/commit/bb993367378443784e0c6d9020babec156e5dd52))
+
 ## [2.12.5](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.12.4...v2.12.5) (2026-06-19)
 
 ### Bug Fixes

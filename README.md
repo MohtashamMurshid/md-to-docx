@@ -74,7 +74,7 @@ This document was generated from **Markdown** in TypeScript.
 
 - Supports lists
 - **Bold**, *italic*, ++underline++, ~~strikethrough~~
-- Tables, blockquotes, images, and code blocks
+- Tables, blockquotes, GitHub-style callouts, images, and code blocks
 
 \`\`\`ts
 const greet = (name: string) => \`Hello, \${name}!\`;
@@ -283,6 +283,39 @@ await convertMarkdownToDocx(markdown, {
 
 Set `headingAlignment` to provide a fallback for any level without its own override.
 
+### GitHub-style callouts
+
+GitHub-style blockquote callouts render as styled DOCX callout blocks:
+
+```markdown
+> [!NOTE]
+> Use callouts for supporting information with **inline formatting**.
+>
+> Additional quoted paragraphs stay inside the callout.
+
+> [!WARNING]
+> Warning content renders with warning styling.
+```
+
+Supported callout markers are `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, and `CAUTION`.
+Unsupported markers, such as `> [!INFO]`, are rendered as ordinary blockquotes with the marker text preserved. Container-directive syntax such as `:::note` is not parsed and falls back to normal Markdown text.
+
+Callout colors can be customized per type:
+
+```typescript
+await convertMarkdownToDocx(markdown, {
+  style: {
+    calloutStyles: {
+      warning: {
+        borderColor: "B45309",
+        backgroundColor: "FFF7ED",
+        titleColor: "92400E",
+      },
+    },
+  },
+});
+```
+
 ### Table of Contents styling
 
 Drop `[TOC]` on its own line in your markdown to render a clickable, auto-populated table of contents. Every TOC level is individually styleable:
@@ -446,6 +479,7 @@ Text sizes
 | `inlineCodeColor`                             | `string`              | Inline code text color, RRGGBB           |
 | `inlineCodeBackground`                        | `string`              | Inline code background, RRGGBB           |
 | `blockquoteSize`                              | `number`              | Blockquote size                          |
+| `calloutStyles`                               | `Record<CalloutType, CalloutStyle>` | GitHub-style callout color overrides |
 | `tocFontSize`                                 | `number`              | TOC entry size (fallback for all levels) |
 | `tocHeading1FontSize` … `tocHeading6FontSize` | `number`              | Per-level TOC entry size                 |
 | `tocHeading1Bold` … `tocHeading6Bold`         | `boolean`             | Per-level TOC entry bold flag            |

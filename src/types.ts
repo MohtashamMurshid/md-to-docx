@@ -30,6 +30,7 @@ export interface Style {
   inlineCodeSize?: number;
   inlineCodeColor?: string;
   inlineCodeBackground?: string;
+  calloutStyles?: Partial<Record<CalloutType, CalloutStyle>>;
   tocFontSize?: number;
   // TOC level-specific styling
   tocHeading1FontSize?: number;
@@ -66,6 +67,28 @@ export interface Style {
 }
 
 export type AlignmentOption = "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
+
+export type CalloutType =
+  | "note"
+  | "tip"
+  | "important"
+  | "warning"
+  | "caution";
+
+export interface CalloutStyle {
+  /**
+   * Left border color for GitHub-style callouts, as RRGGBB.
+   */
+  borderColor?: string;
+  /**
+   * Paragraph shading fill for GitHub-style callouts, as RRGGBB.
+   */
+  backgroundColor?: string;
+  /**
+   * Label text color for GitHub-style callouts, as RRGGBB.
+   */
+  titleColor?: string;
+}
 
 export type SectionPageNumberDisplay =
   | "none"

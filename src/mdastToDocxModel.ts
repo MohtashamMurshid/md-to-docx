@@ -254,6 +254,7 @@ export function mdastToDocxModel(
       return {
         type: "image",
         alt: img.alt || "",
+        title: img.title || undefined,
         url: img.url || "",
       };
     }
@@ -281,6 +282,7 @@ export function mdastToDocxModel(
           blocks.push({
             type: "image",
             alt: image.alt || "",
+            title: image.title || undefined,
             url: image.url || "",
           });
         } else {
@@ -465,6 +467,7 @@ export function mdastToDocxModel(
     return {
       type: "image",
       alt: image.alt || "",
+      title: image.title || undefined,
       url: image.url || "",
     };
   }

@@ -37,7 +37,10 @@ import {
   processImageData,
   resolveImageHandlingOptions,
 } from "./renderers/imageRenderer.js";
-import { processChartBlock } from "./renderers/chartRenderer.js";
+import {
+  processChartBlock,
+  validateChartAccessibility,
+} from "./renderers/chartRenderer.js";
 import { parseTexMath, renderNativeMath } from "./renderers/mathRenderer.js";
 import { processInlineCode } from "./renderers/textRenderer.js";
 import { processHorizontalRule } from "./renderers/horizontalRuleRenderer.js";
@@ -51,6 +54,11 @@ import {
   pluginConversionError,
   type PluginRuntime,
 } from "./pluginRuntime.js";
+import {
+  assertImageAltPolicy,
+  runLanguage,
+  validateImageText,
+} from "./accessibility.js";
 
 /** Rendering overrides shared across inline-node renderers. */
 interface InlineOverrides {
@@ -185,6 +193,7 @@ export async function modelToDocx(
       size: overrides.size || style.paragraphSize || 24,
       font: resolveFontFamily(style),
       rightToLeft: style.direction === "RTL",
+      language: runLanguage(style),
     });
   }
 
@@ -244,6 +253,7 @@ export async function modelToDocx(
                 size: overrides.size || style.paragraphSize || 24,
                 font: resolveFontFamily(style),
                 rightToLeft: style.direction === "RTL",
+                language: runLanguage(style),
               }),
             ],
             link: node.link,
@@ -321,6 +331,7 @@ export async function modelToDocx(
                     alignment: getColumnAlignment(index),
                     style: "Strong",
                     children: renderInlineNodes(cell, { forceBold: true }),
+                    bidirectional: style.direction === "RTL",
                   }),
                 ],
                 shading: {
@@ -339,6 +350,7 @@ export async function modelToDocx(
                       new Paragraph({
                         alignment: getColumnAlignment(index),
                         children: renderInlineNodes(cell),
+                        bidirectional: style.direction === "RTL",
                       }),
                     ],
                   }),
@@ -621,6 +633,8 @@ export async function modelToDocx(
                 italics: true,
                 color: "666666",
                 font: resolveFontFamily(style),
+                language: runLanguage(style),
+                rightToLeft: style.direction === "RTL",
               }),
             ],
             ...blockquoteParagraphStyle(
@@ -977,6 +991,8 @@ export async function modelToDocx(
           text: `[Image could not be loaded: ${alt}]`,
           italics: true,
           color: "FF0000",
+          language: runLanguage(style),
+          rightToLeft: style.direction === "RTL",
         }),
       ],
       alignment: AlignmentType.CENTER,
@@ -994,6 +1010,8 @@ export async function modelToDocx(
           text: "[Chart could not be loaded: image limit reached]",
           italics: true,
           color: "FF0000",
+          language: runLanguage(style),
+          rightToLeft: style.direction === "RTL",
         }),
       ],
       alignment: AlignmentType.CENTER,
@@ -1007,6 +1025,8 @@ export async function modelToDocx(
     listMarker?: ListMarkerContext,
   ): Promise<Paragraph[]> {
     throwIfAborted(options.signal);
+    validateImageText(node.alt, node.title, "Markdown image");
+    assertImageAltPolicy(node.alt, options.accessibility, "Markdown image");
 
     const paragraphOptions = imageParagraphOptions(context, listMarker);
 
@@ -1031,6 +1051,8 @@ export async function modelToDocx(
         imageHandling,
         paragraphOptions,
         options.signal,
+        true,
+        node.title,
       );
       if (embedded) {
         processedImageCounter.count++;
@@ -1052,6 +1074,7 @@ export async function modelToDocx(
     listMarker?: ListMarkerContext,
   ): Promise<Paragraph[]> {
     throwIfAborted(options.signal);
+    validateChartAccessibility(node.value, options.accessibility);
 
     const paragraphOptions = imageParagraphOptions(context, listMarker);
 
@@ -1066,6 +1089,7 @@ export async function modelToDocx(
       options.imageHandling,
       paragraphOptions,
       options.signal,
+      options.accessibility,
     );
     if (embedded) {
       processedImageCounter.count++;
@@ -1085,6 +1109,7 @@ export async function modelToDocx(
           color: "FF0000",
           font: resolveFontFamily(style),
           rightToLeft: style.direction === "RTL",
+          language: runLanguage(style),
         }),
       ],
       alignment: AlignmentType.CENTER,
@@ -1185,9 +1210,18 @@ export async function modelToDocx(
         );
       }
 
+      const altText = result.altText ?? "";
+      validateImageText(altText, result.title, "Mermaid image");
+      assertImageAltPolicy(
+        altText,
+        options.accessibility,
+        "Mermaid renderer result",
+      );
+
       const { embedded, paragraphs } = processImageData(
         {
-          altText: "Mermaid diagram",
+          altText: altText || "Mermaid diagram",
+          title: result.title,
           data: result.data,
           contentType: result.contentType,
           source: result.source || "Mermaid diagram",

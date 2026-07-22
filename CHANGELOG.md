@@ -5,6 +5,13 @@
 - Add a true reference-DOCX style generation workflow through `convertMarkdownWithReferenceDocx`, `convertMarkdownWithReferenceDocxToArrayBuffer`, and `convertMarkdownWithReferenceDocxToBuffer`.
 - Adopt named paragraph, character, and table styles with typed ID/name overrides while preserving theme/fonts, final-section page presentation, and headers/footers without copying static reference body content.
 - Merge reference numbering, relationships, and content types with collision-safe IDs and bounded untrusted-ZIP validation, cancellation, and actionable `ReferenceDocxErrorContext` codes.
+- Add typed core, extended, and custom Word document metadata with deterministic opt-in timestamps and preserve/override behavior for reference DOCX patching.
+- Propagate Markdown, chart, and Mermaid alt text into Word drawing properties; add permissive and strict missing-alt policies.
+- Add document and per-style proofing language semantics while preserving existing RTL direction precedence, semantic headings, and repeatable table-header rows.
+
+### Documentation
+
+- Document accessibility responsibilities and the current inability to emit Word's decorative-image extension; this feature does not claim automatic WCAG or Section 508 compliance.
 
 ## [2.18.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.17.0...v2.18.0) (2026-06-19)
 

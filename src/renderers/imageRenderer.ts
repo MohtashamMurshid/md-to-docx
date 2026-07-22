@@ -8,6 +8,11 @@ import {
 } from "../utils/secureImageFetch.js";
 import { MarkdownConversionError } from "../errors.js";
 import { throwIfAborted } from "../processingLimits.js";
+import {
+  drawingAltText,
+  runLanguage,
+  validateImageText,
+} from "../accessibility.js";
 
 export {
   DEFAULT_IMAGE_HANDLING,
@@ -173,6 +178,7 @@ export interface ProcessImageResult {
 
 export interface ProcessImageDataInput {
   altText: string;
+  title?: string;
   data: Uint8Array | ArrayBuffer | Buffer;
   contentType?: string;
   source?: string;
@@ -194,6 +200,7 @@ export function processImageData(
   style: Style,
 ): ProcessImageResult {
   throwIfAborted(input.signal);
+  validateImageText(input.altText, input.title, "embedded image");
 
   const bytes =
     input.data instanceof Uint8Array
@@ -258,6 +265,11 @@ export function processImageData(
               height: finalHeight,
             },
             type: imageType,
+            altText: drawingAltText(
+              input.altText,
+              input.title,
+              "Image",
+            ),
           }),
         ],
         alignment: AlignmentType.CENTER,
@@ -265,6 +277,7 @@ export function processImageData(
           before: style.paragraphSpacing,
           after: style.paragraphSpacing,
         },
+        bidirectional: style.direction === "RTL",
       }),
     ],
   };
@@ -281,6 +294,7 @@ export async function processImage(
   paragraphOptions: Partial<IParagraphOptions> = {},
   signal?: AbortSignal,
   preserveAltText = true,
+  title?: string,
 ): Promise<ProcessImageResult> {
   try {
     throwIfAborted(signal);
@@ -374,6 +388,7 @@ export async function processImage(
     return processImageData(
       {
         altText,
+        title,
         data,
         contentType,
         source: urlForTypeDetection,
@@ -402,9 +417,12 @@ export async function processImage(
               italics: true,
               color: "FF0000",
               font: resolveFontFamily(style),
+              language: runLanguage(style),
+              rightToLeft: style.direction === "RTL",
             }),
           ],
           alignment: AlignmentType.CENTER,
+          bidirectional: style.direction === "RTL",
         }),
       ],
     };

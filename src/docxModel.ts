@@ -113,6 +113,7 @@ export interface DocxBlockquoteNode {
 export interface DocxImageNode {
   type: "image";
   alt: string;
+  title?: string;
   url: string;
   caption?: DocxCaption;
 }

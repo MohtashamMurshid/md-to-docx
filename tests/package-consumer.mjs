@@ -55,7 +55,7 @@ try {
   fs.writeFileSync(
     path.join(consumerDir, "index.ts"),
     [
-      'import { convertMarkdownToDocx, convertMarkdownWithReferenceDocxToBuffer, type ReferenceDocxGenerationOptions, type MarkdownDocxPlugin, type PluginRenderContext } from "@mohtasham/md-to-docx";',
+      'import { convertMarkdownToDocx, convertMarkdownWithReferenceDocxToBuffer, type ReferenceDocxGenerationOptions, type MarkdownDocxPlugin, type PluginRenderContext, type AccessibilityOptions, type DocumentMetadata, type Options } from "@mohtasham/md-to-docx";',
       "",
       "const plugin: MarkdownDocxPlugin = {",
       "  apiVersion: 1,",
@@ -69,8 +69,11 @@ try {
       "};",
       "",
       "async function main() {",
+      '  const metadata: DocumentMetadata = { title: "Accessible report", language: "en-GB" };',
+      '  const accessibility: AccessibilityOptions = { missingImageAltText: "throw" };',
+      "  const options: Options = { metadata, accessibility, plugins: [plugin] };",
       "  const referenceOptions: ReferenceDocxGenerationOptions = { reference: { missingStyleBehavior: \"throw\" } };",
-      '  const doc = await convertMarkdownToDocx("# Hello", { plugins: [plugin] });',
+      '  const doc = await convertMarkdownToDocx("# Hello", options);',
       "  void convertMarkdownWithReferenceDocxToBuffer;",
       "  void referenceOptions;",
       "  console.log(doc instanceof Blob);",

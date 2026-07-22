@@ -1,6 +1,7 @@
 import { AlignmentType, IParagraphStyleOptions } from "docx";
 import { Style } from "./types.js";
 import { resolveFontFamily } from "./utils/styleUtils.js";
+import { runLanguage } from "./accessibility.js";
 
 const HEADING_SPACING: { before: number; after: number }[] = [
   { before: 360, after: 240 },
@@ -40,6 +41,8 @@ export function buildParagraphStyles(style: Style): IParagraphStyleOptions[] {
           bold: true,
           color: "000000",
           font,
+          language: runLanguage(style),
+          ...(style.direction === "RTL" ? { rightToLeft: true } : {}),
         },
         paragraph: {
           spacing: { before: spacing.before, after: spacing.after },
@@ -61,6 +64,8 @@ export function buildParagraphStyles(style: Style): IParagraphStyleOptions[] {
         bold: true,
         color: "000000",
         font,
+        language: runLanguage(style),
+        ...(style.direction === "RTL" ? { rightToLeft: true } : {}),
       },
       paragraph: {
         spacing: {
@@ -77,6 +82,8 @@ export function buildParagraphStyles(style: Style): IParagraphStyleOptions[] {
       run: {
         bold: true,
         font,
+        language: runLanguage(style),
+        ...(style.direction === "RTL" ? { rightToLeft: true } : {}),
       },
     },
   ];

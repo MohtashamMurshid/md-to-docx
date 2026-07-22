@@ -1,6 +1,7 @@
 import { Paragraph, TextRun, AlignmentType, BorderStyle } from "docx";
 import { CodeHighlightOptions, Style } from "../types.js";
 import { resolveTheme, tokenizeToRuns } from "../utils/codeHighlight.js";
+import { runLanguage } from "../accessibility.js";
 
 /**
  * Processes a code block and returns appropriate paragraph formatting
@@ -34,6 +35,7 @@ export function processCodeBlock(
         color: resolvedTheme?.languageLabel || "666666",
         bold: true,
         rightToLeft: style.direction === "RTL",
+        language: runLanguage(style),
       }),
       new TextRun({
         text: "\n",
@@ -41,6 +43,7 @@ export function processCodeBlock(
         size: style.codeBlockSize || 18,
         break: 1,
         rightToLeft: style.direction === "RTL",
+        language: runLanguage(style),
       })
     );
   }
@@ -71,6 +74,7 @@ export function processCodeBlock(
           size: style.codeBlockSize || 20,
           color: resolvedTheme?.default || "444444",
           rightToLeft: style.direction === "RTL",
+          language: runLanguage(style),
         })
       );
 
@@ -82,6 +86,7 @@ export function processCodeBlock(
             size: style.codeBlockSize || 20,
             break: 1,
             rightToLeft: style.direction === "RTL",
+            language: runLanguage(style),
           })
         );
       }
@@ -126,5 +131,6 @@ export function processCodeBlock(
       left: 360,
     },
     alignment,
+    bidirectional: style.direction === "RTL",
   });
 }

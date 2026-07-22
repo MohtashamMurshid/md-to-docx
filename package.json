@@ -67,6 +67,7 @@
   },
   "dependencies": {
     "@types/mdast": "^4.0.4",
+    "@xmldom/xmldom": "^0.9.10",
     "docx": "^9.5.0",
     "file-saver": "^2.0.5",
     "jszip": "^3.10.1",

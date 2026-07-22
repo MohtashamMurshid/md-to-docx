@@ -18,6 +18,11 @@ export interface Style {
   fontFamilly?: string;
   // Text direction
   direction?: "LTR" | "RTL";
+  /**
+   * Word proofing language for content rendered with this style. A section
+   * style overrides the document metadata language for that section.
+   */
+  language?: string;
   // Font size options
   heading1Size?: number;
   heading2Size?: number;
@@ -227,6 +232,10 @@ export interface DocumentSection extends SectionConfig {
 export interface Options {
   documentType?: "document" | "report";
   style?: Partial<Style>;
+  /** Typed Word package metadata. Omitted metadata keeps legacy output. */
+  metadata?: DocumentMetadata;
+  /** Focused accessibility checks for generated media. */
+  accessibility?: AccessibilityOptions;
   toc?: TocOptions;
   /**
    * Controls Markdown math parsing and native Word equation rendering.
@@ -465,6 +474,13 @@ export interface PatchMarkdownOptions {
   documentType?: "document" | "report";
   style?: Partial<Style>;
   /**
+   * Metadata fields to override in the reference DOCX. Unspecified fields are
+   * preserved, and custom properties are merged by name.
+   */
+  metadata?: DocumentMetadata;
+  /** Focused accessibility checks for generated patch media. */
+  accessibility?: AccessibilityOptions;
+  /**
    * Array of text replacements to apply to each patch's markdown AST before
    * rendering.
    */
@@ -695,6 +711,10 @@ export interface MermaidRenderResult {
    * Optional source label for diagnostics. This is not fetched.
    */
   source?: string;
+  /** Accessible description written to the Word drawing properties. */
+  altText?: string;
+  /** Optional Word drawing title. */
+  title?: string;
 }
 
 export interface MermaidRenderingOptions {
@@ -807,6 +827,38 @@ export interface TableData {
   headers: string[];
   rows: string[][];
   align?: (string | null)[];
+}
+
+export type MissingImageAltTextBehavior = "permissive" | "throw";
+
+export interface AccessibilityOptions {
+  /**
+   * Missing or empty image alt text is allowed by default for backwards
+   * compatibility. Use "throw" to make conversion fail before image loading.
+   */
+  missingImageAltText?: MissingImageAltTextBehavior;
+}
+
+export interface DocumentMetadata {
+  title?: string;
+  subject?: string;
+  description?: string;
+  /** Preferred name for the Dublin Core creator/Word Author property. */
+  creator?: string;
+  /** Alias for creator. `creator` wins when both are provided. */
+  author?: string;
+  /** A Word keyword string or a list joined with `; `. */
+  keywords?: string | readonly string[];
+  category?: string;
+  company?: string;
+  /** BCP 47-style language tag used in package metadata and Word run styles. */
+  language?: string;
+  /** Explicit creation timestamp. Omitted timestamps are not synthesized. */
+  created?: Date | string;
+  /** Explicit modification timestamp. Omitted timestamps are not synthesized. */
+  modified?: Date | string;
+  /** String-valued Word custom document properties, merged by name in patches. */
+  custom?: Readonly<Record<string, string>>;
 }
 
 /**

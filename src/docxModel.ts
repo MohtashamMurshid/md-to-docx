@@ -2,6 +2,8 @@
  * Internal model representing docx-friendly document structure
  * This is an intermediate representation between mdast and docx objects
  */
+import type { Node } from "mdast";
+import type { PluginHandlerReference } from "./pluginRuntime.js";
 
 export interface DocxTextNode {
   type: "text";
@@ -115,6 +117,17 @@ export interface DocxTocPlaceholderNode {
   type: "tocPlaceholder";
 }
 
+export interface DocxPluginBlockNode {
+  type: "pluginBlock";
+  handler: PluginHandlerReference;
+  source:
+    | { kind: "fence"; language: string; value: string; meta?: string }
+    | { kind: "blockNode"; node: Readonly<Node>; nodeType: string };
+  children: DocxBlockNode[];
+  /** Visible text used by the default `fallback` policy for block nodes. */
+  fallbackText: string;
+}
+
 export interface DocxFootnoteDefinitionNode {
   identifier: string;
   id: number;
@@ -134,7 +147,8 @@ export type DocxBlockNode =
   | DocxTableNode
   | DocxCommentNode
   | DocxPageBreakNode
-  | DocxTocPlaceholderNode;
+  | DocxTocPlaceholderNode
+  | DocxPluginBlockNode;
 
 export interface DocxDocumentModel {
   children: DocxBlockNode[];

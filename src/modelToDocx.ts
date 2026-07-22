@@ -41,6 +41,12 @@ import { resolveFontFamily } from "./utils/styleUtils.js";
 import { sanitizeForBookmarkId } from "./utils/bookmarkUtils.js";
 import { throwIfAborted } from "./processingLimits.js";
 import { MarkdownConversionError } from "./errors.js";
+import type { PluginBlockResult, PluginInlineContent } from "./pluginTypes.js";
+import {
+  freezePluginStyle,
+  pluginConversionError,
+  type PluginRuntime,
+} from "./pluginRuntime.js";
 
 /** Rendering overrides shared across inline-node renderers. */
 interface InlineOverrides {
@@ -53,6 +59,7 @@ interface InlineOverrides {
 interface RenderContext {
   quoteLevel?: number;
   inFootnote?: boolean;
+  inList?: boolean;
   calloutType?: DocxCalloutType;
 }
 
@@ -107,6 +114,16 @@ export async function modelToDocx(
     tableWidthTwips?: number;
     /** Offset applied so footnote IDs remain unique across sections. */
     footnoteIdOffset?: number;
+    pluginRuntime?: PluginRuntime;
+    pluginElementCounter?: { count: number };
+    maxElements?: number;
+    pluginSection?: {
+      index: number;
+      count: number;
+      kind: "section" | "patch";
+      placeholder?: string;
+      contentWidthTwips: number;
+    };
   } = {},
 ): Promise<{
   children: (Paragraph | Table)[];
@@ -130,6 +147,7 @@ export async function modelToDocx(
   // Defaults to A4 portrait content width (page 11906 - default 1080 margins).
   const tableWidthTwips = renderOptions.tableWidthTwips ?? 9746;
   const mermaidFallbackCodeParagraphs = new WeakSet<object>();
+  const pluginCodeParagraphs = new WeakSet<object>();
 
   // Track numbering sequences for nested lists
   let maxSequenceId = 0;
@@ -482,6 +500,10 @@ export async function modelToDocx(
         return renderChartNode(node, context);
       }
 
+      case "pluginBlock": {
+        return renderPluginNode(node, listLevel, context);
+      }
+
       case "table": {
         return [tableFromNode(node)];
       }
@@ -636,6 +658,8 @@ export async function modelToDocx(
 
     const paragraphs: Paragraph[] = [];
 
+    const listContext: RenderContext = { ...context, inList: true };
+
     // Process children of list item
     for (const child of item.children) {
       throwIfAborted(options.signal);
@@ -645,7 +669,7 @@ export async function modelToDocx(
         const nestedParagraphs = await renderList(
           child as DocxListNode,
           level + 1,
-          context,
+          listContext,
         );
         paragraphs.push(...nestedParagraphs);
       } else if (child.type === "paragraph") {
@@ -656,7 +680,7 @@ export async function modelToDocx(
               isOrdered,
               level,
               sequenceId,
-              context,
+              listContext,
             ),
           );
         } else {
@@ -664,7 +688,7 @@ export async function modelToDocx(
             listContinuationParagraphFromInlineNodes(
               child.children,
               level,
-              context,
+              listContext,
             ),
           );
         }
@@ -677,7 +701,7 @@ export async function modelToDocx(
         const rendered = await renderBlockNodeWithListMarker(
           child,
           level,
-          context,
+          listContext,
           markerContext,
         );
         // Filter out Tables - list items should only contain Paragraphs
@@ -750,6 +774,10 @@ export async function modelToDocx(
 
     if (node.type === "mermaidBlock") {
       return renderMermaidNode(node, context, listMarker);
+    }
+
+    if (node.type === "pluginBlock") {
+      return renderPluginNode(node, listLevel, context, listMarker);
     }
 
     if (listMarker) {
@@ -1021,6 +1049,364 @@ export async function modelToDocx(
     }
   }
 
+  function pluginInlineNodes(
+    content: PluginInlineContent | readonly PluginInlineContent[],
+  ): DocxInlineNode[] {
+    const values = Array.isArray(content) ? content : [content];
+    return values.map((value) => {
+      if (typeof value === "string") {
+        return { type: "text", value };
+      }
+      if (
+        !value ||
+        value.type !== "text" ||
+        typeof value.value !== "string"
+      ) {
+        throw new Error("Plugin inline content must be text or a text descriptor");
+      }
+      return { ...value, type: "text" };
+    });
+  }
+
+  function pluginFallback(
+    node: Extract<DocxBlockNode, { type: "pluginBlock" }>,
+    listLevel: number,
+    context: RenderContext,
+    listMarker?: ListMarkerContext,
+  ): Promise<(Paragraph | Table)[]> {
+    const fallbackNode: DocxBlockNode =
+      node.source.kind === "fence"
+        ? {
+            type: "codeBlock",
+            value: node.source.value,
+            language: node.source.language,
+          }
+        : {
+            type: "paragraph",
+            children: [{ type: "text", value: node.fallbackText }],
+          };
+    if (fallbackNode.type === "paragraph" && context.inList) {
+      return Promise.resolve([
+        listMarker
+          ? listParagraphFromInlineNodes(
+              fallbackNode.children,
+              listMarker.isOrdered,
+              listMarker.level,
+              listMarker.sequenceId,
+              context,
+            )
+          : listContinuationParagraphFromInlineNodes(
+              fallbackNode.children,
+              listLevel,
+              context,
+            ),
+      ]);
+    }
+    return renderBlockNodeWithListMarker(
+      fallbackNode,
+      listLevel,
+      context,
+      listMarker,
+    );
+  }
+
+  async function renderPluginChildren(
+    node: Extract<DocxBlockNode, { type: "pluginBlock" }>,
+    listLevel: number,
+    context: RenderContext,
+    listMarker?: ListMarkerContext,
+  ): Promise<(Paragraph | Table)[]> {
+    const rendered: (Paragraph | Table)[] = [];
+    let marker = listMarker;
+    for (const child of node.children) {
+      const childOutput =
+        context.inList && child.type === "paragraph"
+          ? [
+              marker
+                ? listParagraphFromInlineNodes(
+                    child.children,
+                    marker.isOrdered,
+                    marker.level,
+                    marker.sequenceId,
+                    context,
+                  )
+                : listContinuationParagraphFromInlineNodes(
+                    child.children,
+                    listLevel,
+                    context,
+                  ),
+            ]
+          : context.inFootnote && child.type === "table"
+          ? tableFootnoteFallbackParagraphs(child)
+          : await renderBlockNodeWithListMarker(
+              child,
+              listLevel,
+              context,
+              marker,
+            );
+      rendered.push(...childOutput);
+      if (childOutput.length > 0) {
+        marker = undefined;
+      }
+    }
+    return rendered;
+  }
+
+  async function renderPluginBlockResult(
+    result: PluginBlockResult,
+    node: Extract<DocxBlockNode, { type: "pluginBlock" }>,
+    listLevel: number,
+    context: RenderContext,
+    listMarker?: ListMarkerContext,
+  ): Promise<(Paragraph | Table)[]> {
+    if (!result || typeof result !== "object" || typeof result.type !== "string") {
+      throw new Error("Plugin returned an invalid block result");
+    }
+
+    if (result.type === "skip") {
+      return [];
+    }
+    if (result.type === "children") {
+      return renderPluginChildren(node, listLevel, context, listMarker);
+    }
+    if (result.type === "image") {
+      const paragraphOptions = imageParagraphOptions(context, listMarker);
+      if (processedImageCounter.count >= imageHandling.maxImages) {
+        return [
+          imageCouldNotLoadParagraph(
+            result.alt || "plugin image limit reached",
+            paragraphOptions,
+          ),
+        ];
+      }
+      const { embedded, paragraphs } = processImageData(
+        {
+          altText: result.alt || "Plugin image",
+          data: result.data,
+          contentType: result.contentType,
+          source: result.source || `${node.handler.pluginName} plugin image`,
+          widthHint: result.width,
+          heightHint: result.height,
+          maxImageBytes: imageHandling.maxImageBytes,
+          paragraphOptions,
+          signal: options.signal,
+        },
+        style,
+      );
+      if (embedded) {
+        processedImageCounter.count++;
+      }
+      return paragraphs;
+    }
+
+    let semanticNode: DocxBlockNode;
+    if (result.type === "paragraph") {
+      const inlineNodes = pluginInlineNodes(result.children);
+      if (context.inList) {
+        return [
+          listMarker
+            ? listParagraphFromInlineNodes(
+                inlineNodes,
+                listMarker.isOrdered,
+                listMarker.level,
+                listMarker.sequenceId,
+                context,
+              )
+            : listContinuationParagraphFromInlineNodes(
+                inlineNodes,
+                listLevel,
+                context,
+              ),
+        ];
+      }
+      semanticNode = {
+        type: "paragraph",
+        children: inlineNodes,
+      };
+    } else if (result.type === "heading") {
+      semanticNode = {
+        type: "heading",
+        level: result.level,
+        children: pluginInlineNodes(result.children),
+      };
+    } else if (result.type === "codeBlock") {
+      semanticNode = {
+        type: "codeBlock",
+        value: result.value,
+        language: result.language,
+      };
+    } else if (result.type === "table") {
+      if (context.inList) {
+        throw new Error("Plugin table results are not supported inside lists");
+      }
+      semanticNode = {
+        type: "table",
+        headers: result.headers.map(pluginInlineNodes),
+        rows: result.rows.map((row) => row.map(pluginInlineNodes)),
+        align: result.align ? [...result.align] : undefined,
+      };
+      if (context.inFootnote) {
+        return tableFootnoteFallbackParagraphs(semanticNode);
+      }
+    } else {
+      throw new Error(`Unsupported plugin result type: ${(result as { type: string }).type}`);
+    }
+
+    const rendered = await renderBlockNodeWithListMarker(
+      semanticNode,
+      listLevel,
+      context,
+      listMarker,
+    );
+    if (semanticNode.type === "codeBlock") {
+      const codeParagraph = rendered[rendered.length - 1];
+      if (codeParagraph instanceof Paragraph) {
+        pluginCodeParagraphs.add(codeParagraph);
+      }
+    }
+    return rendered;
+  }
+
+  async function renderPluginNode(
+    node: Extract<DocxBlockNode, { type: "pluginBlock" }>,
+    listLevel: number,
+    context: RenderContext = {},
+    listMarker?: ListMarkerContext,
+  ): Promise<(Paragraph | Table)[]> {
+    const runtime = renderOptions.pluginRuntime;
+    const section = renderOptions.pluginSection;
+    if (!runtime || !section) {
+      return pluginFallback(node, listLevel, context, listMarker);
+    }
+
+    const snapshot = {
+      headingsLength: headings.length,
+      headingBookmarkCount: headingBookmarkCounter.count,
+      imageCount: processedImageCounter.count,
+      failedRemoteImageCount: failedRemoteImageCounter.count,
+      maxSequenceId,
+      pluginElementCount: renderOptions.pluginElementCounter?.count,
+    };
+    const restoreCoreState = (): void => {
+      headings.splice(snapshot.headingsLength);
+      headingBookmarkCounter.count = snapshot.headingBookmarkCount;
+      processedImageCounter.count = snapshot.imageCount;
+      failedRemoteImageCounter.count = snapshot.failedRemoteImageCount;
+      maxSequenceId = snapshot.maxSequenceId;
+      if (
+        renderOptions.pluginElementCounter &&
+        snapshot.pluginElementCount !== undefined
+      ) {
+        renderOptions.pluginElementCounter.count = snapshot.pluginElementCount;
+      }
+    };
+
+    const detail =
+      node.source.kind === "fence"
+        ? { language: node.source.language }
+        : { nodeType: node.source.nodeType };
+    try {
+      const result = await runtime.render(
+        node.handler,
+        node.source.kind === "fence"
+          ? {
+              language: node.source.language,
+              value: node.source.value,
+              meta: node.source.meta,
+            }
+          : { node: node.source.node, nodeType: node.source.nodeType },
+        {
+          signal: options.signal,
+          style: freezePluginStyle(style),
+          section: Object.freeze({ ...section }),
+          resources: Object.freeze({
+            imagesUsed: processedImageCounter.count,
+            maxImages: imageHandling.maxImages,
+          }),
+          parent: context.inFootnote
+            ? "footnote"
+            : context.inList
+              ? "list"
+              : context.quoteLevel
+                ? "blockquote"
+                : "root",
+          listDepth: context.inList ? listLevel + 1 : 0,
+          blockquoteDepth: context.quoteLevel ?? 0,
+        },
+      );
+
+      if (result === null || result === undefined) {
+        throw new Error("Plugin renderer returned no result");
+      }
+      const blocks = Array.isArray(result) ? result : [result];
+      const additionalElements = blocks.filter(
+        (block) => block.type !== "children" && block.type !== "skip",
+      ).length;
+      if (renderOptions.pluginElementCounter) {
+        renderOptions.pluginElementCounter.count += additionalElements;
+        if (
+          renderOptions.maxElements !== undefined &&
+          renderOptions.pluginElementCounter.count > renderOptions.maxElements
+        ) {
+          throw new MarkdownConversionError(
+            "Markdown element count exceeds maxElements",
+            {
+              ...detail,
+              plugin: node.handler.pluginName,
+              hook: node.handler.kind,
+              section,
+              elementCount: renderOptions.pluginElementCounter.count,
+              maxElements: renderOptions.maxElements,
+            },
+          );
+        }
+      }
+      const rendered: (Paragraph | Table)[] = [];
+      let marker = listMarker;
+      for (const block of blocks) {
+        const output = await renderPluginBlockResult(
+          block,
+          node,
+          listLevel,
+          context,
+          marker,
+        );
+        rendered.push(...output);
+        if (output.length > 0) {
+          marker = undefined;
+        }
+      }
+      return rendered;
+    } catch (error) {
+      if (options.signal?.aborted) {
+        throwIfAborted(options.signal);
+      }
+      if (
+        error instanceof MarkdownConversionError &&
+        error.message === "Markdown element count exceeds maxElements"
+      ) {
+        throw error;
+      }
+      if (node.handler.failureMode === "skip") {
+        restoreCoreState();
+        return [];
+      }
+      if (node.handler.failureMode === "fallback") {
+        restoreCoreState();
+        return pluginFallback(node, listLevel, context, listMarker);
+      }
+      throw pluginConversionError(
+        `Plugin "${node.handler.pluginName}" ${node.handler.kind} renderer failed: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`,
+        node.handler,
+        section,
+        detail,
+        error,
+      );
+    }
+  }
+
   function footnoteFallbackParagraph(text: string): Paragraph {
     return paragraphFromInlineNodes([
       {
@@ -1099,7 +1485,9 @@ export async function modelToDocx(
     const currentRenderedAsCode =
       node.type === "codeBlock" ||
       (node.type === "mermaidBlock" &&
-        rendered.some((child) => mermaidFallbackCodeParagraphs.has(child)));
+        rendered.some((child) => mermaidFallbackCodeParagraphs.has(child))) ||
+      (node.type === "pluginBlock" &&
+        rendered.some((child) => pluginCodeParagraphs.has(child)));
 
     // Insert a blank spacer paragraph between back-to-back code blocks so
     // Word doesn't collapse the shared borders into a single visual block.

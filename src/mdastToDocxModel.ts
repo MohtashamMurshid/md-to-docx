@@ -28,6 +28,7 @@ import type {
   DocxFootnoteDefinitionNode,
 } from "./docxModel.js";
 import { Style, Options } from "./types.js";
+import type { PluginRuntime } from "./pluginRuntime.js";
 
 interface ProcessOptions {
   allowFootnoteReferences?: boolean;
@@ -99,6 +100,7 @@ export function mdastToDocxModel(
   root: Root,
   _style: Style,
   options: Options,
+  pluginRuntime?: PluginRuntime,
 ): DocxDocumentModel {
   const children: DocxBlockNode[] = [];
   const footnoteDefinitions = new Map<string, FootnoteDefinition>();
@@ -165,8 +167,58 @@ export function mdastToDocxModel(
         // Horizontal rule - skip for now
         return null;
       default:
-        return null;
+        return processPluginBlockNode(node, options);
     }
+  }
+
+  function extractNodeText(node: Node): string {
+    const value = (node as Node & { value?: unknown }).value;
+    if (typeof value === "string") {
+      return value;
+    }
+    const nodeChildren = (node as Node & { children?: unknown }).children;
+    if (Array.isArray(nodeChildren)) {
+      return nodeChildren
+        .map((child) => extractNodeText(child as Node))
+        .filter(Boolean)
+        .join("\n");
+    }
+    return `[Unsupported Markdown node: ${node.type}]`;
+  }
+
+  function processPluginBlockNode(
+    node: Node,
+    processOptions: ProcessOptions,
+  ): DocxBlockNode | null {
+    const handler = pluginRuntime?.blockNode(node.type);
+    if (!handler) {
+      return null;
+    }
+
+    const children: DocxBlockNode[] = [];
+    const nodeChildren = (node as Node & { children?: unknown }).children;
+    if (Array.isArray(nodeChildren)) {
+      for (const child of nodeChildren) {
+        const processed = processNode(child as Node, processOptions);
+        if (Array.isArray(processed)) {
+          children.push(...processed);
+        } else if (processed) {
+          children.push(processed);
+        }
+      }
+    }
+
+    return {
+      type: "pluginBlock",
+      handler,
+      source: {
+        kind: "blockNode",
+        node,
+        nodeType: node.type,
+      },
+      children,
+      fallbackText: extractNodeText(node),
+    };
   }
 
   function processHeading(
@@ -331,6 +383,24 @@ export function mdastToDocxModel(
         language,
         value: code.value || "",
       };
+    }
+
+    if (normalizedLanguage) {
+      const handler = pluginRuntime?.fence(normalizedLanguage);
+      if (handler) {
+        return {
+          type: "pluginBlock",
+          handler,
+          source: {
+            kind: "fence",
+            language: normalizedLanguage,
+            value: code.value || "",
+            meta: code.meta || undefined,
+          },
+          children: [],
+          fallbackText: code.value || "",
+        };
+      }
     }
 
     return {

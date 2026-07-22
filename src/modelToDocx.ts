@@ -880,6 +880,11 @@ export async function modelToDocx(
     }
 
     if (listMarker) {
+      options = {
+        ...options,
+        alignment:
+          style.direction === "RTL" ? AlignmentType.RIGHT : AlignmentType.LEFT,
+      };
       if (listMarker.isOrdered) {
         options = {
           ...options,
@@ -897,6 +902,23 @@ export async function modelToDocx(
     }
 
     return options;
+  }
+
+  function taskMarkerChildren(
+    listMarker?: ListMarkerContext,
+  ): ParagraphChild[] {
+    if (listMarker?.taskChecked === undefined) return [];
+    return renderInlineNodes(
+      [
+        {
+          type: "text",
+          value: listMarker.taskChecked
+            ? TASK_MARKERS.checked
+            : TASK_MARKERS.unchecked,
+        },
+      ],
+      { size: style.listItemSize || 24 },
+    );
   }
 
   async function renderBlockNodeWithListMarker(
@@ -934,6 +956,16 @@ export async function modelToDocx(
       ];
     }
 
+    if (node.type === "image" || node.type === "chartBlock") {
+      return node.type === "image"
+        ? renderImageNode(node, context, listMarker)
+        : renderChartNode(node, context, listMarker);
+    }
+
+    if (node.type === "mermaidBlock") {
+      return renderMermaidNode(node, context, listMarker);
+    }
+
     if (listMarker?.taskChecked !== undefined) {
       return [
         listParagraphFromInlineNodes(
@@ -946,16 +978,6 @@ export async function modelToDocx(
         ),
         ...(await renderBlockNode(node, listLevel, context)),
       ];
-    }
-
-    if (node.type === "image" || node.type === "chartBlock") {
-      return node.type === "image"
-        ? renderImageNode(node, context, listMarker)
-        : renderChartNode(node, context, listMarker);
-    }
-
-    if (node.type === "mermaidBlock") {
-      return renderMermaidNode(node, context, listMarker);
     }
 
     if (node.type === "pluginBlock") {
@@ -1053,6 +1075,7 @@ export async function modelToDocx(
         options.signal,
         true,
         node.title,
+        taskMarkerChildren(listMarker),
       );
       if (embedded) {
         processedImageCounter.count++;
@@ -1090,6 +1113,7 @@ export async function modelToDocx(
       paragraphOptions,
       options.signal,
       options.accessibility,
+      taskMarkerChildren(listMarker),
     );
     if (embedded) {
       processedImageCounter.count++;
@@ -1230,6 +1254,7 @@ export async function modelToDocx(
           maxImageBytes: imageHandling.maxImageBytes,
           paragraphOptions,
           signal: options.signal,
+          prefixChildren: taskMarkerChildren(listMarker),
         },
         style,
       );

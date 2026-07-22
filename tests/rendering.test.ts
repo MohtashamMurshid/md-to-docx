@@ -587,6 +587,19 @@ Interrupting paragraph.
     expect(numberingLevels(xml)).toEqual(["0", "0", "0", "1"]);
   });
 
+  it("keeps a task marker and standalone image in the same list paragraph", async () => {
+    const xml = await render(`- [ ] ![task image](${ONE_PX_PNG})`);
+    const paragraphs = xml.match(/<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>/g) ?? [];
+    const taskImageParagraph = paragraphs.find(
+      (paragraph) => paragraph.includes("☐") && paragraph.includes("<w:drawing>"),
+    );
+
+    expect(taskImageParagraph).toBeDefined();
+    expect(taskImageParagraph).toContain("<w:numPr>");
+    expect(taskImageParagraph).toContain('<w:jc w:val="left"/>');
+    expect(numberingMarkerCount(xml)).toBe(1);
+  });
+
   it("keeps ordinary ordered and unordered list rendering unchanged", async () => {
     const xml = await render(`- ordinary bullet
 - **formatted** bullet

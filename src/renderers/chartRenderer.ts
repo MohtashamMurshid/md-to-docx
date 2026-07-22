@@ -1,5 +1,5 @@
 import { AlignmentType, Paragraph, TextRun } from "docx";
-import type { IParagraphOptions } from "docx";
+import type { IParagraphOptions, ParagraphChild } from "docx";
 import {
   ChartBlockDefinition,
   ChartBlockType,
@@ -184,6 +184,7 @@ export async function processChartBlock(
   paragraphOptions: Partial<IParagraphOptions> = {},
   signal?: AbortSignal,
   accessibility?: AccessibilityOptions,
+  prefixChildren?: readonly ParagraphChild[],
 ): Promise<ProcessImageResult> {
   const resolved = resolveChartRenderingOptions(chartRendering);
 
@@ -209,6 +210,7 @@ export async function processChartBlock(
       signal,
       false,
       title,
+      prefixChildren,
     );
     return result;
   } catch (error) {

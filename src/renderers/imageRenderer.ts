@@ -1,5 +1,5 @@
 import { Paragraph, TextRun, AlignmentType, ImageRun } from "docx";
-import type { IParagraphOptions } from "docx";
+import type { IParagraphOptions, ParagraphChild } from "docx";
 import { ImageHandlingOptions, Style } from "../types.js";
 import { resolveFontFamily } from "../utils/styleUtils.js";
 import {
@@ -189,6 +189,8 @@ export interface ProcessImageDataInput {
   signal?: AbortSignal;
   /** Preserve Markdown image alt text in Word drawing properties. */
   preserveAltText?: boolean;
+  /** Runs placed before the image, used for task markers in list items. */
+  prefixChildren?: readonly ParagraphChild[];
 }
 
 /**
@@ -249,6 +251,7 @@ export function processImageData(
       new Paragraph({
         ...(input.paragraphOptions || {}),
         children: [
+          ...(input.prefixChildren ?? []),
           new ImageRun({
             data: imageData,
             ...(input.preserveAltText
@@ -272,7 +275,8 @@ export function processImageData(
             ),
           }),
         ],
-        alignment: AlignmentType.CENTER,
+        alignment:
+          input.paragraphOptions?.alignment ?? AlignmentType.CENTER,
         spacing: {
           before: style.paragraphSpacing,
           after: style.paragraphSpacing,
@@ -295,6 +299,7 @@ export async function processImage(
   signal?: AbortSignal,
   preserveAltText = true,
   title?: string,
+  prefixChildren?: readonly ParagraphChild[],
 ): Promise<ProcessImageResult> {
   try {
     throwIfAborted(signal);
@@ -398,6 +403,7 @@ export async function processImage(
         paragraphOptions,
         signal,
         preserveAltText,
+        prefixChildren,
       },
       style,
     );

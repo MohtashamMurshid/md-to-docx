@@ -1,4 +1,8 @@
 export interface MarkdownConversionErrorContext {
+  /** Optional subsystem identifier used by structured conversion errors. */
+  phase?: string;
+  /** Optional machine-readable error code used by structured conversion errors. */
+  code?: string;
   plugin?: string;
   hook?: string;
   language?: string;

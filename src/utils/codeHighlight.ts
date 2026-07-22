@@ -2,6 +2,7 @@ import { TextRun } from "docx";
 import { common, createLowlight } from "lowlight";
 import type { Root, RootContent } from "hast";
 import { CodeHighlightOptions, CodeHighlightTheme, Style } from "../types.js";
+import { runLanguage } from "../accessibility.js";
 
 /**
  * Built-in GitHub-light inspired palette. Token class names match the
@@ -320,6 +321,7 @@ function pushTextRuns(
           size,
           color,
           rightToLeft: rtl,
+          language: runLanguage(style),
         })
       );
     }
@@ -331,6 +333,7 @@ function pushTextRuns(
           size,
           break: 1,
           rightToLeft: rtl,
+          language: runLanguage(style),
         })
       );
     }

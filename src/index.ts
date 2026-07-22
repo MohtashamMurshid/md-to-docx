@@ -15,11 +15,14 @@ import {
   MarkdownDocxPatch,
   Options,
   PatchMarkdownOptions,
+  ReferenceDocxBytes,
   ReferenceDocxInput,
+  ReferenceDocxGenerationOptions,
   SectionConfig,
   Style,
 } from "./types.js";
 import type { DocxBlockNode, DocxDocumentModel } from "./docxModel.js";
+import type { Root } from "mdast";
 import { parseMarkdownToAst, applyTextReplacements } from "./markdownAst.js";
 import { mdastToDocxModel } from "./mdastToDocxModel.js";
 import { modelToDocx } from "./modelToDocx.js";
@@ -38,13 +41,31 @@ import {
   replaceTocPlaceholders,
   TocHeadingEntry,
 } from "./tocBuilder.js";
-import { buildParagraphStyles } from "./documentStyles.js";
+import { buildDefaultStyles } from "./documentStyles.js";
 import {
   enforceElementLimit,
   enforceInputLength,
   throwIfAborted,
   yieldToAbortSignal,
 } from "./processingLimits.js";
+import {
+  buildCrossReferenceRegistry,
+  containsCaptionOrCrossReferenceSyntax,
+} from "./crossReferences.js";
+import type { CrossReferenceRegistry } from "./crossReferences.js";
+import {
+  applyReferenceDocxPresentation,
+  buildReferenceConversionOptions,
+  loadReferenceDocx,
+} from "./referenceDocx.js";
+import { PluginRuntime } from "./pluginRuntime.js";
+import type { PluginSectionContext } from "./pluginTypes.js";
+import {
+  applyDocumentMetadata,
+  normalizeDocumentMetadata,
+  validateDocumentMetadata,
+} from "./metadata.js";
+import { validateAccessibilityOptions } from "./accessibility.js";
 
 const defaultStyle: Style = {
   titleSize: 32,
@@ -68,23 +89,30 @@ type RenderedMarkdownContent = {
 };
 
 export { MarkdownConversionError };
+export type { MarkdownConversionErrorContext } from "./errors.js";
 
 export {
   CalloutStyle,
   CalloutType,
+  CaptionFailureMode,
+  CaptionOptions,
+  CaptionPlacement,
   ChartBlockDefinition,
   ChartBlockType,
   ChartDataset,
   ChartRenderer,
   ChartRendererInput,
   ChartRenderingOptions,
+  AccessibilityOptions,
   CodeHighlightOptions,
   CodeHighlightTheme,
   DataUrlImageHandlingOptions,
   DocumentSection,
+  DocumentMetadata,
   HeaderFooterContent,
   HeaderFooterGroup,
   ImageHandlingOptions,
+  MissingImageAltTextBehavior,
   MarkdownDocxPatch,
   MathRenderingOptions,
   MermaidRenderInput,
@@ -92,7 +120,16 @@ export {
   MermaidRenderingOptions,
   Options,
   PatchMarkdownOptions,
+  ReferenceDocxErrorCode,
+  ReferenceDocxErrorContext,
+  ReferenceDocxBytes,
+  ReferenceDocxGenerationOptions,
   ReferenceDocxInput,
+  ReferenceDocxModeOptions,
+  ReferenceDocxPackageLimits,
+  ReferenceDocxStyleMap,
+  ReferenceDocxStyleRole,
+  ReferenceDocxStyleSelector,
   RemoteImageHandlingOptions,
   SectionConfig,
   SectionTemplate,
@@ -104,6 +141,36 @@ export {
   TextReplacementMode,
   TocOptions,
 } from "./types.js";
+
+export {
+  MarkdownDocxPlugin,
+  MarkdownDocxPluginApiVersion,
+  PluginAstTransformContext,
+  PluginBlockNodeHandler,
+  PluginBlockNodeInput,
+  PluginBlockResult,
+  PluginChildrenResult,
+  PluginCodeBlockResult,
+  PluginConflictPolicy,
+  PluginFailureMode,
+  PluginFenceHandler,
+  PluginFenceInput,
+  PluginHeadingResult,
+  PluginImageResult,
+  PluginInlineContent,
+  PluginInlineText,
+  PluginOptions,
+  PluginParagraphResult,
+  PluginRenderContext,
+  PluginRenderResult,
+  PluginResolvedImageOptions,
+  PluginResolvedOptions,
+  PluginResourceContext,
+  PluginSectionContext,
+  PluginSetupContext,
+  PluginSkipResult,
+  PluginTableResult,
+} from "./pluginTypes.js";
 
 /**
  * Convert Markdown to Docx file
@@ -120,7 +187,16 @@ export async function convertMarkdownToDocx(
     const docxOptions = await parseToDocxOptions(markdown, options);
     await yieldToAbortSignal(options.signal);
     const doc = new Document(docxOptions);
-    const blob = await Packer.toBlob(doc);
+    let blob = await Packer.toBlob(doc);
+    if (options.metadata) {
+      blob = (await applyDocumentMetadata(
+        blob,
+        options.metadata,
+        "new",
+        "blob",
+        options.signal,
+      )) as Blob;
+    }
     await yieldToAbortSignal(options.signal);
     return blob;
   } catch (error) {
@@ -149,6 +225,93 @@ export async function convertMarkdownToBuffer(
   options: Options = defaultOptions
 ): Promise<Buffer> {
   return Buffer.from(await convertMarkdownToArrayBuffer(markdown, options));
+}
+
+/**
+ * Generate a brand-new DOCX from Markdown while adopting presentation from a
+ * reference DOCX. Unlike patchMarkdownInDocx, reference body content and
+ * placeholders are never copied.
+ */
+export async function convertMarkdownWithReferenceDocx(
+  markdown: string,
+  referenceDocx: ReferenceDocxBytes,
+  options: ReferenceDocxGenerationOptions = {},
+): Promise<Blob> {
+  const bytes = await convertMarkdownWithReferenceDocxBytes(
+    markdown,
+    referenceDocx,
+    options,
+  );
+  return new Blob([bytes], {
+    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
+}
+
+export async function convertMarkdownWithReferenceDocxToArrayBuffer(
+  markdown: string,
+  referenceDocx: ReferenceDocxBytes,
+  options: ReferenceDocxGenerationOptions = {},
+): Promise<ArrayBuffer> {
+  const bytes = await convertMarkdownWithReferenceDocxBytes(
+    markdown,
+    referenceDocx,
+    options,
+  );
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+}
+
+export async function convertMarkdownWithReferenceDocxToBuffer(
+  markdown: string,
+  referenceDocx: ReferenceDocxBytes,
+  options: ReferenceDocxGenerationOptions = {},
+): Promise<Buffer> {
+  return Buffer.from(
+    await convertMarkdownWithReferenceDocxToArrayBuffer(
+      markdown,
+      referenceDocx,
+      options,
+    ),
+  );
+}
+
+async function convertMarkdownWithReferenceDocxBytes(
+  markdown: string,
+  referenceDocx: ReferenceDocxBytes,
+  options: ReferenceDocxGenerationOptions,
+): Promise<Uint8Array> {
+  try {
+    const reference = await loadReferenceDocx(
+      referenceDocx,
+      options.reference,
+      options.signal,
+    );
+    const conversionOptions = buildReferenceConversionOptions(options, reference);
+    const generated = await convertMarkdownToArrayBuffer(
+      markdown,
+      conversionOptions,
+    );
+    return applyReferenceDocxPresentation(
+      generated,
+      reference,
+      options.reference,
+      options.signal,
+    );
+  } catch (error) {
+    if (error instanceof MarkdownConversionError) throw error;
+    throw new MarkdownConversionError(
+      `Failed to generate DOCX from reference: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`,
+      {
+        phase: "reference-docx",
+        code: "INVALID_PACKAGE",
+        originalError: error,
+      },
+    );
+  }
 }
 
 /**
@@ -212,8 +375,17 @@ export async function parseToDocxOptions(
     throwIfAborted(options.signal);
     enforceInputLength(markdown, options);
 
+    const normalizedMetadata = options.metadata
+      ? normalizeDocumentMetadata(options.metadata)
+      : undefined;
     const normalizedStyle = normalizeStyleInput(options.style);
-    const style: Style = { ...defaultStyle, ...normalizedStyle };
+    const style: Style = {
+      ...defaultStyle,
+      ...(normalizedMetadata?.language
+        ? { language: normalizedMetadata.language }
+        : {}),
+      ...normalizedStyle,
+    };
 
     const resolvedSections = resolveSections(markdown, options, style);
     const renderedSections: {
@@ -230,8 +402,30 @@ export async function parseToDocxOptions(
     const headingBookmarkCounter = { count: 0 };
     const tocPlaceholders = new WeakSet<object>();
     let elementCount = 0;
+    const pluginRuntime = await PluginRuntime.create({
+      options,
+      sectionCount: resolvedSections.length,
+    });
+    const preparedAsts: Root[] = [];
+    for (const [sectionIndex, section] of resolvedSections.entries()) {
+      preparedAsts.push(
+        await prepareMarkdownAst(section.markdown, section.style, options, {
+          pluginRuntime,
+          pluginSection: {
+            index: sectionIndex,
+            count: resolvedSections.length,
+            kind: "section",
+            contentWidthTwips: getSectionContentWidthTwips(section.config),
+          },
+        }),
+      );
+    }
+    const crossReferences = buildCrossReferenceRegistry(
+      preparedAsts,
+      options.captions,
+    );
 
-    for (const section of resolvedSections) {
+    for (const [sectionIndex, section] of resolvedSections.entries()) {
       throwIfAborted(options.signal);
       await yieldToAbortSignal(options.signal);
       const rendered = await renderMarkdownContent(
@@ -247,6 +441,15 @@ export async function parseToDocxOptions(
           tocPlaceholders,
           tableWidthTwips: getSectionContentWidthTwips(section.config),
           footnoteIdOffset: maxFootnoteId,
+          preparedAst: preparedAsts[sectionIndex],
+          crossReferences,
+          pluginRuntime,
+          pluginSection: {
+            index: sectionIndex,
+            count: resolvedSections.length,
+            kind: "section",
+            contentWidthTwips: getSectionContentWidthTwips(section.config),
+          },
         }
       );
       elementCount = rendered.elementCount;
@@ -322,8 +525,25 @@ export async function parseToDocxOptions(
       sections: docSections,
       ...(Object.keys(footnotes).length > 0 ? { footnotes } : {}),
       styles: {
-        paragraphStyles: buildParagraphStyles(style),
+        default: buildDefaultStyles(style),
       },
+      ...(crossReferences &&
+      crossReferences.definitions.size > 0 &&
+      options.captions?.updateFieldsOnOpen !== false
+        ? { features: { updateFields: true } }
+        : {}),
+      ...(normalizedMetadata
+        ? {
+            title: normalizedMetadata.title,
+            subject: normalizedMetadata.subject,
+            description: normalizedMetadata.description,
+            creator: normalizedMetadata.creator,
+            keywords: normalizedMetadata.keywords,
+            customProperties: Object.entries(normalizedMetadata.custom ?? {}).map(
+              ([name, value]) => ({ name, value }),
+            ),
+          }
+        : {}),
     };
   } catch (error) {
     if (error instanceof MarkdownConversionError) {
@@ -373,9 +593,20 @@ async function patchMarkdownInDocxWithOutput(
     const processedImageCounter = { count: 0 };
     const failedRemoteImageCounter = { count: 0 };
     const headingBookmarkCounter = { count: 0 };
+    const metadata = options.metadata
+      ? normalizeDocumentMetadata(options.metadata)
+      : undefined;
     let elementCount = 0;
+    const patchEntries = Object.entries(patches);
+    const pluginRuntime = await PluginRuntime.create({
+      options: {
+        ...options,
+        style: normalizeStyleInput(options.style),
+      },
+      sectionCount: patchEntries.length,
+    });
 
-    for (const [placeholder, patch] of Object.entries(patches)) {
+    for (const [patchIndex, [placeholder, patch]] of patchEntries.entries()) {
       throwIfAborted(options.signal);
       await yieldToAbortSignal(options.signal);
 
@@ -384,7 +615,11 @@ async function patchMarkdownInDocxWithOutput(
         ...(options.style || {}),
         ...(normalizedPatch.style || {}),
       });
-      const style: Style = { ...defaultStyle, ...normalizedStyle };
+      const style: Style = {
+        ...defaultStyle,
+        ...(metadata?.language ? { language: metadata.language } : {}),
+        ...normalizedStyle,
+      };
       const renderOptions: Options = {
         documentType: options.documentType || defaultOptions.documentType,
         style,
@@ -395,9 +630,13 @@ async function patchMarkdownInDocxWithOutput(
         chartRendering: options.chartRendering,
         codeHighlighting: options.codeHighlighting,
         imageHandling: options.imageHandling,
+        metadata: options.metadata,
+        accessibility: options.accessibility,
         maxInputLength: options.maxInputLength,
         maxElements: options.maxElements,
         signal: options.signal,
+        plugins: options.plugins,
+        pluginOptions: options.pluginOptions,
       };
 
       validateInput(normalizedPatch.markdown, renderOptions);
@@ -413,8 +652,17 @@ async function patchMarkdownInDocxWithOutput(
           failedRemoteImageCounter,
           headingBookmarkCounter,
           tableWidthTwips: options.tableWidthTwips,
+          pluginRuntime,
+          pluginSection: {
+            index: patchIndex,
+            count: patchEntries.length,
+            kind: "patch",
+            placeholder,
+            contentWidthTwips: options.tableWidthTwips ?? 9746,
+          },
           validateModel: (model) =>
             assertPatchCompatibleModel(model, placeholder),
+          validateAst: (ast) => assertPatchCompatibleAst(ast, placeholder),
         }
       );
       elementCount = rendered.elementCount;
@@ -425,7 +673,7 @@ async function patchMarkdownInDocxWithOutput(
       };
     }
 
-    const patched = await patchDocument({
+    let patched = await patchDocument({
       outputType,
       data: referenceDocx,
       patches: docxPatches,
@@ -433,6 +681,16 @@ async function patchMarkdownInDocxWithOutput(
       placeholderDelimiters: options.placeholderDelimiters,
       recursive: options.recursive ?? true,
     });
+
+    if (options.metadata) {
+      patched = await applyDocumentMetadata(
+        patched,
+        options.metadata,
+        "patch",
+        outputType,
+        options.signal,
+      ) as typeof patched;
+    }
 
     await yieldToAbortSignal(options.signal);
     return patched;
@@ -453,6 +711,8 @@ function validatePatchInputs(
   patches: Record<string, MarkdownDocxPatch>,
   options: PatchMarkdownOptions
 ): void {
+  validateDocumentMetadata(options.metadata);
+  validateAccessibilityOptions(options.accessibility);
   if (!patches || typeof patches !== "object" || Array.isArray(patches)) {
     throw new MarkdownConversionError(
       "Invalid patches: Must be an object keyed by placeholder name"
@@ -539,22 +799,19 @@ async function renderMarkdownContent(
     tocPlaceholders?: WeakSet<object>;
     tableWidthTwips?: number;
     footnoteIdOffset?: number;
+    pluginRuntime?: PluginRuntime;
+    pluginSection?: PluginSectionContext;
     validateModel?: (model: DocxDocumentModel) => void;
+    validateAst?: (ast: Root) => void;
+    crossReferences?: CrossReferenceRegistry;
+    preparedAst?: Root;
   } = {}
 ): Promise<{ content: RenderedMarkdownContent; elementCount: number }> {
-  const ast = await parseMarkdownToAst(
-    markdown,
-    options.mathRendering?.enabled !== false,
-  );
-  await yieldToAbortSignal(options.signal);
+  const ast =
+    renderOptions.preparedAst ??
+    (await prepareMarkdownAst(markdown, style, options, renderOptions));
 
-  if (options.textReplacements && options.textReplacements.length > 0) {
-    applyTextReplacements(
-      ast,
-      options.textReplacements,
-      options.textReplacementMode,
-    );
-  }
+  renderOptions.validateAst?.(ast);
 
   throwIfAborted(options.signal);
   const elementCount = enforceElementLimit(
@@ -563,8 +820,15 @@ async function renderMarkdownContent(
     renderOptions.currentElementCount ?? 0,
     options.signal
   );
+  const pluginElementCounter = { count: elementCount };
 
-  const model = mdastToDocxModel(ast, style, options);
+  const model = mdastToDocxModel(
+    ast,
+    style,
+    options,
+    renderOptions.crossReferences,
+    renderOptions.pluginRuntime,
+  );
   renderOptions.validateModel?.(model);
   throwIfAborted(options.signal);
 
@@ -576,9 +840,55 @@ async function renderMarkdownContent(
     tocPlaceholders: renderOptions.tocPlaceholders,
     tableWidthTwips: renderOptions.tableWidthTwips,
     footnoteIdOffset: renderOptions.footnoteIdOffset,
+    pluginRuntime: renderOptions.pluginRuntime,
+    pluginSection: renderOptions.pluginSection,
+    pluginElementCounter,
+    maxElements: options.maxElements,
   });
 
-  return { content, elementCount };
+  return { content, elementCount: pluginElementCounter.count };
+}
+
+async function prepareMarkdownAst(
+  markdown: string,
+  style: Style,
+  options: Options,
+  renderOptions: {
+    pluginRuntime?: PluginRuntime;
+    pluginSection?: PluginSectionContext;
+  } = {},
+): Promise<Root> {
+  throwIfAborted(options.signal);
+  let ast = await parseMarkdownToAst(
+    markdown,
+    options.mathRendering?.enabled !== false,
+  );
+  await yieldToAbortSignal(options.signal);
+  if (options.textReplacements && options.textReplacements.length > 0) {
+    applyTextReplacements(
+      ast,
+      options.textReplacements,
+      options.textReplacementMode,
+    );
+  }
+  if (renderOptions.pluginRuntime && renderOptions.pluginSection) {
+    ast = await renderOptions.pluginRuntime.transformAst(
+      ast,
+      style,
+      renderOptions.pluginSection,
+      options.signal,
+    );
+  }
+  return ast;
+}
+
+function assertPatchCompatibleAst(ast: Root, placeholder: string): void {
+  if (containsCaptionOrCrossReferenceSyntax(ast)) {
+    throw new MarkdownConversionError(
+      "Patch markdown does not support captions or cross-references yet",
+      { placeholder },
+    );
+  }
 }
 
 function assertPatchCompatibleModel(
@@ -629,6 +939,10 @@ function assertPatchCompatibleModel(
     }
 
     if (node.type === "blockquote") {
+      stack.push(...node.children);
+    }
+
+    if (node.type === "pluginBlock") {
       stack.push(...node.children);
     }
   }

@@ -1,5 +1,5 @@
 import { Paragraph, TextRun, AlignmentType, ImageRun } from "docx";
-import type { IParagraphOptions } from "docx";
+import type { IParagraphOptions, ParagraphChild } from "docx";
 import { ImageHandlingOptions, Style } from "../types.js";
 import { resolveFontFamily } from "../utils/styleUtils.js";
 import {
@@ -8,6 +8,11 @@ import {
 } from "../utils/secureImageFetch.js";
 import { MarkdownConversionError } from "../errors.js";
 import { throwIfAborted } from "../processingLimits.js";
+import {
+  drawingAltText,
+  runLanguage,
+  validateImageText,
+} from "../accessibility.js";
 
 export {
   DEFAULT_IMAGE_HANDLING,
@@ -173,6 +178,7 @@ export interface ProcessImageResult {
 
 export interface ProcessImageDataInput {
   altText: string;
+  title?: string;
   data: Uint8Array | ArrayBuffer | Buffer;
   contentType?: string;
   source?: string;
@@ -181,6 +187,10 @@ export interface ProcessImageDataInput {
   maxImageBytes?: number;
   paragraphOptions?: Partial<IParagraphOptions>;
   signal?: AbortSignal;
+  /** Preserve image alt text in Word drawing properties. Defaults to true. */
+  preserveAltText?: boolean;
+  /** Runs placed before the image, used for task markers in list items. */
+  prefixChildren?: readonly ParagraphChild[];
 }
 
 /**
@@ -192,6 +202,7 @@ export function processImageData(
   style: Style,
 ): ProcessImageResult {
   throwIfAborted(input.signal);
+  validateImageText(input.altText, input.title, "embedded image");
 
   const bytes =
     input.data instanceof Uint8Array
@@ -240,6 +251,7 @@ export function processImageData(
       new Paragraph({
         ...(input.paragraphOptions || {}),
         children: [
+          ...(input.prefixChildren ?? []),
           new ImageRun({
             data: imageData,
             transformation: {
@@ -247,13 +259,24 @@ export function processImageData(
               height: finalHeight,
             },
             type: imageType,
+            ...(input.preserveAltText !== false
+              ? {
+                  altText: drawingAltText(
+                    input.altText,
+                    input.title,
+                    "Image",
+                  ),
+                }
+              : {}),
           }),
         ],
-        alignment: AlignmentType.CENTER,
+        alignment:
+          input.paragraphOptions?.alignment ?? AlignmentType.CENTER,
         spacing: {
           before: style.paragraphSpacing,
           after: style.paragraphSpacing,
         },
+        bidirectional: style.direction === "RTL",
       }),
     ],
   };
@@ -269,6 +292,9 @@ export async function processImage(
   imageHandling?: ImageHandlingOptions,
   paragraphOptions: Partial<IParagraphOptions> = {},
   signal?: AbortSignal,
+  preserveAltText = true,
+  title?: string,
+  prefixChildren?: readonly ParagraphChild[],
 ): Promise<ProcessImageResult> {
   try {
     throwIfAborted(signal);
@@ -362,6 +388,7 @@ export async function processImage(
     return processImageData(
       {
         altText,
+        title,
         data,
         contentType,
         source: urlForTypeDetection,
@@ -370,6 +397,8 @@ export async function processImage(
         maxImageBytes: resolvedImageHandling.maxImageBytes,
         paragraphOptions,
         signal,
+        preserveAltText,
+        prefixChildren,
       },
       style,
     );
@@ -389,9 +418,12 @@ export async function processImage(
               italics: true,
               color: "FF0000",
               font: resolveFontFamily(style),
+              language: runLanguage(style),
+              rightToLeft: style.direction === "RTL",
             }),
           ],
           alignment: AlignmentType.CENTER,
+          bidirectional: style.direction === "RTL",
         }),
       ],
     };

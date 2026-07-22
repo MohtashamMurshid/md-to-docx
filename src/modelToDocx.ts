@@ -10,6 +10,8 @@ import {
   AlignmentType,
   TableLayoutType,
   WidthType,
+  Bookmark,
+  SimpleField,
 } from "docx";
 import type { IParagraphOptions, ParagraphChild } from "docx";
 import type {
@@ -20,6 +22,7 @@ import type {
   DocxListItemNode,
   DocxInlineNode,
   DocxTextNode,
+  DocxCaption,
 } from "./docxModel.js";
 import { Style, Options } from "./types.js";
 import { processHeading } from "./renderers/headingRenderer.js";
@@ -34,13 +37,28 @@ import {
   processImageData,
   resolveImageHandlingOptions,
 } from "./renderers/imageRenderer.js";
-import { processChartBlock } from "./renderers/chartRenderer.js";
+import {
+  processChartBlock,
+  validateChartAccessibility,
+} from "./renderers/chartRenderer.js";
 import { parseTexMath, renderNativeMath } from "./renderers/mathRenderer.js";
 import { processInlineCode } from "./renderers/textRenderer.js";
+import { processHorizontalRule } from "./renderers/horizontalRuleRenderer.js";
 import { resolveFontFamily } from "./utils/styleUtils.js";
 import { sanitizeForBookmarkId } from "./utils/bookmarkUtils.js";
 import { throwIfAborted } from "./processingLimits.js";
 import { MarkdownConversionError } from "./errors.js";
+import type { PluginBlockResult, PluginInlineContent } from "./pluginTypes.js";
+import {
+  freezePluginStyle,
+  pluginConversionError,
+  type PluginRuntime,
+} from "./pluginRuntime.js";
+import {
+  assertImageAltPolicy,
+  runLanguage,
+  validateImageText,
+} from "./accessibility.js";
 
 /** Rendering overrides shared across inline-node renderers. */
 interface InlineOverrides {
@@ -53,6 +71,7 @@ interface InlineOverrides {
 interface RenderContext {
   quoteLevel?: number;
   inFootnote?: boolean;
+  inList?: boolean;
   calloutType?: DocxCalloutType;
 }
 
@@ -60,7 +79,13 @@ interface ListMarkerContext {
   isOrdered: boolean;
   level: number;
   sequenceId: number | undefined;
+  taskChecked?: boolean;
 }
+
+const TASK_MARKERS = {
+  unchecked: "\u2610 ",
+  checked: "\u2612 ",
+} as const;
 
 const SAFE_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
 
@@ -107,6 +132,16 @@ export async function modelToDocx(
     tableWidthTwips?: number;
     /** Offset applied so footnote IDs remain unique across sections. */
     footnoteIdOffset?: number;
+    pluginRuntime?: PluginRuntime;
+    pluginElementCounter?: { count: number };
+    maxElements?: number;
+    pluginSection?: {
+      index: number;
+      count: number;
+      kind: "section" | "patch";
+      placeholder?: string;
+      contentWidthTwips: number;
+    };
   } = {},
 ): Promise<{
   children: (Paragraph | Table)[];
@@ -130,6 +165,7 @@ export async function modelToDocx(
   // Defaults to A4 portrait content width (page 11906 - default 1080 margins).
   const tableWidthTwips = renderOptions.tableWidthTwips ?? 9746;
   const mermaidFallbackCodeParagraphs = new WeakSet<object>();
+  const pluginCodeParagraphs = new WeakSet<object>();
 
   // Track numbering sequences for nested lists
   let maxSequenceId = 0;
@@ -157,6 +193,7 @@ export async function modelToDocx(
       size: overrides.size || style.paragraphSize || 24,
       font: resolveFontFamily(style),
       rightToLeft: style.direction === "RTL",
+      language: runLanguage(style),
     });
   }
 
@@ -189,8 +226,31 @@ export async function modelToDocx(
   ): ParagraphChild[] {
     const out: ParagraphChild[] = [];
     for (const node of nodes) {
-      if (node.type === "footnoteReference") {
-        out.push(new FootnoteReferenceRun(node.id + footnoteIdOffset));
+      if (node.type === "crossReference") {
+        out.push(
+          new SimpleField(
+            ` REF ${node.bookmarkId} \\h `,
+            `${captionLabel(node.kind)} ${node.number}`,
+          ),
+        );
+      } else if (node.type === "footnoteReference") {
+        const adjustedId = node.id + footnoteIdOffset;
+        const bookmarkId = `mdfootnote_${adjustedId}`;
+        if (node.isRepeatedReference) {
+          out.push(
+            new SimpleField(
+              ` NOTEREF ${bookmarkId} \\h \\f `,
+              String(adjustedId),
+            ),
+          );
+        } else {
+          out.push(
+            new Bookmark({
+              id: bookmarkId,
+              children: [new FootnoteReferenceRun(adjustedId)],
+            }),
+          );
+        }
       } else if (node.type === "mathInline") {
         out.push(renderMathNode(node.value, false));
       } else if (node.link && !isSafeLinkUrl(node.link)) {
@@ -209,6 +269,7 @@ export async function modelToDocx(
                 size: overrides.size || style.paragraphSize || 24,
                 font: resolveFontFamily(style),
                 rightToLeft: style.direction === "RTL",
+                language: runLanguage(style),
               }),
             ],
             link: node.link,
@@ -286,6 +347,7 @@ export async function modelToDocx(
                     alignment: getColumnAlignment(index),
                     style: "Strong",
                     children: renderInlineNodes(cell, { forceBold: true }),
+                    bidirectional: style.direction === "RTL",
                   }),
                 ],
                 shading: {
@@ -304,6 +366,7 @@ export async function modelToDocx(
                       new Paragraph({
                         alignment: getColumnAlignment(index),
                         children: renderInlineNodes(cell),
+                        bidirectional: style.direction === "RTL",
                       }),
                     ],
                   }),
@@ -327,6 +390,7 @@ export async function modelToDocx(
     level: number,
     sequenceId: number | undefined,
     context: RenderContext = {},
+    taskChecked?: boolean,
   ): Paragraph {
     const quoteStyle = context.quoteLevel
       ? blockquoteParagraphStyle(
@@ -336,7 +400,20 @@ export async function modelToDocx(
         )
       : undefined;
     const base = {
-      children: renderInlineNodes(nodes, { size: style.listItemSize || 24 }),
+      children: renderInlineNodes(
+        taskChecked === undefined
+          ? nodes
+          : [
+              {
+                type: "text",
+                value: taskChecked
+                  ? TASK_MARKERS.checked
+                  : TASK_MARKERS.unchecked,
+              },
+              ...nodes,
+            ],
+        { size: style.listItemSize || 24 },
+      ),
       spacing: {
         before: style.paragraphSpacing / 2,
         after: style.paragraphSpacing / 2,
@@ -394,9 +471,79 @@ export async function modelToDocx(
         if (node.type === "text") {
           return node.value;
         }
+        if (node.type === "crossReference") {
+          return `${captionLabel(node.kind)} ${node.number}`;
+        }
         return "";
       })
       .join("");
+  }
+
+  function captionLabel(kind: DocxCaption["kind"]): string {
+    return kind === "figure"
+      ? options.captions?.figureLabel ?? "Figure"
+      : options.captions?.tableLabel ?? "Table";
+  }
+
+  function captionParagraph(caption: DocxCaption): Paragraph {
+    const label = captionLabel(caption.kind);
+    const sequenceName =
+      caption.kind === "figure" ? "MdToDocxFigure" : "MdToDocxTable";
+    const size = options.captions?.size ?? style.paragraphSize ?? 24;
+    const forceItalic = options.captions?.italic ?? false;
+    const alignment = options.captions?.alignment
+      ? AlignmentType[options.captions.alignment]
+      : AlignmentType.CENTER;
+    const bookmark = new Bookmark({
+      id: caption.bookmarkId,
+      children: [
+        textRunFromNode(
+          { type: "text", value: `${label} ` },
+          { forceItalic, size },
+        ),
+        new SimpleField(
+          ` SEQ ${sequenceName} \\* ARABIC `,
+          String(caption.number),
+        ),
+      ],
+    });
+
+    return new Paragraph({
+      style: "Caption",
+      children: [
+        bookmark,
+        textRunFromNode(
+          { type: "text", value: ": " },
+          { forceItalic, size },
+        ),
+        ...renderInlineNodes(caption.children, { forceItalic, size }),
+      ],
+      alignment,
+      spacing: {
+        before: style.paragraphSpacing / 2,
+        after: style.paragraphSpacing,
+        line: style.lineSpacing * 240,
+      },
+      bidirectional: style.direction === "RTL",
+    });
+  }
+
+  function withCaption(
+    node: Extract<DocxBlockNode, { type: "image" | "table" }>,
+    rendered: (Paragraph | Table)[],
+  ): (Paragraph | Table)[] {
+    if (!node.caption) {
+      return rendered;
+    }
+
+    const placement =
+      node.type === "image"
+        ? options.captions?.figurePlacement ?? "below"
+        : options.captions?.tablePlacement ?? "below";
+    const caption = captionParagraph(node.caption);
+    return placement === "above"
+      ? [caption, ...rendered]
+      : [...rendered, caption];
   }
 
   async function renderBlockNode(
@@ -471,7 +618,7 @@ export async function modelToDocx(
       }
 
       case "image": {
-        return renderImageNode(node, context);
+        return withCaption(node, await renderImageNode(node, context));
       }
 
       case "mermaidBlock": {
@@ -482,8 +629,12 @@ export async function modelToDocx(
         return renderChartNode(node, context);
       }
 
+      case "pluginBlock": {
+        return renderPluginNode(node, listLevel, context);
+      }
+
       case "table": {
-        return [tableFromNode(node)];
+        return withCaption(node, [tableFromNode(node)]);
       }
 
       case "comment": {
@@ -498,6 +649,8 @@ export async function modelToDocx(
                 italics: true,
                 color: "666666",
                 font: resolveFontFamily(style),
+                language: runLanguage(style),
+                rightToLeft: style.direction === "RTL",
               }),
             ],
             ...blockquoteParagraphStyle(
@@ -511,6 +664,17 @@ export async function modelToDocx(
 
       case "pageBreak": {
         return [new Paragraph({ children: [new PageBreak()] })];
+      }
+
+      case "horizontalRule": {
+        const quoteStyle = context.quoteLevel
+          ? blockquoteParagraphStyle(
+              style,
+              context.quoteLevel,
+              context.calloutType,
+            )
+          : undefined;
+        return [processHorizontalRule(style, quoteStyle)];
       }
 
       case "tocPlaceholder": {
@@ -636,6 +800,8 @@ export async function modelToDocx(
 
     const paragraphs: Paragraph[] = [];
 
+    const listContext: RenderContext = { ...context, inList: true };
+
     // Process children of list item
     for (const child of item.children) {
       throwIfAborted(options.signal);
@@ -645,7 +811,7 @@ export async function modelToDocx(
         const nestedParagraphs = await renderList(
           child as DocxListNode,
           level + 1,
-          context,
+          listContext,
         );
         paragraphs.push(...nestedParagraphs);
       } else if (child.type === "paragraph") {
@@ -656,7 +822,8 @@ export async function modelToDocx(
               isOrdered,
               level,
               sequenceId,
-              context,
+              listContext,
+              item.checked,
             ),
           );
         } else {
@@ -664,7 +831,7 @@ export async function modelToDocx(
             listContinuationParagraphFromInlineNodes(
               child.children,
               level,
-              context,
+              listContext,
             ),
           );
         }
@@ -672,12 +839,17 @@ export async function modelToDocx(
         // Other block types - render normally but they'll appear as part of list item
         const markerContext =
           paragraphs.length === 0
-            ? { isOrdered, level, sequenceId }
+            ? {
+                isOrdered,
+                level,
+                sequenceId,
+                taskChecked: item.checked,
+              }
             : undefined;
         const rendered = await renderBlockNodeWithListMarker(
           child,
           level,
-          context,
+          listContext,
           markerContext,
         );
         // Filter out Tables - list items should only contain Paragraphs
@@ -692,7 +864,14 @@ export async function modelToDocx(
     // If no paragraphs were created, create an empty list item
     if (paragraphs.length === 0) {
       paragraphs.push(
-        listParagraphFromInlineNodes([], isOrdered, level, sequenceId, context),
+        listParagraphFromInlineNodes(
+          [],
+          isOrdered,
+          level,
+          sequenceId,
+          context,
+          item.checked,
+        ),
       );
     }
 
@@ -717,6 +896,11 @@ export async function modelToDocx(
     }
 
     if (listMarker) {
+      options = {
+        ...options,
+        alignment:
+          style.direction === "RTL" ? AlignmentType.RIGHT : AlignmentType.LEFT,
+      };
       if (listMarker.isOrdered) {
         options = {
           ...options,
@@ -736,12 +920,58 @@ export async function modelToDocx(
     return options;
   }
 
+  function taskMarkerChildren(
+    listMarker?: ListMarkerContext,
+  ): ParagraphChild[] {
+    if (listMarker?.taskChecked === undefined) return [];
+    return renderInlineNodes(
+      [
+        {
+          type: "text",
+          value: listMarker.taskChecked
+            ? TASK_MARKERS.checked
+            : TASK_MARKERS.unchecked,
+        },
+      ],
+      { size: style.listItemSize || 24 },
+    );
+  }
+
   async function renderBlockNodeWithListMarker(
     node: DocxBlockNode,
     listLevel: number,
     context: RenderContext,
     listMarker?: ListMarkerContext,
   ): Promise<(Paragraph | Table)[]> {
+    if (node.type === "horizontalRule") {
+      const quoteStyle = context.quoteLevel
+        ? blockquoteParagraphStyle(
+            style,
+            context.quoteLevel,
+            context.calloutType,
+          )
+        : undefined;
+      const quoteIndent = quoteStyle?.indent.left ?? 0;
+      return [
+        ...(listMarker
+          ? [
+              listParagraphFromInlineNodes(
+                [],
+                listMarker.isOrdered,
+                listMarker.level,
+                listMarker.sequenceId,
+                context,
+                listMarker.taskChecked,
+              ),
+            ]
+          : []),
+        processHorizontalRule(style, {
+          ...quoteStyle,
+          indent: { left: quoteIndent + 720 * (listLevel + 1) },
+        }),
+      ];
+    }
+
     if (node.type === "image" || node.type === "chartBlock") {
       return node.type === "image"
         ? renderImageNode(node, context, listMarker)
@@ -750,6 +980,24 @@ export async function modelToDocx(
 
     if (node.type === "mermaidBlock") {
       return renderMermaidNode(node, context, listMarker);
+    }
+
+    if (node.type === "pluginBlock") {
+      return renderPluginNode(node, listLevel, context, listMarker);
+    }
+
+    if (listMarker?.taskChecked !== undefined) {
+      return [
+        listParagraphFromInlineNodes(
+          [],
+          listMarker.isOrdered,
+          listMarker.level,
+          listMarker.sequenceId,
+          context,
+          listMarker.taskChecked,
+        ),
+        ...(await renderBlockNode(node, listLevel, context)),
+      ];
     }
 
     if (listMarker) {
@@ -761,6 +1009,7 @@ export async function modelToDocx(
           listMarker.level,
           listMarker.sequenceId,
           context,
+          listMarker.taskChecked,
         ),
         ...rendered,
       ];
@@ -772,14 +1021,18 @@ export async function modelToDocx(
   function imageCouldNotLoadParagraph(
     alt: string,
     paragraphOptions: Partial<IParagraphOptions> = {},
+    prefixChildren: readonly ParagraphChild[] = [],
   ): Paragraph {
     return new Paragraph({
       ...paragraphOptions,
       children: [
+        ...prefixChildren,
         new TextRun({
           text: `[Image could not be loaded: ${alt}]`,
           italics: true,
           color: "FF0000",
+          language: runLanguage(style),
+          rightToLeft: style.direction === "RTL",
         }),
       ],
       alignment: AlignmentType.CENTER,
@@ -797,6 +1050,8 @@ export async function modelToDocx(
           text: "[Chart could not be loaded: image limit reached]",
           italics: true,
           color: "FF0000",
+          language: runLanguage(style),
+          rightToLeft: style.direction === "RTL",
         }),
       ],
       alignment: AlignmentType.CENTER,
@@ -810,6 +1065,8 @@ export async function modelToDocx(
     listMarker?: ListMarkerContext,
   ): Promise<Paragraph[]> {
     throwIfAborted(options.signal);
+    validateImageText(node.alt, node.title, "Markdown image");
+    assertImageAltPolicy(node.alt, options.accessibility, "Markdown image");
 
     const paragraphOptions = imageParagraphOptions(context, listMarker);
 
@@ -834,6 +1091,9 @@ export async function modelToDocx(
         imageHandling,
         paragraphOptions,
         options.signal,
+        true,
+        node.title,
+        taskMarkerChildren(listMarker),
       );
       if (embedded) {
         processedImageCounter.count++;
@@ -855,6 +1115,7 @@ export async function modelToDocx(
     listMarker?: ListMarkerContext,
   ): Promise<Paragraph[]> {
     throwIfAborted(options.signal);
+    validateChartAccessibility(node.value, options.accessibility);
 
     const paragraphOptions = imageParagraphOptions(context, listMarker);
 
@@ -869,6 +1130,8 @@ export async function modelToDocx(
       options.imageHandling,
       paragraphOptions,
       options.signal,
+      options.accessibility,
+      taskMarkerChildren(listMarker),
     );
     if (embedded) {
       processedImageCounter.count++;
@@ -888,6 +1151,7 @@ export async function modelToDocx(
           color: "FF0000",
           font: resolveFontFamily(style),
           rightToLeft: style.direction === "RTL",
+          language: runLanguage(style),
         }),
       ],
       alignment: AlignmentType.CENTER,
@@ -988,9 +1252,18 @@ export async function modelToDocx(
         );
       }
 
+      const altText = result.altText ?? "";
+      validateImageText(altText, result.title, "Mermaid image");
+      assertImageAltPolicy(
+        altText,
+        options.accessibility,
+        "Mermaid renderer result",
+      );
+
       const { embedded, paragraphs } = processImageData(
         {
-          altText: "Mermaid diagram",
+          altText: altText || "Mermaid diagram",
+          title: result.title,
           data: result.data,
           contentType: result.contentType,
           source: result.source || "Mermaid diagram",
@@ -999,6 +1272,7 @@ export async function modelToDocx(
           maxImageBytes: imageHandling.maxImageBytes,
           paragraphOptions,
           signal: options.signal,
+          prefixChildren: taskMarkerChildren(listMarker),
         },
         style,
       );
@@ -1017,6 +1291,422 @@ export async function modelToDocx(
         error,
         context,
         listMarker,
+      );
+    }
+  }
+
+  function pluginInlineNodes(
+    content: PluginInlineContent | readonly PluginInlineContent[],
+  ): DocxInlineNode[] {
+    const values = Array.isArray(content) ? content : [content];
+    return values.map((value) => {
+      if (typeof value === "string") {
+        return { type: "text", value };
+      }
+      if (
+        !value ||
+        value.type !== "text" ||
+        typeof value.value !== "string"
+      ) {
+        throw new Error("Plugin inline content must be text or a text descriptor");
+      }
+      return { ...value, type: "text" };
+    });
+  }
+
+  function pluginInlineElementCount(
+    content: PluginInlineContent | readonly PluginInlineContent[],
+  ): number {
+    return pluginInlineNodes(content).length;
+  }
+
+  function pluginResultElementCount(result: PluginBlockResult): number {
+    if (!result || typeof result !== "object" || typeof result.type !== "string") {
+      throw new Error("Plugin returned an invalid block result");
+    }
+    switch (result.type) {
+      case "skip":
+      case "children":
+        return 0;
+      case "image":
+      case "codeBlock":
+        return 1;
+      case "paragraph":
+      case "heading":
+        return 1 + pluginInlineElementCount(result.children);
+      case "table": {
+        let count = 2;
+        for (const cell of result.headers) {
+          count += 1 + pluginInlineElementCount(cell);
+        }
+        for (const row of result.rows) {
+          count++;
+          for (const cell of row) {
+            count += 1 + pluginInlineElementCount(cell);
+          }
+        }
+        return count;
+      }
+      default:
+        throw new Error(
+          `Unsupported plugin result type: ${(result as { type: string }).type}`,
+        );
+    }
+  }
+
+  function pluginFallback(
+    node: Extract<DocxBlockNode, { type: "pluginBlock" }>,
+    listLevel: number,
+    context: RenderContext,
+    listMarker?: ListMarkerContext,
+  ): Promise<(Paragraph | Table)[]> {
+    const fallbackNode: DocxBlockNode =
+      node.source.kind === "fence"
+        ? {
+            type: "codeBlock",
+            value: node.source.value,
+            language: node.source.language,
+          }
+        : {
+            type: "paragraph",
+            children: [{ type: "text", value: node.fallbackText }],
+          };
+    if (fallbackNode.type === "paragraph" && context.inList) {
+      return Promise.resolve([
+        listMarker
+          ? listParagraphFromInlineNodes(
+              fallbackNode.children,
+              listMarker.isOrdered,
+              listMarker.level,
+              listMarker.sequenceId,
+              context,
+            )
+          : listContinuationParagraphFromInlineNodes(
+              fallbackNode.children,
+              listLevel,
+              context,
+            ),
+      ]);
+    }
+    return renderBlockNodeWithListMarker(
+      fallbackNode,
+      listLevel,
+      context,
+      listMarker,
+    );
+  }
+
+  async function renderPluginChildren(
+    node: Extract<DocxBlockNode, { type: "pluginBlock" }>,
+    listLevel: number,
+    context: RenderContext,
+    listMarker?: ListMarkerContext,
+  ): Promise<(Paragraph | Table)[]> {
+    const rendered: (Paragraph | Table)[] = [];
+    let marker = listMarker;
+    for (const child of node.children) {
+      const childOutput =
+        context.inList && child.type === "paragraph"
+          ? [
+              marker
+                ? listParagraphFromInlineNodes(
+                    child.children,
+                    marker.isOrdered,
+                    marker.level,
+                    marker.sequenceId,
+                    context,
+                  )
+                : listContinuationParagraphFromInlineNodes(
+                    child.children,
+                    listLevel,
+                    context,
+                  ),
+            ]
+          : context.inFootnote && child.type === "table"
+          ? tableFootnoteFallbackParagraphs(child)
+          : await renderBlockNodeWithListMarker(
+              child,
+              listLevel,
+              context,
+              marker,
+            );
+      rendered.push(...childOutput);
+      if (childOutput.length > 0) {
+        marker = undefined;
+      }
+    }
+    return rendered;
+  }
+
+  async function renderPluginBlockResult(
+    result: PluginBlockResult,
+    node: Extract<DocxBlockNode, { type: "pluginBlock" }>,
+    listLevel: number,
+    context: RenderContext,
+    listMarker?: ListMarkerContext,
+  ): Promise<(Paragraph | Table)[]> {
+    if (!result || typeof result !== "object" || typeof result.type !== "string") {
+      throw new Error("Plugin returned an invalid block result");
+    }
+
+    if (result.type === "skip") {
+      return [];
+    }
+    if (result.type === "children") {
+      return renderPluginChildren(node, listLevel, context, listMarker);
+    }
+    if (result.type === "image") {
+      const altText = result.alt ?? "";
+      validateImageText(altText, undefined, "Plugin image");
+      assertImageAltPolicy(
+        altText,
+        options.accessibility,
+        `plugin "${node.handler.pluginName}" image`,
+      );
+      const paragraphOptions = imageParagraphOptions(context, listMarker);
+      if (processedImageCounter.count >= imageHandling.maxImages) {
+        return [
+          imageCouldNotLoadParagraph(
+            result.alt || "plugin image limit reached",
+            paragraphOptions,
+            taskMarkerChildren(listMarker),
+          ),
+        ];
+      }
+      const { embedded, paragraphs } = processImageData(
+        {
+          altText: result.alt || "Plugin image",
+          data: result.data,
+          contentType: result.contentType,
+          source: result.source || `${node.handler.pluginName} plugin image`,
+          widthHint: result.width,
+          heightHint: result.height,
+          maxImageBytes: imageHandling.maxImageBytes,
+          paragraphOptions,
+          signal: options.signal,
+          prefixChildren: taskMarkerChildren(listMarker),
+        },
+        style,
+      );
+      if (embedded) {
+        processedImageCounter.count++;
+      }
+      return paragraphs;
+    }
+
+    let semanticNode: DocxBlockNode;
+    if (result.type === "paragraph") {
+      const inlineNodes = pluginInlineNodes(result.children);
+      if (context.inList) {
+        return [
+          listMarker
+            ? listParagraphFromInlineNodes(
+                inlineNodes,
+                listMarker.isOrdered,
+                listMarker.level,
+                listMarker.sequenceId,
+                context,
+                listMarker.taskChecked,
+              )
+            : listContinuationParagraphFromInlineNodes(
+                inlineNodes,
+                listLevel,
+                context,
+              ),
+        ];
+      }
+      semanticNode = {
+        type: "paragraph",
+        children: inlineNodes,
+      };
+    } else if (result.type === "heading") {
+      semanticNode = {
+        type: "heading",
+        level: result.level,
+        children: pluginInlineNodes(result.children),
+      };
+    } else if (result.type === "codeBlock") {
+      semanticNode = {
+        type: "codeBlock",
+        value: result.value,
+        language: result.language,
+      };
+    } else if (result.type === "table") {
+      if (context.inList) {
+        throw new Error("Plugin table results are not supported inside lists");
+      }
+      semanticNode = {
+        type: "table",
+        headers: result.headers.map(pluginInlineNodes),
+        rows: result.rows.map((row) => row.map(pluginInlineNodes)),
+        align: result.align ? [...result.align] : undefined,
+      };
+      if (context.inFootnote) {
+        return tableFootnoteFallbackParagraphs(semanticNode);
+      }
+    } else {
+      throw new Error(`Unsupported plugin result type: ${(result as { type: string }).type}`);
+    }
+
+    const rendered = await renderBlockNodeWithListMarker(
+      semanticNode,
+      listLevel,
+      context,
+      listMarker,
+    );
+    if (semanticNode.type === "codeBlock") {
+      const codeParagraph = rendered[rendered.length - 1];
+      if (codeParagraph instanceof Paragraph) {
+        pluginCodeParagraphs.add(codeParagraph);
+      }
+    }
+    return rendered;
+  }
+
+  async function renderPluginNode(
+    node: Extract<DocxBlockNode, { type: "pluginBlock" }>,
+    listLevel: number,
+    context: RenderContext = {},
+    listMarker?: ListMarkerContext,
+  ): Promise<(Paragraph | Table)[]> {
+    const runtime = renderOptions.pluginRuntime;
+    const section = renderOptions.pluginSection;
+    if (!runtime || !section) {
+      return pluginFallback(node, listLevel, context, listMarker);
+    }
+
+    const snapshot = {
+      headingsLength: headings.length,
+      headingBookmarkCount: headingBookmarkCounter.count,
+      imageCount: processedImageCounter.count,
+      failedRemoteImageCount: failedRemoteImageCounter.count,
+      maxSequenceId,
+      pluginElementCount: renderOptions.pluginElementCounter?.count,
+    };
+    const restoreCoreState = (): void => {
+      headings.splice(snapshot.headingsLength);
+      headingBookmarkCounter.count = snapshot.headingBookmarkCount;
+      processedImageCounter.count = snapshot.imageCount;
+      failedRemoteImageCounter.count = snapshot.failedRemoteImageCount;
+      maxSequenceId = snapshot.maxSequenceId;
+      if (
+        renderOptions.pluginElementCounter &&
+        snapshot.pluginElementCount !== undefined
+      ) {
+        renderOptions.pluginElementCounter.count = snapshot.pluginElementCount;
+      }
+    };
+
+    const detail =
+      node.source.kind === "fence"
+        ? { language: node.source.language }
+        : { nodeType: node.source.nodeType };
+    try {
+      const result = await runtime.render(
+        node.handler,
+        node.source.kind === "fence"
+          ? {
+              language: node.source.language,
+              value: node.source.value,
+              meta: node.source.meta,
+            }
+          : { node: node.source.node, nodeType: node.source.nodeType },
+        {
+          signal: options.signal,
+          style: freezePluginStyle(style),
+          section: Object.freeze({ ...section }),
+          resources: Object.freeze({
+            imagesUsed: processedImageCounter.count,
+            maxImages: imageHandling.maxImages,
+          }),
+          parent: context.inFootnote
+            ? "footnote"
+            : context.inList
+              ? "list"
+              : context.quoteLevel
+                ? "blockquote"
+                : "root",
+          listDepth: context.inList ? listLevel + 1 : 0,
+          blockquoteDepth: context.quoteLevel ?? 0,
+        },
+      );
+
+      if (result === null || result === undefined) {
+        throw new Error("Plugin renderer returned no result");
+      }
+      const blocks = Array.isArray(result) ? result : [result];
+      const additionalElements = blocks.reduce(
+        (count, block) => count + pluginResultElementCount(block),
+        0,
+      );
+      if (renderOptions.pluginElementCounter) {
+        renderOptions.pluginElementCounter.count += additionalElements;
+        if (
+          renderOptions.maxElements !== undefined &&
+          renderOptions.pluginElementCounter.count > renderOptions.maxElements
+        ) {
+          throw new MarkdownConversionError(
+            "Markdown element count exceeds maxElements",
+            {
+              ...detail,
+              plugin: node.handler.pluginName,
+              hook: node.handler.kind,
+              section,
+              elementCount: renderOptions.pluginElementCounter.count,
+              maxElements: renderOptions.maxElements,
+            },
+          );
+        }
+      }
+      const rendered: (Paragraph | Table)[] = [];
+      let marker = listMarker;
+      for (const block of blocks) {
+        const output = await renderPluginBlockResult(
+          block,
+          node,
+          listLevel,
+          context,
+          marker,
+        );
+        rendered.push(...output);
+        if (output.length > 0) {
+          marker = undefined;
+        }
+      }
+      return rendered;
+    } catch (error) {
+      if (options.signal?.aborted) {
+        throwIfAborted(options.signal);
+      }
+      if (
+        error instanceof MarkdownConversionError &&
+        error.message === "Markdown element count exceeds maxElements"
+      ) {
+        throw error;
+      }
+      if (
+        error instanceof MarkdownConversionError &&
+        (error.context as { missingImageAltText?: unknown } | undefined)
+          ?.missingImageAltText === "throw"
+      ) {
+        throw error;
+      }
+      if (node.handler.failureMode === "skip") {
+        restoreCoreState();
+        return [];
+      }
+      if (node.handler.failureMode === "fallback") {
+        restoreCoreState();
+        return pluginFallback(node, listLevel, context, listMarker);
+      }
+      throw pluginConversionError(
+        `Plugin "${node.handler.pluginName}" ${node.handler.kind} renderer failed: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`,
+        node.handler,
+        section,
+        detail,
+        error,
       );
     }
   }
@@ -1099,7 +1789,9 @@ export async function modelToDocx(
     const currentRenderedAsCode =
       node.type === "codeBlock" ||
       (node.type === "mermaidBlock" &&
-        rendered.some((child) => mermaidFallbackCodeParagraphs.has(child)));
+        rendered.some((child) => mermaidFallbackCodeParagraphs.has(child))) ||
+      (node.type === "pluginBlock" &&
+        rendered.some((child) => pluginCodeParagraphs.has(child)));
 
     // Insert a blank spacer paragraph between back-to-back code blocks so
     // Word doesn't collapse the shared borders into a single visual block.

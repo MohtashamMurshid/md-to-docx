@@ -30,6 +30,10 @@ function numberingMarkerCount(xml: string): number {
   return xml.match(/<w:numPr>/g)?.length || 0;
 }
 
+function horizontalRuleCount(xml: string): number {
+  return xml.match(/<w:bottom\b/g)?.length || 0;
+}
+
 function mediaFilesFromZip(zip: Awaited<ReturnType<typeof getZip>>): string[] {
   return Object.entries(zip.files)
     .filter(([p, file]) => p.startsWith("word/media/") && !file.dir)
@@ -453,7 +457,7 @@ describe("Rendering: footnotes", () => {
     expect(footnoteRels).toContain("https://example.com/fn");
   });
 
-  it("handles multiple footnotes and repeated references deterministically", async () => {
+  it("renders repeated footnote references as valid NOTEREF fields", async () => {
     const blob = await convertMarkdownToDocx(
       "First[^alpha], second[^beta], first again[^alpha].\n\n[^beta]: Beta body.\n[^alpha]: Alpha body.",
     );
@@ -466,7 +470,11 @@ describe("Rendering: footnotes", () => {
         documentXml.matchAll(/<w:footnoteReference w:id="(\d+)"\/>/g),
         (match) => match[1],
       ),
-    ).toEqual(["1", "2", "1"]);
+    ).toEqual(["1", "2"]);
+    expect(documentXml).toContain('w:name="mdfootnote_1"');
+    expect(documentXml).toContain(
+      'w:instr=" NOTEREF mdfootnote_1 \\h \\f "',
+    );
     expect(footnotesXml.indexOf('w:id="1"')).toBeLessThan(
       footnotesXml.indexOf('w:id="2"'),
     );
@@ -565,6 +573,86 @@ Interrupting paragraph.
     expect(xml).toContain("<w:drawing>");
     expect(numberingMarkerCount(xml)).toBe(1);
   });
+
+  it("renders checked, unchecked, and nested GFM task items", async () => {
+    const xml = await render(`- [ ] Pending **bold** work
+- [x] Done *today*
+- [X] Uppercase checked
+  - [ ] Nested \`code\` task`);
+
+    expect(xml.match(/☐/g)).toHaveLength(2);
+    expect(xml.match(/☒/g)).toHaveLength(2);
+    expect(xml).toContain("Pending ");
+    expect(xml).toContain("Nested ");
+    expect(xml).toContain(" task");
+    expect(xml).toContain("<w:b/>");
+    expect(xml).toContain("<w:i/>");
+    expect(xml).toContain('<w:shd w:fill="F5F5F5"/');
+    expect(numberingLevels(xml)).toEqual(["0", "0", "0", "1"]);
+  });
+
+  it("keeps a task marker and standalone image in the same list paragraph", async () => {
+    const xml = await render(`- [ ] ![task image](${ONE_PX_PNG})`);
+    const paragraphs = xml.match(/<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>/g) ?? [];
+    const taskImageParagraph = paragraphs.find(
+      (paragraph) => paragraph.includes("☐") && paragraph.includes("<w:drawing>"),
+    );
+
+    expect(taskImageParagraph).toBeDefined();
+    expect(taskImageParagraph).toContain("<w:numPr>");
+    expect(taskImageParagraph).toContain('<w:jc w:val="left"/>');
+    expect(numberingMarkerCount(xml)).toBe(1);
+  });
+
+  it("keeps ordinary ordered and unordered list rendering unchanged", async () => {
+    const xml = await render(`- ordinary bullet
+- **formatted** bullet
+
+1. ordinary number
+2. second number`);
+
+    expect(xml).not.toContain("☐");
+    expect(xml).not.toContain("☒");
+    expect(xml).toContain("ordinary bullet");
+    expect(xml).toContain("ordinary number");
+    expect(xml).toContain("<w:b/>");
+    expect(numberingMarkerCount(xml)).toBe(4);
+  });
+});
+
+describe("Rendering: thematic breaks", () => {
+  it.each(["---", "***", "___"])(
+    "renders %s as a native Word horizontal rule",
+    async (marker) => {
+      const xml = await render(`Before\n\n${marker}\n\nAfter`);
+
+      expect(horizontalRuleCount(xml)).toBe(1);
+      expect(xml).toMatch(
+        /<w:bottom w:val="single" w:color="A6A6A6" w:sz="6" w:space="1"\/>/,
+      );
+      expect(xml).toContain("Before");
+      expect(xml).toContain("After");
+    },
+  );
+
+  it("renders thematic breaks inside blockquotes and list items", async () => {
+    const xml = await render(`> Quoted before
+>
+> ***
+>
+> Quoted after
+
+- List item
+
+  ___`);
+
+    expect(horizontalRuleCount(xml)).toBe(2);
+    expect(xml).toMatch(
+      /<w:pBdr><w:bottom\b[^>]*\/><w:left\b[^>]*\/><\/w:pBdr>/,
+    );
+    expect(xml).toContain('<w:ind w:left="720"/>');
+    expect(numberingMarkerCount(xml)).toBe(1);
+  });
 });
 
 describe("Rendering: code blocks", () => {
@@ -611,7 +699,7 @@ describe("Rendering: chart blocks", () => {
     const mediaFiles = mediaFilesFromZip(zip);
 
     expect(documentXml).toContain("<w:drawing>");
-    expect(documentXml).not.toContain("Revenue chart");
+    expect(documentXml).toContain('descr="Revenue chart"');
     expect(mediaFiles).toHaveLength(1);
     expect(mediaFiles[0]).toMatch(/\.png$/);
   });

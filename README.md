@@ -24,15 +24,19 @@ A TypeScript-first library and CLI that turns Markdown into production-ready Wor
   - [React](#react)
 - [Features](#features)
   - [Multi-section documents (template + sections)](#multi-section-documents-template--sections)
+  - [Figure and table captions](#figure-and-table-captions)
   - [Syntax-highlighted code blocks](#syntax-highlighted-code-blocks)
   - [Chart fenced blocks](#chart-fenced-blocks)
   - [Mermaid diagram blocks](#mermaid-diagram-blocks)
+  - [Custom renderer plugins](#custom-renderer-plugins)
   - [Math rendering](#math-rendering)
   - [Custom heading and paragraph alignment](#custom-heading-and-paragraph-alignment)
   - [Table of Contents styling](#table-of-contents-styling)
   - [Text find-and-replace](#text-find-and-replace)
   - [Server-side processing limits](#server-side-processing-limits)
   - [RTL / bidirectional text](#rtl--bidirectional-text)
+  - [Reference DOCX style generation](#reference-docx-style-generation)
+  - [Document metadata and accessibility](#document-metadata-and-accessibility)
   - [Reference DOCX placeholder patching](#reference-docx-placeholder-patching)
 - [Supported Markdown](#supported-markdown)
 - [API reference](#api-reference)
@@ -51,7 +55,10 @@ A TypeScript-first library and CLI that turns Markdown into production-ready Wor
 - **First-class CLI** — `npx @mohtasham/md-to-docx input.md output.docx`.
 - **TypeScript-native** — fully typed options surface, including `CodeHighlightTheme`, `Options`, and `DocumentSection`.
 - **Multi-section documents** — cover pages, per-section headers/footers, page numbering resets, mixed orientations, style overrides.
+- **Captioned figures and tables** — automatic document-wide numbering, stable Word bookmarks, and clickable cross-references.
 - **Reference DOCX patching** — Node-friendly placeholder replacement for inserting generated Markdown into an existing `.docx` package.
+- **Reference DOCX style generation** — create a fresh Markdown-derived document while adopting named styles, theme/fonts, page geometry, and final-section headers/footers from a trusted or untrusted Word reference.
+- **Accessible document semantics** — real Word drawing descriptions, strict missing-alt gates, proofing language, semantic headings/table headers, and typed package metadata.
 - **Optional syntax highlighting** — opt-in, powered by `[lowlight](https://github.com/wooorm/lowlight)`; ships a GitHub-light theme and lets you override any token color.
 - **Native Word math** — Markdown `$...$` and `$$...$$` equations render as editable Word math for a documented TeX subset.
 - **Works everywhere** — Node.js (18+) and modern browsers; the package ships ESM with type declarations.
@@ -124,6 +131,8 @@ The `--options` JSON file accepts the same shape as the programmatic `Options` a
   "codeHighlighting": { "enabled": true }
 }
 ```
+
+Reference-DOCX style generation and placeholder patching require binary DOCX input, so they are programmatic APIs rather than CLI flags. The CLI continues to use ordinary `convertMarkdownToBuffer`; a JSON `reference` field is not loaded as a file path.
 
 For a multi-section document, use `template` + `sections` (the CLI ignores the positional markdown argument when `sections` is provided):
 
@@ -244,6 +253,192 @@ const blob = await convertMarkdownToDocx("", {
 
 **Precedence (last wins):** global `style` → `template.style` → per-section `style`. For `headers` / `footers`, each slot (`default`, `first`, `even`) can inherit, override, or be explicitly disabled with `null`.
 
+### Figure and table captions
+
+Use a Pandoc-style caption paragraph immediately after a standalone image or GFM table. Leave a blank line before the caption paragraph, start it with `: `, and finish it with a kind-prefixed identifier. Reference the identifier with pandoc-crossref-style `[@fig:id]` or `[@tbl:id]` syntax:
+
+```markdown
+The architecture is shown in [@fig:architecture]. Results are in [@tbl:results].
+
+![Accessible architecture diagram](architecture.png)
+
+: System *architecture* {#fig:architecture}
+
+| Metric | Value |
+| --- | ---: |
+| Accuracy | 98% |
+
+: **Evaluation** results {#tbl:results}
+```
+
+The output contains `Figure 1` and `Table 1` captions. References are native clickable Word `REF` fields; caption numbers are native `SEQ` fields wrapped in stable bookmarks. Figure and table sequences are independent and continue across every entry in `options.sections`, including forward references. Word is asked to refresh fields when the document opens, and deterministic cached values keep the generated DOCX readable before a refresh.
+
+Syntax and edge cases:
+
+- A figure must be a paragraph containing exactly one image. Its existing Markdown alt text remains the image's Word accessibility text; the separate caption paragraph supplies the visible caption and supports normal inline formatting.
+- A caption ID is case-sensitive, must use the matching `fig:` or `tbl:` prefix, cannot contain whitespace or braces, and is limited to 128 characters. Other punctuation is accepted and converted to a deterministic Word-safe bookmark.
+- The caption must be the next Markdown block. Without the blank line, Markdown treats the lines as one paragraph/table; without a valid adjacent caption, existing images and tables render unchanged.
+- By default, malformed captions, later duplicate IDs, and unresolved references remain visible as literal text. Set `captions.failureMode: "throw"` to reject them instead. The first duplicate definition wins in preserve mode.
+- Put `[@fig:id]` in inline code when it should remain literal. Caption/reference syntax is rejected with a clear validation error by the reference-DOCX patch APIs because patch order and existing bookmark collisions cannot be resolved safely yet.
+
+Labels, placement, and presentation can be adjusted without changing Markdown:
+
+```typescript
+await convertMarkdownToDocx(markdown, {
+  captions: {
+    figureLabel: "Illustration",
+    tableLabel: "Dataset",
+    figurePlacement: "below",
+    tablePlacement: "above",
+    alignment: "CENTER",
+    italic: true,
+    size: 20,
+    failureMode: "throw",
+  },
+});
+```
+
+### Reference DOCX style generation
+
+Use `convertMarkdownWithReferenceDocxToBuffer` to generate a **brand-new** document whose content comes only from Markdown while its Word presentation comes from an existing `.docx`. This is the reference-styles workflow; it does not look for placeholders and does not copy cover pages, closing paragraphs, or any other static body content from the reference.
+
+```typescript
+import {
+  convertMarkdownWithReferenceDocxToBuffer,
+} from "@mohtasham/md-to-docx";
+import fs from "node:fs/promises";
+
+const reference = await fs.readFile("corporate-reference.docx");
+const markdown = `# Quarterly Update
+
+Revenue increased **18%**.
+
+1. Confirm the forecast
+2. Publish the board pack`;
+
+const output = await convertMarkdownWithReferenceDocxToBuffer(
+  markdown,
+  reference,
+  {
+    reference: {
+      styles: {
+        normal: { name: "Corporate Body" },
+        heading1: { id: "CorpHeading1" },
+        blockquote: { name: "Executive Quote" },
+        codeBlock: { name: "Code Block" },
+        table: { name: "Corporate Table" },
+      },
+      missingStyleBehavior: "throw",
+      duplicateStyleNameBehavior: "throw",
+      preservePageLayout: true,
+      preserveHeadersAndFooters: true,
+    },
+  },
+);
+
+await fs.writeFile("quarterly-update.docx", output);
+```
+
+Style selectors are exact and deterministic. `{ id: "..." }` matches `w:styleId`; `{ name: "..." }` matches the visible `w:name`. Supported roles are `normal`, `title`, `heading1` through `heading6`, `blockquote`, `codeBlock`, `caption`, `listParagraph`, `table`, `strong`, `emphasis`, `inlineCode`, and `hyperlink`. Omitted roles try conventional Word IDs/names and otherwise retain generated formatting; when an automatic name match is duplicated, the first definition in document order wins. `null` disables reference adoption for that role. `missingStyleBehavior` applies to explicit selectors and defaults to `"fallback"`. Duplicate explicit name selectors throw by default; use an ID to disambiguate or deliberately set `duplicateStyleNameBehavior: "first"`.
+
+The package merge preserves or derives:
+
+- Reference `styles.xml`, including paragraph, character, table styles, document defaults, and style links; converter-required styles missing from the reference are appended.
+- Theme and font-table parts reached through the reference document relationships, including bounded embedded-font parts.
+- Reference numbering definitions, remapped above generated abstract/instance IDs so Markdown bullets and ordered lists cannot collide with style-linked numbering.
+- Final-reference-section page size, orientation, margins, columns/grid, page-number settings, and header/footer references. The same reference presentation is applied to every newly generated section, and table width is derived from the adopted page geometry.
+- Header/footer XML plus internal image dependencies and external hyperlinks. External relationships are never fetched during conversion.
+
+Deliberate exclusions and limitations:
+
+- Reference body content, comments, footnotes, custom properties, document settings, macros, embedded objects, and unused media are not copied.
+- Only the final reference section is used as the presentation source. Multi-section reference-body sequencing is not replayed.
+- Header/footer internal relationships other than images (for example charts, OLE objects, or `altChunk`) throw `MarkdownConversionError` instead of silently creating a broken or active-content package.
+- Caption mapping applies when generated content contains a `Caption` paragraph style; image alt text is not promoted into a separate caption by this mode.
+- `Buffer` output is Node-only. Blob/ArrayBuffer helpers work in modern browsers with in-memory DOCX bytes, but Node is the primary tested environment for reference-package workflows.
+
+Reference DOCX files are treated as untrusted ZIP packages. Entry paths are checked, external relationships are not fetched, XML DTD/entity declarations are rejected, and processing honors `AbortSignal`. Defaults are 16 MiB compressed, 64 MiB total uncompressed, 16 MiB per entry, and 512 entries; override them with `reference.limits`. Malformed packages and limit failures throw `MarkdownConversionError` with a typed `ReferenceDocxErrorContext` such as `{ phase: "reference-docx", code: "PACKAGE_LIMIT_EXCEEDED", limit, actual }`.
+
+#### Migration and design notes
+
+Choose the workflow by ownership of the body:
+
+- Use ordinary `convertMarkdownToDocx*` when the converter owns both content and styling. Its output path is unchanged when reference mode is unused.
+- Use `convertMarkdownWithReferenceDocx*` when Markdown owns all new body content and an existing DOCX supplies reusable presentation.
+- Use `patchMarkdownInDocx*` when the existing DOCX body must remain and Markdown belongs only at named placeholders.
+
+Moving from placeholder patching to reference-style generation usually means deleting placeholders from the workflow, passing the full Markdown document once, and adding role selectors for organization-specific style names. Static cover or boilerplate content must be expressed as Markdown/new sections or retained via placeholder patching; it is intentionally not inherited by reference-style generation.
+
+### Document metadata and accessibility
+
+Metadata is opt-in and shared by the whole DOCX package, including multi-section documents:
+
+```typescript
+import type { DocumentMetadata, Options } from "@mohtasham/md-to-docx";
+
+const metadata: DocumentMetadata = {
+  title: "Quarterly accessibility review",
+  subject: "Product documentation",
+  description: "Review findings and remediation status",
+  creator: "Documentation Team", // Word's Author / dc:creator
+  keywords: ["accessibility", "DOCX", "review"],
+  category: "Engineering",
+  company: "Example Co",
+  language: "en-GB",
+  created: "2026-07-01T09:00:00Z", // only emitted when supplied
+  custom: {
+    ReviewState: "Draft",
+    Build: "v3",
+  },
+};
+
+const options: Options = {
+  metadata,
+  accessibility: { missingImageAltText: "throw" },
+};
+
+const blob = await convertMarkdownToDocx(
+  `# Revenue
+
+![Bar chart comparing Q1 and Q2 revenue](./revenue.png "Quarterly revenue")`,
+  options,
+);
+```
+
+Supported package fields:
+
+| API field | Word / OOXML destination | Notes |
+| --- | --- | --- |
+| `title` | Core `dc:title` | |
+| `subject` | Core `dc:subject` | |
+| `description` | Core `dc:description` | |
+| `creator` / `author` | Core `dc:creator` (Word Author) | `creator` wins if both are supplied. |
+| `keywords` | Core `cp:keywords` | A list is joined with `; `. |
+| `category` | Core `cp:category` | |
+| `language` | Core `dc:language` and generated Word run styles | BCP 47-style tag. |
+| `company` | Extended `Company` in `docProps/app.xml` | |
+| `created`, `modified` | Core `dcterms:*` | Normalized to UTC ISO timestamps; never synthesized on the opt-in metadata path. |
+| `custom` | String-valued properties in `docProps/custom.xml` | Up to 64 properties. |
+
+For a new document, providing `metadata` creates a normalized metadata set; unspecified creation/modification timestamps are omitted. Omitting `metadata` uses the legacy packing path unchanged. For placeholder patching, omitting `metadata` preserves the reference package. Supplying it overrides only the provided core/app fields, merges provided custom properties by case-insensitive name, and preserves every unspecified reference value, including existing timestamps. There is no separate reference-style generation mode: patching continues to preserve the reference DOCX styles, while ordinary conversion creates a new document.
+
+Metadata and drawing text are untrusted input. Invalid OOXML control characters and unpaired surrogates are rejected with `MarkdownConversionError`; metadata values are limited to 4,096 characters, language tags to 64 characters, custom names to 255 characters, keyword lists to 128 entries, and image descriptions/titles to 2,048/512 characters. XML-special characters are escaped. Metadata processing performs no network lookup and observes the conversion `AbortSignal` between package operations.
+
+#### Image descriptions and strict mode
+
+- Markdown image alt text is written to the actual Word drawing `descr` property for data URLs, allowed remote images, and ordinary image URLs. A Markdown image title is written as the Word drawing name/title.
+- Chart blocks use the explicit JSON `alt`; the configured chart title becomes the drawing title. This applies to the built-in and custom chart renderer.
+- Mermaid renderers can return `altText` and `title` with their image bytes. In permissive mode, a missing value retains the compatibility fallback `Mermaid diagram`.
+- `accessibility.missingImageAltText` defaults to `"permissive"`. Set it to `"throw"` to reject missing/whitespace-only Markdown, chart, or Mermaid alt text with `MarkdownConversionError`. Normal/remote Markdown images are rejected before any fetch; charts are rejected before a custom renderer runs.
+
+Empty Markdown alt text is allowed only in permissive mode. It is **not** marked as decorative: `docx@9.5` cannot emit Word's decorative-object extension, so this package does not fake that semantic. If decorative status is required, mark it in Word after generation or use an OOXML post-processor that correctly supports that extension.
+
+#### Language, RTL, headings, and tables
+
+`metadata.language` sets the package language and is the fallback Word proofing language. Content language precedence is: `metadata.language` → global `style.language` → `template.style.language` → per-section `style.language`. `style.direction` is independent and keeps its existing global/template/section precedence: `"RTL"` emits bidirectional paragraphs, RTL runs, and the bidirectional language tag; `"LTR"` does not infer direction from the language tag. Generated Markdown headings remain real Word Heading 1–6 paragraphs with outline levels, and the first Markdown table row remains a repeatable Word table-header row.
+
+These features improve machine-readable DOCX semantics; they do **not** certify WCAG or Section 508 compliance. Consumers remain responsible for meaningful alt text, logical heading order, table complexity/scope, color contrast, link purpose, reading order, template accessibility, and an end-to-end review with Word's Accessibility Checker or an equivalent tool.
+
 ### Reference DOCX placeholder patching
 
 Use `patchMarkdownInDocxToBuffer` when you already have a Word template and want Markdown inserted at named placeholders. This workflow preserves the original DOCX package around the patched location, including existing styles, headers, footers, margins, cover pages, and static content.
@@ -293,10 +488,10 @@ Supported in this first mode:
 
 Current limitations:
 
-- This is not a "reference styles" mode for generating a brand-new DOCX from another DOCX.
+- This API patches an existing body; use `convertMarkdownWithReferenceDocx*` for a brand-new document that adopts reference styles.
 - This does not append to the end of a document unless the template contains a placeholder at that location.
 - Markdown table width is not inferred from the reference DOCX. Set `tableWidthTwips` to match the placeholder section's content width when the template differs from the default A4 portrait width.
-- Ordered lists, generated `[TOC]`, and Word comments are rejected in patch markdown because they require package-level merges that are not supported yet.
+- Ordered lists, generated `[TOC]`, Word comments, and caption/cross-reference syntax are rejected in patch markdown because they require package-level ordering or merges that are not supported safely yet.
 - Browser use may work when you provide DOCX bytes, but this workflow is designed and tested for Node.
 
 ### Syntax-highlighted code blocks
@@ -364,6 +559,8 @@ await convertMarkdownToDocx(markdown, {
 
 Supported built-in chart types are `bar`, `line`, `pie`, and `doughnut`. `data.datasets[].data` must contain finite numbers; `data.labels` is optional and must be an array of strings when present. `width` and `height` can be set per block, otherwise `chartRendering.width` / `chartRendering.height` are used. Invalid chart JSON or schema issues render a visible placeholder by default; set `invalidDefinitionBehavior: "throw"` to fail conversion with `MarkdownConversionError`.
 
+Set the block's `alt` to a meaningful chart description. Strict accessibility mode requires it. If `options.plugins.title.text` is present, it is also written as the Word drawing title.
+
 The built-in renderer is offline and has no network, native canvas, or browser runtime dependency. It produces simple PNG geometry for the supported subset. For full Chart.js layout, fonts, plugins, or custom drawing, pass `chartRendering.renderer`; the callback receives the parsed definition plus resolved dimensions and must return a PNG data URL or PNG bytes. In Node, that renderer can use optional project dependencies such as `chart.js` with `canvas` or `skia-canvas`; those packages are not bundled by `@mohtasham/md-to-docx`.
 
 ### Mermaid diagram blocks
@@ -391,6 +588,8 @@ await convertMarkdownToDocx(markdown, {
         data: pngBytes,
         contentType: "image/png",
         width: 640,
+        altText: "Flow from Start to Done",
+        title: "Process flow",
       };
     },
   },
@@ -400,6 +599,140 @@ await convertMarkdownToDocx(markdown, {
 Rendered diagrams use the same image sizing and `imageHandling.maxImages` / `maxImageBytes` limits as normal embedded images. If rendering is unavailable or fails, the default `failureMode` is `"codeBlock"` so the original Mermaid source remains in the document. Set `failureMode: "placeholder"` to emit a visible failure paragraph, or `"throw"` to fail conversion with `MarkdownConversionError`.
 
 Security note: run Mermaid or browser-based renderers with the same care as any server-side rendering pipeline for untrusted input. Use request timeouts, `AbortSignal`, process isolation or sandboxing, memory limits, and a vetted Mermaid configuration. The CLI options JSON cannot provide a renderer function, so CLI-only usage preserves Mermaid fences as code unless wrapped by a host application.
+
+### Custom renderer plugins
+
+Programmatic consumers can add custom fenced blocks and transformed block-level mdast nodes through the versioned plugin API. The surface is deliberately block-focused: API version 1 does not expose raw `docx` objects, internal model nodes, inline-node handlers, parser grammar configuration, or document-package mutation. This keeps numbering, image relationships, bookmarks, footnotes, comments, tables, and future internal refactors under core control.
+
+| Stage | Public hook | Purpose |
+| --- | --- | --- |
+| Document setup | `setup` | Initialize isolated state once, shared across the conversion's sections or patches. No end hook is exposed because plugins cannot mutate the finished DOCX package. |
+| AST transformation | `transformAst` | Inspect, mutate, or replace the parsed section-local mdast before limits/model conversion. This is not a parser grammar hook. |
+| Fence recognition + render | `fencedBlocks[]` | Claim normalized fence languages and return semantic DOCX-safe blocks. |
+| Block-node render | `blockNodes[]` | Render custom block node types introduced by an AST transformer. |
+
+#### Simple custom fence
+
+This complete example turns a `notice` fence into a styled semantic paragraph:
+
+````typescript
+import {
+  convertMarkdownToBuffer,
+  type MarkdownDocxPlugin,
+} from "@mohtasham/md-to-docx";
+import { writeFile } from "node:fs/promises";
+
+const noticePlugin: MarkdownDocxPlugin = {
+  apiVersion: 1,
+  name: "example.notice",
+  fencedBlocks: [
+    {
+      languages: ["notice"],
+      failureMode: "fallback",
+      render({ value }) {
+        return {
+          type: "paragraph",
+          children: [
+            { type: "text", value: "Notice: ", bold: true },
+            { type: "text", value },
+          ],
+        };
+      },
+    },
+  ],
+};
+
+const markdown = `\`\`\`notice
+Deploy after the database migration.
+\`\`\``;
+
+await writeFile(
+  "notice.docx",
+  await convertMarkdownToBuffer(markdown, { plugins: [noticePlugin] }),
+);
+````
+
+Fence languages are normalized to lowercase. The result may be a semantic `paragraph`, `heading`, `codeBlock`, `image`, or `table`, an array of those blocks, `context.renderChildren()`, or `{ type: "skip" }`. Plugin images accept bytes only and pass through the core `maxImages` and `maxImageBytes` budgets. Raw `Paragraph` and `Table` instances from `docx` are not supported; returning them is an invalid result and follows the handler's failure policy.
+
+#### Reusable block-node plugin
+
+`transformAst` runs on the section-local mdast after core text replacements and before `maxElements` is enforced. It may mutate the tree or return a replacement root. The example below promotes paragraphs written as `:::tip text` into a custom block node, including when nested in a list, blockquote, callout, or footnote. `renderChildren()` is the controlled way to ask core to render that node's already-processed block children.
+
+```typescript
+import type { Node, Parent, Paragraph, Text } from "mdast";
+import type { MarkdownDocxPlugin } from "@mohtasham/md-to-docx";
+
+function rewriteTips(parent: Parent): void {
+  parent.children = parent.children.map((node) => {
+    if (node.type === "paragraph") {
+      const paragraph = node as Paragraph;
+      const first = paragraph.children[0];
+      if (first?.type === "text" && first.value.startsWith(":::tip ")) {
+        const value = (first as Text).value.slice(":::tip ".length);
+        return {
+          type: "tipDirective",
+          children: [
+            {
+              type: "paragraph",
+              children: [{ type: "text", value }],
+            },
+          ],
+        } as unknown as Node;
+      }
+    }
+
+    if ("children" in node && Array.isArray(node.children)) {
+      rewriteTips(node as Parent);
+    }
+    return node;
+  }) as Parent["children"];
+}
+
+export function createTipPlugin(): MarkdownDocxPlugin<{ rendered: number }> {
+  return {
+    apiVersion: 1,
+    name: "example.tip-directive",
+    priority: 10,
+    setup: () => ({ rendered: 0 }),
+    transformAst(root) {
+      rewriteTips(root);
+    },
+    blockNodes: [
+      {
+        nodeTypes: ["tipDirective"],
+        failureMode: "throw",
+        render(_input, context) {
+          context.state.rendered++;
+          return [
+            { type: "paragraph", children: [{ type: "text", value: "Tip", bold: true }] },
+            context.renderChildren(),
+          ];
+        },
+      },
+    ],
+  };
+}
+```
+
+API version 1 intentionally provides an AST transformation hook, not a parser-extension hook. The built-in Markdown grammar remains `remark-parse` + GFM + optional math. A transformer can promote parsed nodes into custom block types as above; adding an entirely new micromark/remark grammar is reserved for a future API version.
+
+#### Lifecycle, ordering, conflicts, and failures
+
+- `setup` runs once per conversion in plugin order. Its return value is isolated to that plugin and shared across every section or reference-DOCX patch in the conversion.
+- Plugins run by descending integer `priority` (`-1000` to `1000`), then registration order. `transformAst` and render callbacks may be synchronous or asynchronous and receive the conversion `AbortSignal`.
+- Names must be unique stable lowercase identifiers. Duplicate names and duplicate names within a handler always fail. Overlapping handlers fail by default; `pluginOptions: { conflictPolicy: "use-priority" }` chooses the first plugin in deterministic order.
+- Enabled Mermaid and chart rendering is built in and cannot be overridden. Claiming `mermaid`, `chart`, or `chartjs` while its built-in renderer is enabled fails during validation. When the built-in is disabled, a plugin may claim that language. Built-in mdast node types can never be overridden.
+- Handler `failureMode` defaults to `"fallback"`: fences render as their original code block and custom nodes render extracted text. `"skip"` emits nothing; `"throw"` raises `MarkdownConversionError`. Thrown errors include `plugin`, `hook`, `language` or `nodeType`, and section/placeholder context.
+
+Plugin tables are valid at the top level, in blockquotes/callouts, and in normal document sections. Word list items can contain only paragraphs in the current internal renderer, so a plugin table inside a list fails or follows the configured fallback instead of being silently dropped. Tables in footnotes use the same documented plain-text fallback as Markdown tables. Heading results participate in bookmark and TOC counters. Plugin output also consumes `maxElements`; plugin image results share document-wide image budgets across sections and patches.
+
+#### Trust and runtime boundaries
+
+Plugins are trusted executable JavaScript. Never construct them from API input, uploaded configuration, a database value, or CLI JSON. The CLI cannot load plugin functions and rejects JSON that attempts to configure them; use a trusted Node/browser wrapper and pass plugins directly.
+
+Core still checks `maxInputLength`, transformed AST and plugin output against `maxElements`, cancellation, and returned image bytes against `maxImages` / `maxImageBytes`. A trusted plugin can perform arbitrary I/O itself, so its own network calls are outside `imageHandling.remote` SSRF controls. Use sandboxing, timeouts, allowlists, and resource limits for plugins that process untrusted Markdown. The API works in Node and modern browsers when the plugin and its dependencies do; do not import Node-only modules in browser plugins.
+
+Existing Mermaid and chart callbacks remain source-compatible and are not implemented as public plugins. Their precise fallback and validation behavior is unchanged. With `plugins` omitted or empty, the parse/model/render path and default output are unchanged. The same plugin API is available to `patchMarkdownInDocx*`; reference-DOCX restrictions such as no ordered-list package merge continue to apply.
 
 ### Math rendering
 
@@ -577,16 +910,28 @@ await convertMarkdownToDocx(markdown, {
 | Mermaid diagrams  | `````mermaid                   | Opt-in image rendering; code fallback                |
 | Chart blocks      | `````chart / chartjs           | Opt-in PNG rendering; Chart.js-like JSON subset      |
 | Lists             | `-`, `*`, `1.`                 | Bullet, numbered, nested, rich formatting inside     |
+| Task lists        | `- [ ]`, `- [x]`, `- [X]`     | GFM; unchecked `☐`, checked `☒`; preserves nesting   |
 | Tables            | `\| a \| b \|`                 | GFM tables                                           |
 | Blockquotes       | `> text`                       |                                                      |
 | Callouts          | `> [!NOTE]`                    | GitHub-style callout blocks                          |
 | Links             | `[text](url)`                  |                                                      |
 | Images            | `![alt](url)`                  | HTTP(S) and `data:` URLs; supports `#w=...&h=...` sizing |
+| Figure captions   | `: Caption {#fig:id}`          | Place after a standalone image; automatic numbering      |
+| Table captions    | `: Caption {#tbl:id}`          | Place after a GFM table; automatic numbering             |
+| Cross-references  | `[@fig:id]`, `[@tbl:id]`       | Native clickable Word references; forward refs supported |
 | Footnotes         | `Text[^1]` + `[^1]: Note text` | Native Word footnotes                                |
-| Horizontal rule   | `---`                          | Skipped during conversion                            |
+| Horizontal rule   | `---`, `***`, `___`            | Native Word paragraph border                         |
 | Table of Contents | `[TOC]`                        | Clickable, auto-populated                            |
 | Page break        | `\pagebreak`                   | Place on its own line                                |
 | Comments          | `<!-- COMMENT: text -->`       | Rendered as Word comments                            |
+
+Task-list checkboxes use Unicode ballot-box text (`☐` U+2610 and `☒` U+2612)
+inside the existing Word list paragraph. This deterministic representation has
+no form controls, macros, or font-specific Wingdings encoding, so task items
+retain normal bullet/number markers, nesting, and inline formatting across DOCX
+readers. The checkboxes are display-only, not interactive controls.
+
+Reference-style generation supports the same Markdown surface, including ordered/bullet lists, tables, images, links, footnotes, and generated TOCs. Package-level parts produced from Markdown remain owned by the converter; reference numbering and presentation parts are merged around them with collision-safe IDs.
 
 Markdown footnotes use the GFM/remark syntax:
 
@@ -619,6 +964,18 @@ Converts Markdown text to DOCX bytes in any runtime with `ArrayBuffer` support.
 
 Node-friendly helper for writing DOCX output to disk, object storage, or HTTP responses.
 
+### `convertMarkdownWithReferenceDocx(markdown, referenceDocx, options?): Promise<Blob>`
+
+Generates a fresh Markdown-derived DOCX and adopts named styles and selected presentation parts from reference DOCX bytes. The reference body is excluded.
+
+### `convertMarkdownWithReferenceDocxToArrayBuffer(markdown, referenceDocx, options?): Promise<ArrayBuffer>`
+
+ArrayBuffer-returning reference-style helper for runtimes with in-memory DOCX bytes.
+
+### `convertMarkdownWithReferenceDocxToBuffer(markdown, referenceDocx, options?): Promise<Buffer>`
+
+Node-friendly reference-style helper. `referenceDocx` accepts `Buffer`, `Uint8Array`, `ArrayBuffer`, or `Blob` bytes; string/path inputs are rejected rather than read implicitly.
+
 ### `patchMarkdownInDocx(referenceDocx, patches, options?): Promise<Blob>`
 
 Patches generated Markdown into an existing DOCX at named placeholders such as `{{body}}`.
@@ -641,6 +998,8 @@ Browser-only async helper that triggers a file download. Throws in non-browser e
 interface Options {
   documentType?: "document" | "report";
   style?: Style;
+  metadata?: DocumentMetadata;
+  accessibility?: AccessibilityOptions;
   toc?: TocOptions;
   mathRendering?: MathRenderingOptions;
   maxInputLength?: number;
@@ -651,9 +1010,59 @@ interface Options {
   codeHighlighting?: CodeHighlightOptions;
   mermaidRendering?: MermaidRenderingOptions;
   chartRendering?: ChartRenderingOptions;
+  captions?: CaptionOptions;
+  plugins?: readonly MarkdownDocxPlugin[];
+  pluginOptions?: PluginOptions;
   textReplacements?: TextReplacement[];
   textReplacementMode?: "trusted" | "untrusted";
   imageHandling?: ImageHandlingOptions;
+}
+```
+
+#### `CaptionOptions`
+
+| Field             | Type                       | Default      | Description                                      |
+| ----------------- | -------------------------- | ------------ | ------------------------------------------------ |
+| `figureLabel`     | `string`                   | `"Figure"`   | Label rendered before figure numbers.            |
+| `tableLabel`      | `string`                   | `"Table"`    | Label rendered before table numbers.             |
+| `figurePlacement` | `"above" \| "below"`      | `"below"`    | Figure caption position.                         |
+| `tablePlacement`  | `"above" \| "below"`      | `"below"`    | Table caption position.                          |
+| `alignment`       | `AlignmentOption`          | `"CENTER"`   | Caption paragraph alignment.                     |
+| `italic`          | `boolean`                  | `false`      | Italicize caption labels and text.               |
+| `size`            | `number`                   | paragraph size | Caption size in half-points.                    |
+| `failureMode`     | `"preserve" \| "throw"`   | `"preserve"` | Preserve invalid syntax literally or fail early. |
+| `updateFieldsOnOpen` | `boolean`                | `true`       | Ask Word to refresh fields on open; set `false` to avoid the security prompt and update manually. |
+
+### `ReferenceDocxGenerationOptions`
+
+```typescript
+type ReferenceDocxStyleSelector =
+  | { id: string; name?: never }
+  | { name: string; id?: never };
+
+type ReferenceDocxStyleRole =
+  | "normal" | "title"
+  | "heading1" | "heading2" | "heading3"
+  | "heading4" | "heading5" | "heading6"
+  | "blockquote" | "codeBlock" | "caption" | "listParagraph"
+  | "table" | "strong" | "emphasis" | "inlineCode" | "hyperlink";
+
+interface ReferenceDocxGenerationOptions extends Options {
+  reference?: {
+    styles?: Partial<
+      Record<ReferenceDocxStyleRole, ReferenceDocxStyleSelector | null>
+    >;
+    missingStyleBehavior?: "fallback" | "throw";
+    duplicateStyleNameBehavior?: "first" | "throw";
+    preservePageLayout?: boolean;
+    preserveHeadersAndFooters?: boolean;
+    limits?: {
+      maxCompressedBytes?: number;
+      maxUncompressedBytes?: number;
+      maxEntryUncompressedBytes?: number;
+      maxEntries?: number;
+    };
+  };
 }
 ```
 
@@ -670,10 +1079,14 @@ type MarkdownDocxPatch =
 interface PatchMarkdownOptions {
   documentType?: "document" | "report";
   style?: Partial<Style>;
+  metadata?: DocumentMetadata;
+  accessibility?: AccessibilityOptions;
   codeHighlighting?: CodeHighlightOptions;
   mathRendering?: MathRenderingOptions;
   mermaidRendering?: MermaidRenderingOptions;
   chartRendering?: ChartRenderingOptions;
+  plugins?: readonly MarkdownDocxPlugin[];
+  pluginOptions?: PluginOptions;
   textReplacements?: TextReplacement[];
   imageHandling?: ImageHandlingOptions;
   maxInputLength?: number;
@@ -734,6 +1147,30 @@ Alignment & direction
 | `headingAlignment`                        | `"LEFT" | "RIGHT"             |
 | `heading1Alignment` … `heading6Alignment` | Same    | Overrides per level |
 | `direction`                               | `"LTR"  | "RTL"`              |
+| `language`                                | `string`  | BCP 47-style Word proofing language; overrides `metadata.language` for this style scope |
+
+#### `DocumentMetadata`
+
+```typescript
+interface DocumentMetadata {
+  title?: string;
+  subject?: string;
+  description?: string;
+  creator?: string;
+  author?: string;
+  keywords?: string | readonly string[];
+  category?: string;
+  company?: string;
+  language?: string;
+  created?: Date | string;
+  modified?: Date | string;
+  custom?: Readonly<Record<string, string>>;
+}
+
+interface AccessibilityOptions {
+  missingImageAltText?: "permissive" | "throw";
+}
+```
 
 #### `TocOptions`
 
@@ -802,6 +1239,43 @@ Alignment & direction
 | `render`      | `undefined`   | Converts a Mermaid block into PNG, JPEG, or GIF bytes.               |
 | `failureMode` | `"codeBlock"` | Behavior when rendering is unavailable, returns no image, or throws. |
 
+#### `MarkdownDocxPlugin` (API version 1)
+
+```typescript
+interface MarkdownDocxPlugin<TState = unknown> {
+  apiVersion: 1;
+  name: string;
+  priority?: number;
+  setup?: (context: PluginSetupContext) => TState | Promise<TState>;
+  transformAst?: (
+    root: Root,
+    context: PluginAstTransformContext<TState>,
+  ) => Root | void | Promise<Root | void>;
+  fencedBlocks?: readonly PluginFenceHandler<TState>[];
+  blockNodes?: readonly PluginBlockNodeHandler<TState>[];
+}
+
+interface PluginFenceHandler<TState> {
+  languages: readonly string[];
+  failureMode?: "fallback" | "skip" | "throw";
+  render(input: PluginFenceInput, context: PluginRenderContext<TState>):
+    | PluginRenderResult
+    | Promise<PluginRenderResult>;
+}
+
+interface PluginBlockNodeHandler<TState> {
+  nodeTypes: readonly string[];
+  failureMode?: "fallback" | "skip" | "throw";
+  render(input: PluginBlockNodeInput, context: PluginRenderContext<TState>):
+    | PluginRenderResult
+    | Promise<PluginRenderResult>;
+}
+```
+
+`PluginRenderContext` exposes the plugin-local `state`, resolved `style` and safe option subset, `signal`, section/patch identity, nesting (`parent`, `listDepth`, `blockquoteDepth`), read-only image-budget usage, and `renderChildren()`. See [Custom renderer plugins](#custom-renderer-plugins) for complete examples, result types, deterministic conflict rules, trust guidance, and context limitations.
+
+`MermaidRenderResult` may include `altText?: string` and `title?: string`; both are written to the Word drawing properties when present.
+
 
 #### `TextReplacement`
 
@@ -818,7 +1292,7 @@ Alignment & direction
 
 ### Errors
 
-All conversion failures throw `MarkdownConversionError` (exported from the root). The error exposes a typed `context` field (e.g. `{ orientation, sectionIndex }`) to make debugging easier.
+All conversion failures throw `MarkdownConversionError` (exported from the root). The error exposes a typed `context` field (e.g. `{ orientation, sectionIndex }`) to make debugging easier. Reference-package failures use exported `ReferenceDocxErrorContext` and stable codes including `INVALID_ZIP`, `INVALID_PACKAGE`, `UNSAFE_ENTRY_PATH`, `PACKAGE_LIMIT_EXCEEDED`, `MISSING_STYLE`, `DUPLICATE_STYLE_NAME`, `STYLE_TYPE_MISMATCH`, `UNSUPPORTED_RELATIONSHIP`, and `ABORTED`.
 
 ## Requirements
 

@@ -1,3 +1,35 @@
+## [Unreleased]
+
+### Features
+
+- Add GFM task-list rendering with deterministic Unicode unchecked (`☐`) and checked (`☒`) markers while preserving Word list nesting, inline formatting, and media-only task items.
+- Render Markdown thematic breaks (`---`, `***`, and `___`) as native Word paragraph borders, including supported nested blockquote and list contexts.
+- Add Pandoc-style figure and table captions with document-wide numbering, stable Word bookmarks, native clickable cross-references, multi-section and forward-reference support, typed styling/failure options, and reference-DOCX patch validation.
+- Add a versioned, trusted programmatic plugin API for custom fenced blocks and transformed block-level mdast nodes, with deterministic priority/conflict rules, isolated document state, semantic result types, cancellation, limits, and multi-section/reference-patch support.
+- Add a true reference-DOCX style generation workflow through `convertMarkdownWithReferenceDocx`, `convertMarkdownWithReferenceDocxToArrayBuffer`, and `convertMarkdownWithReferenceDocxToBuffer`.
+- Adopt named paragraph, character, and table styles with typed ID/name overrides while preserving theme/fonts, final-section page presentation, and headers/footers without copying static reference body content.
+- Merge reference numbering, relationships, and content types with collision-safe IDs and bounded untrusted-ZIP validation, cancellation, and actionable `ReferenceDocxErrorContext` codes.
+- Add typed core, extended, and custom Word document metadata with deterministic opt-in timestamps and preserve/override behavior for reference DOCX patching.
+- Propagate Markdown, chart, and Mermaid alt text into Word drawing properties; add permissive and strict missing-alt policies.
+- Add document and per-style proofing language semantics while preserving existing RTL direction precedence, semantic headings, and repeatable table-header rows.
+
+### Documentation
+
+- Document accessibility responsibilities and the current inability to emit Word's decorative-image extension; this feature does not claim automatic WCAG or Section 508 compliance.
+
+### Security
+
+- Document plugins as trusted executable code that cannot be loaded from CLI JSON; plugin-produced images remain subject to core byte/count budgets, while plugin-owned network I/O remains the host application's responsibility.
+
+### Compatibility
+
+- Preserve existing Mermaid/chart callbacks and the existing parse/model/render path when plugins, captions, reference-style generation, and metadata/accessibility options are omitted.
+
+### Bug Fixes
+
+- Render repeated citations of the same footnote as Word `NOTEREF` cross-references instead of duplicate native footnote references that Word repairs as unreadable content.
+- Allow automatic field updates on open to be disabled with `captions.updateFieldsOnOpen: false`, avoiding Word's field-update prompt when cached field values are sufficient.
+
 ## [2.18.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.17.0...v2.18.0) (2026-06-19)
 
 ### Features
@@ -124,8 +156,6 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [Unreleased]
 
 ## [2.10.0] - 2026-04-17
 

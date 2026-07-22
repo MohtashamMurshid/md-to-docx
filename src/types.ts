@@ -1,5 +1,6 @@
 import type { InputDataType } from "docx";
 import type { PhrasingContent } from "mdast";
+import type { MarkdownDocxPlugin, PluginOptions } from "./pluginTypes.js";
 
 export interface Style {
   titleSize: number;
@@ -17,6 +18,11 @@ export interface Style {
   fontFamilly?: string;
   // Text direction
   direction?: "LTR" | "RTL";
+  /**
+   * Word proofing language for content rendered with this style. A section
+   * style overrides the document metadata language for that section.
+   */
+  language?: string;
   // Font size options
   heading1Size?: number;
   heading2Size?: number;
@@ -226,6 +232,10 @@ export interface DocumentSection extends SectionConfig {
 export interface Options {
   documentType?: "document" | "report";
   style?: Partial<Style>;
+  /** Typed Word package metadata. Omitted metadata keeps legacy output. */
+  metadata?: DocumentMetadata;
+  /** Focused accessibility checks for generated media. */
+  accessibility?: AccessibilityOptions;
   toc?: TocOptions;
   /**
    * Controls Markdown math parsing and native Word equation rendering.
@@ -295,6 +305,46 @@ export interface Options {
    * default; when disabled, those fences render as ordinary code blocks.
    */
   chartRendering?: ChartRenderingOptions;
+  /**
+   * Labels, placement, styling, and validation behavior for figure/table
+   * captions and cross-references.
+   */
+  captions?: CaptionOptions;
+  /** Trusted programmatic renderer plugins. Functions cannot be loaded from CLI JSON. */
+  plugins?: readonly MarkdownDocxPlugin<any>[];
+  /** Deterministic conflict handling for overlapping plugin handlers. */
+  pluginOptions?: PluginOptions;
+}
+
+export type CaptionPlacement = "above" | "below";
+export type CaptionFailureMode = "preserve" | "throw";
+
+export interface CaptionOptions {
+  /** Human-readable label before figure numbers. Defaults to "Figure". */
+  figureLabel?: string;
+  /** Human-readable label before table numbers. Defaults to "Table". */
+  tableLabel?: string;
+  /** Figure caption position relative to the image. Defaults to "below". */
+  figurePlacement?: CaptionPlacement;
+  /** Table caption position relative to the table. Defaults to "below". */
+  tablePlacement?: CaptionPlacement;
+  /** Caption paragraph alignment. Defaults to CENTER. */
+  alignment?: AlignmentOption;
+  /** Whether caption text is italic. Defaults to false. */
+  italic?: boolean;
+  /** Caption font size in half-points. Defaults to the paragraph size. */
+  size?: number;
+  /**
+   * Preserve malformed/duplicate syntax and unresolved references as literal
+   * text, or throw a MarkdownConversionError. Defaults to "preserve".
+   */
+  failureMode?: CaptionFailureMode;
+  /**
+   * Ask Word to refresh document fields when the file opens. Defaults to true.
+   * Set false to avoid Word's field-update security prompt and update fields
+   * manually with Ctrl+A, F9 when needed.
+   */
+  updateFieldsOnOpen?: boolean;
 }
 
 export interface MathRenderingOptions {
@@ -310,6 +360,108 @@ export interface MathRenderingOptions {
 }
 
 export type ReferenceDocxInput = InputDataType;
+
+/** In-memory bytes accepted by the reference-style generation workflow. */
+export type ReferenceDocxBytes = Uint8Array | ArrayBuffer | Blob;
+
+/** Semantic Markdown roles that can adopt a named style from a reference DOCX. */
+export type ReferenceDocxStyleRole =
+  | "normal"
+  | "title"
+  | "heading1"
+  | "heading2"
+  | "heading3"
+  | "heading4"
+  | "heading5"
+  | "heading6"
+  | "blockquote"
+  | "codeBlock"
+  | "caption"
+  | "listParagraph"
+  | "table"
+  | "strong"
+  | "emphasis"
+  | "inlineCode"
+  | "hyperlink";
+
+/** Selects a reference style deterministically by its Word ID or display name. */
+export type ReferenceDocxStyleSelector =
+  | { id: string; name?: never }
+  | { name: string; id?: never };
+
+export type ReferenceDocxStyleMap = Partial<
+  Record<ReferenceDocxStyleRole, ReferenceDocxStyleSelector | null>
+>;
+
+export interface ReferenceDocxPackageLimits {
+  /** Maximum uploaded/reference ZIP size. Defaults to 16 MiB. */
+  maxCompressedBytes?: number;
+  /** Maximum sum of central-directory uncompressed sizes. Defaults to 64 MiB. */
+  maxUncompressedBytes?: number;
+  /** Maximum uncompressed size of one ZIP entry. Defaults to 16 MiB. */
+  maxEntryUncompressedBytes?: number;
+  /** Maximum ZIP entry count. Defaults to 512. */
+  maxEntries?: number;
+}
+
+export interface ReferenceDocxModeOptions {
+  /**
+   * Typed overrides for Markdown-role to Word-style mapping. Omit a role to
+   * use conventional Word IDs/names; set it to null to keep generated styling.
+   */
+  styles?: ReferenceDocxStyleMap;
+  /**
+   * Behavior when an explicit style selector cannot be resolved. Defaults to
+   * "fallback", which keeps the converter's generated style/direct formatting.
+   */
+  missingStyleBehavior?: "fallback" | "throw";
+  /**
+   * Behavior when a name selector matches multiple styles. Defaults to
+   * "throw"; "first" selects the first definition in styles.xml.
+   */
+  duplicateStyleNameBehavior?: "first" | "throw";
+  /** Copy page size, margins, orientation, and relevant final-section settings. */
+  preservePageLayout?: boolean;
+  /** Import final-section headers and footers without copying reference body text. */
+  preserveHeadersAndFooters?: boolean;
+  /** Bounded ZIP/package processing limits for the untrusted reference input. */
+  limits?: ReferenceDocxPackageLimits;
+}
+
+/**
+ * Options for generating a new DOCX whose presentation is adopted from a
+ * reference package. This is separate from placeholder patching.
+ */
+export interface ReferenceDocxGenerationOptions extends Options {
+  reference?: ReferenceDocxModeOptions;
+}
+
+export type ReferenceDocxErrorCode =
+  | "ABORTED"
+  | "INVALID_INPUT"
+  | "INVALID_ZIP"
+  | "INVALID_PACKAGE"
+  | "UNSAFE_ENTRY_PATH"
+  | "PACKAGE_LIMIT_EXCEEDED"
+  | "MISSING_PACKAGE_PART"
+  | "MALFORMED_XML"
+  | "MISSING_STYLE"
+  | "DUPLICATE_STYLE_NAME"
+  | "STYLE_TYPE_MISMATCH"
+  | "UNSUPPORTED_RELATIONSHIP";
+
+/** Actionable context exposed by reference-mode MarkdownConversionError values. */
+export interface ReferenceDocxErrorContext {
+  phase: "reference-docx";
+  code: ReferenceDocxErrorCode;
+  entry?: string;
+  role?: ReferenceDocxStyleRole;
+  selector?: ReferenceDocxStyleSelector;
+  relationshipType?: string;
+  limit?: number;
+  actual?: number;
+  originalError?: unknown;
+}
 
 export type MarkdownDocxPatch =
   | string
@@ -327,6 +479,13 @@ export type MarkdownDocxPatch =
 export interface PatchMarkdownOptions {
   documentType?: "document" | "report";
   style?: Partial<Style>;
+  /**
+   * Metadata fields to override in the reference DOCX. Unspecified fields are
+   * preserved, and custom properties are merged by name.
+   */
+  metadata?: DocumentMetadata;
+  /** Focused accessibility checks for generated patch media. */
+  accessibility?: AccessibilityOptions;
   /**
    * Array of text replacements to apply to each patch's markdown AST before
    * rendering.
@@ -361,6 +520,9 @@ export interface PatchMarkdownOptions {
    * default; when disabled, chart fences render as code blocks.
    */
   chartRendering?: ChartRenderingOptions;
+  /** Trusted programmatic renderer plugins used for every placeholder patch. */
+  plugins?: readonly MarkdownDocxPlugin<any>[];
+  pluginOptions?: PluginOptions;
   /**
    * Optional maximum markdown input length per patch.
    */
@@ -555,6 +717,10 @@ export interface MermaidRenderResult {
    * Optional source label for diagnostics. This is not fetched.
    */
   source?: string;
+  /** Accessible description written to the Word drawing properties. */
+  altText?: string;
+  /** Optional Word drawing title. */
+  title?: string;
 }
 
 export interface MermaidRenderingOptions {
@@ -667,6 +833,38 @@ export interface TableData {
   headers: string[];
   rows: string[][];
   align?: (string | null)[];
+}
+
+export type MissingImageAltTextBehavior = "permissive" | "throw";
+
+export interface AccessibilityOptions {
+  /**
+   * Missing or empty image alt text is allowed by default for backwards
+   * compatibility. Use "throw" to make conversion fail before image loading.
+   */
+  missingImageAltText?: MissingImageAltTextBehavior;
+}
+
+export interface DocumentMetadata {
+  title?: string;
+  subject?: string;
+  description?: string;
+  /** Preferred name for the Dublin Core creator/Word Author property. */
+  creator?: string;
+  /** Alias for creator. `creator` wins when both are provided. */
+  author?: string;
+  /** A Word keyword string or a list joined with `; `. */
+  keywords?: string | readonly string[];
+  category?: string;
+  company?: string;
+  /** BCP 47-style language tag used in package metadata and Word run styles. */
+  language?: string;
+  /** Explicit creation timestamp. Omitted timestamps are not synthesized. */
+  created?: Date | string;
+  /** Explicit modification timestamp. Omitted timestamps are not synthesized. */
+  modified?: Date | string;
+  /** String-valued Word custom document properties, merged by name in patches. */
+  custom?: Readonly<Record<string, string>>;
 }
 
 /**

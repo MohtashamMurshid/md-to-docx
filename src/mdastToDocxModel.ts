@@ -28,6 +28,14 @@ import type {
   DocxFootnoteDefinitionNode,
 } from "./docxModel.js";
 import { Style, Options } from "./types.js";
+import {
+  captionAt,
+  bindCrossReferenceCaptions,
+  resolveCrossReference,
+  throwOnUnresolvedCrossReference,
+} from "./crossReferences.js";
+import type { CrossReferenceRegistry } from "./crossReferences.js";
+import type { PluginRuntime } from "./pluginRuntime.js";
 
 interface ProcessOptions {
   allowFootnoteReferences?: boolean;
@@ -99,10 +107,14 @@ export function mdastToDocxModel(
   root: Root,
   _style: Style,
   options: Options,
+  crossReferences?: CrossReferenceRegistry,
+  pluginRuntime?: PluginRuntime,
 ): DocxDocumentModel {
+  bindCrossReferenceCaptions(crossReferences, root);
   const children: DocxBlockNode[] = [];
   const footnoteDefinitions = new Map<string, FootnoteDefinition>();
   const referencedFootnoteIds = new Map<string, number>();
+  const footnoteReferenceCounts = new Map<string, number>();
   let numberedListSequenceId = 0;
   const listSequenceMap = new Map<List, number>();
 
@@ -162,11 +174,60 @@ export function mdastToDocxModel(
       case "html":
         return classifyHtmlNode((node as { value?: string }).value || "");
       case "thematicBreak":
-        // Horizontal rule - skip for now
-        return null;
+        return { type: "horizontalRule" };
       default:
-        return null;
+        return processPluginBlockNode(node, options);
     }
+  }
+
+  function extractNodeText(node: Node): string {
+    const value = (node as Node & { value?: unknown }).value;
+    if (typeof value === "string") {
+      return value;
+    }
+    const nodeChildren = (node as Node & { children?: unknown }).children;
+    if (Array.isArray(nodeChildren)) {
+      return nodeChildren
+        .map((child) => extractNodeText(child as Node))
+        .filter(Boolean)
+        .join("\n");
+    }
+    return `[Unsupported Markdown node: ${node.type}]`;
+  }
+
+  function processPluginBlockNode(
+    node: Node,
+    processOptions: ProcessOptions,
+  ): DocxBlockNode | null {
+    const handler = pluginRuntime?.blockNode(node.type);
+    if (!handler) {
+      return null;
+    }
+
+    const children: DocxBlockNode[] = [];
+    const nodeChildren = (node as Node & { children?: unknown }).children;
+    if (Array.isArray(nodeChildren)) {
+      for (const child of nodeChildren) {
+        const processed = processNode(child as Node, processOptions);
+        if (Array.isArray(processed)) {
+          children.push(...processed);
+        } else if (processed) {
+          children.push(processed);
+        }
+      }
+    }
+
+    return {
+      type: "pluginBlock",
+      handler,
+      source: {
+        kind: "blockNode",
+        node,
+        nodeType: node.type,
+      },
+      children,
+      fallbackText: extractNodeText(node),
+    };
   }
 
   function processHeading(
@@ -194,6 +255,7 @@ export function mdastToDocxModel(
       return {
         type: "image",
         alt: img.alt || "",
+        title: img.title || undefined,
         url: img.url || "",
       };
     }
@@ -221,6 +283,7 @@ export function mdastToDocxModel(
           blocks.push({
             type: "image",
             alt: image.alt || "",
+            title: image.title || undefined,
             url: image.url || "",
           });
         } else {
@@ -296,6 +359,8 @@ export function mdastToDocxModel(
       listItems.push({
         type: "listItem",
         children: itemChildren,
+        checked:
+          typeof item.checked === "boolean" ? item.checked : undefined,
       });
     }
 
@@ -331,6 +396,24 @@ export function mdastToDocxModel(
         language,
         value: code.value || "",
       };
+    }
+
+    if (normalizedLanguage) {
+      const handler = pluginRuntime?.fence(normalizedLanguage);
+      if (handler) {
+        return {
+          type: "pluginBlock",
+          handler,
+          source: {
+            kind: "fence",
+            language: normalizedLanguage,
+            value: code.value || "",
+            meta: code.meta || undefined,
+          },
+          children: [],
+          fallbackText: code.value || "",
+        };
+      }
     }
 
     return {
@@ -385,6 +468,7 @@ export function mdastToDocxModel(
     return {
       type: "image",
       alt: image.alt || "",
+      title: image.title || undefined,
       url: image.url || "",
     };
   }
@@ -460,10 +544,38 @@ export function mdastToDocxModel(
       }
     }
 
+    function pushTextAndCrossReferences(value: string): void {
+      const referencePattern = /\[@((?:fig|tbl):[^\]\s]+)\]/g;
+      let cursor = 0;
+      for (const match of value.matchAll(referencePattern)) {
+        const matchIndex = match.index ?? 0;
+        if (matchIndex > cursor) {
+          pushTextWithUnderline(value.slice(cursor, matchIndex));
+        }
+
+        const identifier = match[1];
+        const definition = resolveCrossReference(crossReferences, identifier);
+        if (definition) {
+          result.push({
+            type: "crossReference",
+            ...definition,
+          });
+        } else {
+          throwOnUnresolvedCrossReference(crossReferences, identifier);
+          pushTextWithUnderline(match[0]);
+        }
+        cursor = matchIndex + match[0].length;
+      }
+
+      if (cursor < value.length) {
+        pushTextWithUnderline(value.slice(cursor));
+      }
+    }
+
     for (const node of nodes) {
       switch (node.type) {
         case "text":
-          pushTextWithUnderline((node as Text).value);
+          pushTextAndCrossReferences((node as Text).value);
           break;
         case "emphasis": {
           const emphasisChildren = processInlineNodes(
@@ -536,10 +648,14 @@ export function mdastToDocxModel(
             allowFootnoteReferences &&
             footnoteDefinitions.has(normalizedIdentifier)
           ) {
+            const referenceCount =
+              (footnoteReferenceCounts.get(normalizedIdentifier) ?? 0) + 1;
+            footnoteReferenceCounts.set(normalizedIdentifier, referenceCount);
             result.push({
               type: "footnoteReference",
               identifier: normalizedIdentifier,
               id: footnoteReferenceId(normalizedIdentifier),
+              isRepeatedReference: referenceCount > 1,
             });
           } else {
             result.push({
@@ -623,7 +739,9 @@ export function mdastToDocxModel(
   }
 
   // Process root children
-  for (const child of root.children) {
+  for (let childIndex = 0; childIndex < root.children.length; childIndex++) {
+    const child = root.children[childIndex];
+    const resolvedCaption = captionAt(crossReferences, root, childIndex);
     // Handle special cases for TOC and page breaks
     if (child.type === "paragraph") {
       const para = child as Paragraph;
@@ -660,6 +778,20 @@ export function mdastToDocxModel(
 
     const processed = processNode(child);
     if (processed) {
+      if (
+        resolvedCaption &&
+        !Array.isArray(processed) &&
+        (processed.type === "image" || processed.type === "table")
+      ) {
+        processed.caption = {
+          id: resolvedCaption.id,
+          kind: resolvedCaption.kind,
+          number: resolvedCaption.number,
+          bookmarkId: resolvedCaption.bookmarkId,
+          children: processInlineNodes(resolvedCaption.children),
+        };
+        childIndex++;
+      }
       if (Array.isArray(processed)) {
         children.push(...processed);
       } else {

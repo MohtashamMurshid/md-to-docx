@@ -1,5 +1,6 @@
 import { TextRun } from "docx";
 import { Style } from "../types.js";
+import { runLanguage } from "../accessibility.js";
 
 /**
  * Processes inline code and returns a TextRun object.
@@ -33,5 +34,6 @@ export function processInlineCode(
       fill: style?.inlineCodeBackground || "F5F5F5",
     },
     rightToLeft: style?.direction === "RTL",
+    language: style ? runLanguage(style) : undefined,
   });
 }

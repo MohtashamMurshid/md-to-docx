@@ -276,7 +276,7 @@ const answer = 42;
         "word/styles.xml",
         styles.replace(
           "</w:styles>",
-          '<w:style w:type="paragraph" w:styleId="CorpH1Duplicate"><w:name w:val="Executive Heading"/></w:style></w:styles>',
+          '<w:style w:type="paragraph" w:styleId="CorpH1Duplicate"><w:name w:val="Executive Heading"/></w:style><w:style w:type="paragraph" w:styleId="CorpQuoteDuplicate"><w:name w:val="Quote"/></w:style></w:styles>',
         ),
       );
     });
@@ -300,6 +300,13 @@ const answer = 42;
     expect(
       await xml(await JSZip.loadAsync(firstDuplicate), "word/document.xml"),
     ).toContain('w:pStyle w:val="CorpH1"');
+    const automaticDuplicate = await convertMarkdownWithReferenceDocxToBuffer(
+      "> Automatically resolved quote",
+      duplicate,
+    );
+    expect(
+      await xml(await JSZip.loadAsync(automaticDuplicate), "word/document.xml"),
+    ).toContain('w:pStyle w:val="CorpQuote"');
 
     await expect(
       convertMarkdownWithReferenceDocxToBuffer("text", Buffer.from("not a zip")),

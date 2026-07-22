@@ -289,7 +289,7 @@ const output = await convertMarkdownWithReferenceDocxToBuffer(
 await fs.writeFile("quarterly-update.docx", output);
 ```
 
-Style selectors are exact and deterministic. `{ id: "..." }` matches `w:styleId`; `{ name: "..." }` matches the visible `w:name`. Supported roles are `normal`, `title`, `heading1` through `heading6`, `blockquote`, `codeBlock`, `caption`, `listParagraph`, `table`, `strong`, `emphasis`, `inlineCode`, and `hyperlink`. Omitted roles try conventional Word IDs/names and otherwise retain generated formatting; `null` disables reference adoption for that role. `missingStyleBehavior` applies to explicit selectors and defaults to `"fallback"`. Duplicate name selectors throw by default; use an ID to disambiguate or deliberately set `duplicateStyleNameBehavior: "first"`.
+Style selectors are exact and deterministic. `{ id: "..." }` matches `w:styleId`; `{ name: "..." }` matches the visible `w:name`. Supported roles are `normal`, `title`, `heading1` through `heading6`, `blockquote`, `codeBlock`, `caption`, `listParagraph`, `table`, `strong`, `emphasis`, `inlineCode`, and `hyperlink`. Omitted roles try conventional Word IDs/names and otherwise retain generated formatting; when an automatic name match is duplicated, the first definition in document order wins. `null` disables reference adoption for that role. `missingStyleBehavior` applies to explicit selectors and defaults to `"fallback"`. Duplicate explicit name selectors throw by default; use an ID to disambiguate or deliberately set `duplicateStyleNameBehavior: "first"`.
 
 The package merge preserves or derives:
 

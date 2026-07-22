@@ -624,7 +624,10 @@ function resolveStyleMap(
         .find(Boolean);
       if (!style) {
         for (const name of candidates.names) {
-          style = resolveStyleByName(styles, name, duplicateBehavior, role);
+          // Automatic conventional-name lookup is deterministic by document
+          // order. The caller-controlled duplicate policy applies only to an
+          // explicit { name } selector, where ambiguity should be surfaced.
+          style = resolveStyleByName(styles, name, "first", role);
           if (style) break;
         }
       }

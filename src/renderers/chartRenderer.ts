@@ -172,6 +172,7 @@ export async function processChartBlock(
       },
       paragraphOptions,
       signal,
+      false,
     );
     return result;
   } catch (error) {

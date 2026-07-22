@@ -10,3 +10,21 @@ export function sanitizeForBookmarkId(text: string): string {
   }
   return sanitized.substring(0, 40);
 }
+
+function stableBookmarkHash(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index++) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36).padStart(7, "0").slice(-7);
+}
+
+/**
+ * Creates a deterministic Word-safe bookmark for a user supplied caption ID.
+ * The hash prevents distinct unsafe IDs from collapsing to the same bookmark.
+ */
+export function crossReferenceBookmarkId(identifier: string): string {
+  const safeIdentifier = sanitizeForBookmarkId(identifier).slice(0, 24);
+  return `mdxref_${safeIdentifier}_${stableBookmarkHash(identifier)}`.slice(0, 40);
+}

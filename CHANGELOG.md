@@ -131,6 +131,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - GFM task-list rendering with deterministic Unicode unchecked (`☐`) and checked (`☒`) markers while preserving Word list nesting and inline formatting.
 - Markdown thematic breaks (`---`, `***`, and `___`) rendered as native Word paragraph borders, including supported nested blockquote and list contexts.
+- Pandoc-style figure and table captions with document-wide automatic numbering, stable Word bookmarks, native clickable cross-references, multi-section and forward-reference support, typed label/placement/style/failure options, and explicit reference-DOCX patch validation.
 
 ## [2.10.0] - 2026-04-17
 

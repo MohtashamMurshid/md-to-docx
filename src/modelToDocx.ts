@@ -10,6 +10,8 @@ import {
   AlignmentType,
   TableLayoutType,
   WidthType,
+  Bookmark,
+  SimpleField,
 } from "docx";
 import type { IParagraphOptions, ParagraphChild } from "docx";
 import type {
@@ -20,6 +22,7 @@ import type {
   DocxListItemNode,
   DocxInlineNode,
   DocxTextNode,
+  DocxCaption,
 } from "./docxModel.js";
 import { Style, Options } from "./types.js";
 import { processHeading } from "./renderers/headingRenderer.js";
@@ -196,7 +199,14 @@ export async function modelToDocx(
   ): ParagraphChild[] {
     const out: ParagraphChild[] = [];
     for (const node of nodes) {
-      if (node.type === "footnoteReference") {
+      if (node.type === "crossReference") {
+        out.push(
+          new SimpleField(
+            ` REF ${node.bookmarkId} \\h `,
+            `${captionLabel(node.kind)} ${node.number}`,
+          ),
+        );
+      } else if (node.type === "footnoteReference") {
         out.push(new FootnoteReferenceRun(node.id + footnoteIdOffset));
       } else if (node.type === "mathInline") {
         out.push(renderMathNode(node.value, false));
@@ -415,9 +425,79 @@ export async function modelToDocx(
         if (node.type === "text") {
           return node.value;
         }
+        if (node.type === "crossReference") {
+          return `${captionLabel(node.kind)} ${node.number}`;
+        }
         return "";
       })
       .join("");
+  }
+
+  function captionLabel(kind: DocxCaption["kind"]): string {
+    return kind === "figure"
+      ? options.captions?.figureLabel ?? "Figure"
+      : options.captions?.tableLabel ?? "Table";
+  }
+
+  function captionParagraph(caption: DocxCaption): Paragraph {
+    const label = captionLabel(caption.kind);
+    const sequenceName =
+      caption.kind === "figure" ? "MdToDocxFigure" : "MdToDocxTable";
+    const size = options.captions?.size ?? style.paragraphSize ?? 24;
+    const forceItalic = options.captions?.italic ?? false;
+    const alignment = options.captions?.alignment
+      ? AlignmentType[options.captions.alignment]
+      : AlignmentType.CENTER;
+    const bookmark = new Bookmark({
+      id: caption.bookmarkId,
+      children: [
+        textRunFromNode(
+          { type: "text", value: `${label} ` },
+          { forceItalic, size },
+        ),
+        new SimpleField(
+          ` SEQ ${sequenceName} \\* ARABIC `,
+          String(caption.number),
+        ),
+      ],
+    });
+
+    return new Paragraph({
+      style: "Caption",
+      children: [
+        bookmark,
+        textRunFromNode(
+          { type: "text", value: ": " },
+          { forceItalic, size },
+        ),
+        ...renderInlineNodes(caption.children, { forceItalic, size }),
+      ],
+      alignment,
+      spacing: {
+        before: style.paragraphSpacing / 2,
+        after: style.paragraphSpacing,
+        line: style.lineSpacing * 240,
+      },
+      bidirectional: style.direction === "RTL",
+    });
+  }
+
+  function withCaption(
+    node: Extract<DocxBlockNode, { type: "image" | "table" }>,
+    rendered: (Paragraph | Table)[],
+  ): (Paragraph | Table)[] {
+    if (!node.caption) {
+      return rendered;
+    }
+
+    const placement =
+      node.type === "image"
+        ? options.captions?.figurePlacement ?? "below"
+        : options.captions?.tablePlacement ?? "below";
+    const caption = captionParagraph(node.caption);
+    return placement === "above"
+      ? [caption, ...rendered]
+      : [...rendered, caption];
   }
 
   async function renderBlockNode(
@@ -492,7 +572,7 @@ export async function modelToDocx(
       }
 
       case "image": {
-        return renderImageNode(node, context);
+        return withCaption(node, await renderImageNode(node, context));
       }
 
       case "mermaidBlock": {
@@ -504,7 +584,7 @@ export async function modelToDocx(
       }
 
       case "table": {
-        return [tableFromNode(node)];
+        return withCaption(node, [tableFromNode(node)]);
       }
 
       case "comment": {

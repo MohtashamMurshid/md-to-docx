@@ -25,10 +25,27 @@ export interface DocxFootnoteReferenceNode {
   id: number;
 }
 
+export interface DocxCrossReferenceNode {
+  type: "crossReference";
+  id: string;
+  kind: "figure" | "table";
+  number: number;
+  bookmarkId: string;
+}
+
 export type DocxInlineNode =
   | DocxTextNode
   | DocxMathInlineNode
-  | DocxFootnoteReferenceNode;
+  | DocxFootnoteReferenceNode
+  | DocxCrossReferenceNode;
+
+export interface DocxCaption {
+  id: string;
+  kind: "figure" | "table";
+  number: number;
+  bookmarkId: string;
+  children: DocxInlineNode[];
+}
 
 export interface DocxParagraphNode {
   type: "paragraph";
@@ -95,6 +112,7 @@ export interface DocxImageNode {
   type: "image";
   alt: string;
   url: string;
+  caption?: DocxCaption;
 }
 
 export interface DocxTableNode {
@@ -102,6 +120,7 @@ export interface DocxTableNode {
   headers: DocxInlineNode[][];
   rows: DocxInlineNode[][][];
   align?: (string | null)[];
+  caption?: DocxCaption;
 }
 
 export interface DocxCommentNode {

@@ -28,6 +28,13 @@ import type {
   DocxFootnoteDefinitionNode,
 } from "./docxModel.js";
 import { Style, Options } from "./types.js";
+import {
+  captionAt,
+  bindCrossReferenceCaptions,
+  resolveCrossReference,
+  throwOnUnresolvedCrossReference,
+} from "./crossReferences.js";
+import type { CrossReferenceRegistry } from "./crossReferences.js";
 
 interface ProcessOptions {
   allowFootnoteReferences?: boolean;
@@ -99,7 +106,9 @@ export function mdastToDocxModel(
   root: Root,
   _style: Style,
   options: Options,
+  crossReferences?: CrossReferenceRegistry,
 ): DocxDocumentModel {
+  bindCrossReferenceCaptions(crossReferences, root);
   const children: DocxBlockNode[] = [];
   const footnoteDefinitions = new Map<string, FootnoteDefinition>();
   const referencedFootnoteIds = new Map<string, number>();
@@ -461,10 +470,38 @@ export function mdastToDocxModel(
       }
     }
 
+    function pushTextAndCrossReferences(value: string): void {
+      const referencePattern = /\[@((?:fig|tbl):[^\]\s]+)\]/g;
+      let cursor = 0;
+      for (const match of value.matchAll(referencePattern)) {
+        const matchIndex = match.index ?? 0;
+        if (matchIndex > cursor) {
+          pushTextWithUnderline(value.slice(cursor, matchIndex));
+        }
+
+        const identifier = match[1];
+        const definition = resolveCrossReference(crossReferences, identifier);
+        if (definition) {
+          result.push({
+            type: "crossReference",
+            ...definition,
+          });
+        } else {
+          throwOnUnresolvedCrossReference(crossReferences, identifier);
+          pushTextWithUnderline(match[0]);
+        }
+        cursor = matchIndex + match[0].length;
+      }
+
+      if (cursor < value.length) {
+        pushTextWithUnderline(value.slice(cursor));
+      }
+    }
+
     for (const node of nodes) {
       switch (node.type) {
         case "text":
-          pushTextWithUnderline((node as Text).value);
+          pushTextAndCrossReferences((node as Text).value);
           break;
         case "emphasis": {
           const emphasisChildren = processInlineNodes(
@@ -624,7 +661,9 @@ export function mdastToDocxModel(
   }
 
   // Process root children
-  for (const child of root.children) {
+  for (let childIndex = 0; childIndex < root.children.length; childIndex++) {
+    const child = root.children[childIndex];
+    const resolvedCaption = captionAt(crossReferences, root, childIndex);
     // Handle special cases for TOC and page breaks
     if (child.type === "paragraph") {
       const para = child as Paragraph;
@@ -661,6 +700,20 @@ export function mdastToDocxModel(
 
     const processed = processNode(child);
     if (processed) {
+      if (
+        resolvedCaption &&
+        !Array.isArray(processed) &&
+        (processed.type === "image" || processed.type === "table")
+      ) {
+        processed.caption = {
+          id: resolvedCaption.id,
+          kind: resolvedCaption.kind,
+          number: resolvedCaption.number,
+          bookmarkId: resolvedCaption.bookmarkId,
+          children: processInlineNodes(resolvedCaption.children),
+        };
+        childIndex++;
+      }
       if (Array.isArray(processed)) {
         children.push(...processed);
       } else {

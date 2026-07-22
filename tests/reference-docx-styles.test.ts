@@ -436,7 +436,10 @@ const answer = 42;
       await applyReferenceDocxPresentation(generated, reference),
     );
 
-    expect(await xml(output, "word/numbering.xml")).toContain("<w:numbering");
+    const numberingXml = await xml(output, "word/numbering.xml");
+    expect(numberingXml).toContain("<w:numbering");
+    expect(numberingXml).toContain("<w:abstractNum");
+    expect(numberingXml).toContain("<w:num ");
     expect(await xml(output, "word/_rels/document.xml.rels")).toContain(
       "/numbering\" Target=\"numbering.xml\"",
     );

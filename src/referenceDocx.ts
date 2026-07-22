@@ -33,7 +33,7 @@ const REQUIRED_PARTS = [
 const RELATIONSHIP_NS =
   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/";
 const EMPTY_NUMBERING_XML =
-  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>';
+  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"></w:numbering>';
 
 type StyleType = "paragraph" | "character" | "table" | string;
 

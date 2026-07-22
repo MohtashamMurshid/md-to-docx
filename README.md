@@ -28,6 +28,7 @@ A TypeScript-first library and CLI that turns Markdown into production-ready Wor
   - [Syntax-highlighted code blocks](#syntax-highlighted-code-blocks)
   - [Chart fenced blocks](#chart-fenced-blocks)
   - [Mermaid diagram blocks](#mermaid-diagram-blocks)
+  - [Custom renderer plugins](#custom-renderer-plugins)
   - [Math rendering](#math-rendering)
   - [Custom heading and paragraph alignment](#custom-heading-and-paragraph-alignment)
   - [Table of Contents styling](#table-of-contents-styling)
@@ -523,6 +524,140 @@ Rendered diagrams use the same image sizing and `imageHandling.maxImages` / `max
 
 Security note: run Mermaid or browser-based renderers with the same care as any server-side rendering pipeline for untrusted input. Use request timeouts, `AbortSignal`, process isolation or sandboxing, memory limits, and a vetted Mermaid configuration. The CLI options JSON cannot provide a renderer function, so CLI-only usage preserves Mermaid fences as code unless wrapped by a host application.
 
+### Custom renderer plugins
+
+Programmatic consumers can add custom fenced blocks and transformed block-level mdast nodes through the versioned plugin API. The surface is deliberately block-focused: API version 1 does not expose raw `docx` objects, internal model nodes, inline-node handlers, parser grammar configuration, or document-package mutation. This keeps numbering, image relationships, bookmarks, footnotes, comments, tables, and future internal refactors under core control.
+
+| Stage | Public hook | Purpose |
+| --- | --- | --- |
+| Document setup | `setup` | Initialize isolated state once, shared across the conversion's sections or patches. No end hook is exposed because plugins cannot mutate the finished DOCX package. |
+| AST transformation | `transformAst` | Inspect, mutate, or replace the parsed section-local mdast before limits/model conversion. This is not a parser grammar hook. |
+| Fence recognition + render | `fencedBlocks[]` | Claim normalized fence languages and return semantic DOCX-safe blocks. |
+| Block-node render | `blockNodes[]` | Render custom block node types introduced by an AST transformer. |
+
+#### Simple custom fence
+
+This complete example turns a `notice` fence into a styled semantic paragraph:
+
+````typescript
+import {
+  convertMarkdownToBuffer,
+  type MarkdownDocxPlugin,
+} from "@mohtasham/md-to-docx";
+import { writeFile } from "node:fs/promises";
+
+const noticePlugin: MarkdownDocxPlugin = {
+  apiVersion: 1,
+  name: "example.notice",
+  fencedBlocks: [
+    {
+      languages: ["notice"],
+      failureMode: "fallback",
+      render({ value }) {
+        return {
+          type: "paragraph",
+          children: [
+            { type: "text", value: "Notice: ", bold: true },
+            { type: "text", value },
+          ],
+        };
+      },
+    },
+  ],
+};
+
+const markdown = `\`\`\`notice
+Deploy after the database migration.
+\`\`\``;
+
+await writeFile(
+  "notice.docx",
+  await convertMarkdownToBuffer(markdown, { plugins: [noticePlugin] }),
+);
+````
+
+Fence languages are normalized to lowercase. The result may be a semantic `paragraph`, `heading`, `codeBlock`, `image`, or `table`, an array of those blocks, `context.renderChildren()`, or `{ type: "skip" }`. Plugin images accept bytes only and pass through the core `maxImages` and `maxImageBytes` budgets. Raw `Paragraph` and `Table` instances from `docx` are not supported; returning them is an invalid result and follows the handler's failure policy.
+
+#### Reusable block-node plugin
+
+`transformAst` runs on the section-local mdast after core text replacements and before `maxElements` is enforced. It may mutate the tree or return a replacement root. The example below promotes paragraphs written as `:::tip text` into a custom block node, including when nested in a list, blockquote, callout, or footnote. `renderChildren()` is the controlled way to ask core to render that node's already-processed block children.
+
+```typescript
+import type { Node, Parent, Paragraph, Text } from "mdast";
+import type { MarkdownDocxPlugin } from "@mohtasham/md-to-docx";
+
+function rewriteTips(parent: Parent): void {
+  parent.children = parent.children.map((node) => {
+    if (node.type === "paragraph") {
+      const paragraph = node as Paragraph;
+      const first = paragraph.children[0];
+      if (first?.type === "text" && first.value.startsWith(":::tip ")) {
+        const value = (first as Text).value.slice(":::tip ".length);
+        return {
+          type: "tipDirective",
+          children: [
+            {
+              type: "paragraph",
+              children: [{ type: "text", value }],
+            },
+          ],
+        } as unknown as Node;
+      }
+    }
+
+    if ("children" in node && Array.isArray(node.children)) {
+      rewriteTips(node as Parent);
+    }
+    return node;
+  }) as Parent["children"];
+}
+
+export function createTipPlugin(): MarkdownDocxPlugin<{ rendered: number }> {
+  return {
+    apiVersion: 1,
+    name: "example.tip-directive",
+    priority: 10,
+    setup: () => ({ rendered: 0 }),
+    transformAst(root) {
+      rewriteTips(root);
+    },
+    blockNodes: [
+      {
+        nodeTypes: ["tipDirective"],
+        failureMode: "throw",
+        render(_input, context) {
+          context.state.rendered++;
+          return [
+            { type: "paragraph", children: [{ type: "text", value: "Tip", bold: true }] },
+            context.renderChildren(),
+          ];
+        },
+      },
+    ],
+  };
+}
+```
+
+API version 1 intentionally provides an AST transformation hook, not a parser-extension hook. The built-in Markdown grammar remains `remark-parse` + GFM + optional math. A transformer can promote parsed nodes into custom block types as above; adding an entirely new micromark/remark grammar is reserved for a future API version.
+
+#### Lifecycle, ordering, conflicts, and failures
+
+- `setup` runs once per conversion in plugin order. Its return value is isolated to that plugin and shared across every section or reference-DOCX patch in the conversion.
+- Plugins run by descending integer `priority` (`-1000` to `1000`), then registration order. `transformAst` and render callbacks may be synchronous or asynchronous and receive the conversion `AbortSignal`.
+- Names must be unique stable lowercase identifiers. Duplicate names and duplicate names within a handler always fail. Overlapping handlers fail by default; `pluginOptions: { conflictPolicy: "use-priority" }` chooses the first plugin in deterministic order.
+- Enabled Mermaid and chart rendering is built in and cannot be overridden. Claiming `mermaid`, `chart`, or `chartjs` while its built-in renderer is enabled fails during validation. When the built-in is disabled, a plugin may claim that language. Built-in mdast node types can never be overridden.
+- Handler `failureMode` defaults to `"fallback"`: fences render as their original code block and custom nodes render extracted text. `"skip"` emits nothing; `"throw"` raises `MarkdownConversionError`. Thrown errors include `plugin`, `hook`, `language` or `nodeType`, and section/placeholder context.
+
+Plugin tables are valid at the top level, in blockquotes/callouts, and in normal document sections. Word list items can contain only paragraphs in the current internal renderer, so a plugin table inside a list fails or follows the configured fallback instead of being silently dropped. Tables in footnotes use the same documented plain-text fallback as Markdown tables. Heading results participate in bookmark and TOC counters. Plugin output also consumes `maxElements`; plugin image results share document-wide image budgets across sections and patches.
+
+#### Trust and runtime boundaries
+
+Plugins are trusted executable JavaScript. Never construct them from API input, uploaded configuration, a database value, or CLI JSON. The CLI cannot load plugin functions and rejects JSON that attempts to configure them; use a trusted Node/browser wrapper and pass plugins directly.
+
+Core still checks `maxInputLength`, transformed AST and plugin output against `maxElements`, cancellation, and returned image bytes against `maxImages` / `maxImageBytes`. A trusted plugin can perform arbitrary I/O itself, so its own network calls are outside `imageHandling.remote` SSRF controls. Use sandboxing, timeouts, allowlists, and resource limits for plugins that process untrusted Markdown. The API works in Node and modern browsers when the plugin and its dependencies do; do not import Node-only modules in browser plugins.
+
+Existing Mermaid and chart callbacks remain source-compatible and are not implemented as public plugins. Their precise fallback and validation behavior is unchanged. With `plugins` omitted or empty, the parse/model/render path and default output are unchanged. The same plugin API is available to `patchMarkdownInDocx*`; reference-DOCX restrictions such as no ordered-list package merge continue to apply.
+
 ### Math rendering
 
 Markdown math is enabled by default. Inline math uses single-dollar delimiters, and block math uses `$$` fences on their own lines:
@@ -798,6 +933,8 @@ interface Options {
   mermaidRendering?: MermaidRenderingOptions;
   chartRendering?: ChartRenderingOptions;
   captions?: CaptionOptions;
+  plugins?: readonly MarkdownDocxPlugin[];
+  pluginOptions?: PluginOptions;
   textReplacements?: TextReplacement[];
   textReplacementMode?: "trusted" | "untrusted";
   imageHandling?: ImageHandlingOptions;
@@ -867,6 +1004,8 @@ interface PatchMarkdownOptions {
   mathRendering?: MathRenderingOptions;
   mermaidRendering?: MermaidRenderingOptions;
   chartRendering?: ChartRenderingOptions;
+  plugins?: readonly MarkdownDocxPlugin[];
+  pluginOptions?: PluginOptions;
   textReplacements?: TextReplacement[];
   imageHandling?: ImageHandlingOptions;
   maxInputLength?: number;
@@ -994,6 +1133,41 @@ Alignment & direction
 | `enabled`     | `false`       | Turn fenced Mermaid rendering on.                                    |
 | `render`      | `undefined`   | Converts a Mermaid block into PNG, JPEG, or GIF bytes.               |
 | `failureMode` | `"codeBlock"` | Behavior when rendering is unavailable, returns no image, or throws. |
+
+#### `MarkdownDocxPlugin` (API version 1)
+
+```typescript
+interface MarkdownDocxPlugin<TState = unknown> {
+  apiVersion: 1;
+  name: string;
+  priority?: number;
+  setup?: (context: PluginSetupContext) => TState | Promise<TState>;
+  transformAst?: (
+    root: Root,
+    context: PluginAstTransformContext<TState>,
+  ) => Root | void | Promise<Root | void>;
+  fencedBlocks?: readonly PluginFenceHandler<TState>[];
+  blockNodes?: readonly PluginBlockNodeHandler<TState>[];
+}
+
+interface PluginFenceHandler<TState> {
+  languages: readonly string[];
+  failureMode?: "fallback" | "skip" | "throw";
+  render(input: PluginFenceInput, context: PluginRenderContext<TState>):
+    | PluginRenderResult
+    | Promise<PluginRenderResult>;
+}
+
+interface PluginBlockNodeHandler<TState> {
+  nodeTypes: readonly string[];
+  failureMode?: "fallback" | "skip" | "throw";
+  render(input: PluginBlockNodeInput, context: PluginRenderContext<TState>):
+    | PluginRenderResult
+    | Promise<PluginRenderResult>;
+}
+```
+
+`PluginRenderContext` exposes the plugin-local `state`, resolved `style` and safe option subset, `signal`, section/patch identity, nesting (`parent`, `listDepth`, `blockquoteDepth`), read-only image-budget usage, and `renderChildren()`. See [Custom renderer plugins](#custom-renderer-plugins) for complete examples, result types, deterministic conflict rules, trust guidance, and context limitations.
 
 
 #### `TextReplacement`

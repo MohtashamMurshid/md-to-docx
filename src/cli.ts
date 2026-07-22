@@ -79,6 +79,12 @@ async function readOptionsFile(optionsPath: string): Promise<Options> {
       throw new Error("Options JSON must be an object");
     }
 
+    if ("plugins" in parsed) {
+      throw new Error(
+        "Plugins are trusted executable code and cannot be loaded from CLI JSON",
+      );
+    }
+
     return parsed as Options;
   } catch (error) {
     if (error instanceof SyntaxError) {

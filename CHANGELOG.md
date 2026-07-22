@@ -140,6 +140,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GFM task-list rendering with deterministic Unicode unchecked (`☐`) and checked (`☒`) markers while preserving Word list nesting and inline formatting.
 - Markdown thematic breaks (`---`, `***`, and `___`) rendered as native Word paragraph borders, including supported nested blockquote and list contexts.
 - Pandoc-style figure and table captions with document-wide automatic numbering, stable Word bookmarks, native clickable cross-references, multi-section and forward-reference support, typed label/placement/style/failure options, and explicit reference-DOCX patch validation.
+- Added a versioned, trusted programmatic plugin API for custom fenced blocks and transformed block-level mdast nodes. Plugins receive resolved style/section context, `AbortSignal`, isolated document-scoped state, controlled child rendering, and semantic DOCX-safe result types.
+- Added deterministic plugin priority and registration ordering, duplicate/conflict validation, fixed built-in Mermaid/chart precedence, and `fallback`, `skip`, or `throw` failure policies with structured `MarkdownConversionError` context.
+- Added plugin support to multi-section and reference-DOCX patch workflows, with shared core element/image limits and package-consumer TypeScript coverage.
+
+### Security
+
+- Documented plugins as trusted executable code that cannot be loaded from CLI JSON. Plugin-produced images continue through core byte/count budgets; plugin-owned network I/O remains the host application's security responsibility.
+
+### Compatibility
+
+- Existing Mermaid/chart callbacks remain unchanged. Omitting `plugins` (or passing an empty array) preserves the existing parse/model/render path and default output.
 
 ## [2.10.0] - 2026-04-17
 

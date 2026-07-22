@@ -1,5 +1,6 @@
 import type { InputDataType } from "docx";
 import type { PhrasingContent } from "mdast";
+import type { MarkdownDocxPlugin, PluginOptions } from "./pluginTypes.js";
 
 export interface Style {
   titleSize: number;
@@ -300,6 +301,10 @@ export interface Options {
    * captions and cross-references.
    */
   captions?: CaptionOptions;
+  /** Trusted programmatic renderer plugins. Functions cannot be loaded from CLI JSON. */
+  plugins?: readonly MarkdownDocxPlugin<any>[];
+  /** Deterministic conflict handling for overlapping plugin handlers. */
+  pluginOptions?: PluginOptions;
 }
 
 export type CaptionPlacement = "above" | "below";
@@ -493,6 +498,9 @@ export interface PatchMarkdownOptions {
    * default; when disabled, chart fences render as code blocks.
    */
   chartRendering?: ChartRenderingOptions;
+  /** Trusted programmatic renderer plugins used for every placeholder patch. */
+  plugins?: readonly MarkdownDocxPlugin<any>[];
+  pluginOptions?: PluginOptions;
   /**
    * Optional maximum markdown input length per patch.
    */

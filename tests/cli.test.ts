@@ -223,6 +223,11 @@ describe("standalone CLI", () => {
         body: '["not", "an", "object"]',
         expectedError: "Options JSON must be an object",
       },
+      {
+        label: "plugin configuration",
+        body: '{"plugins":[]}',
+        expectedError: "cannot be loaded from CLI JSON",
+      },
     ])("fails when options file contains $label", async ({ body, expectedError }) => {
       const inputPath = path.join(tempDir, "input.md");
       const outputPath = path.join(tempDir, "output.docx");

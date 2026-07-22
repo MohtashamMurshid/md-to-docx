@@ -16,6 +16,7 @@ import {
   normalizeSectionConfig,
   normalizeStyleInput,
 } from "./sectionBuilder.js";
+import { validatePluginConfiguration } from "./pluginRuntime.js";
 
 const validAlignments: AlignmentOption[] = [
   "LEFT",
@@ -699,6 +700,7 @@ export function validateInput(markdown: string, options: Options): void {
   validateMermaidRenderingInput(options.mermaidRendering);
   validateProcessingLimitsInput(options);
   validateTextReplacementInput(options);
+  validatePluginConfiguration(options);
 
   const normalizedTemplate = normalizeSectionConfig(options.template);
   if (normalizedTemplate) {

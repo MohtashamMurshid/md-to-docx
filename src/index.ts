@@ -58,6 +58,8 @@ import {
   buildReferenceConversionOptions,
   loadReferenceDocx,
 } from "./referenceDocx.js";
+import { PluginRuntime } from "./pluginRuntime.js";
+import type { PluginSectionContext } from "./pluginTypes.js";
 
 const defaultStyle: Style = {
   titleSize: 32,
@@ -81,6 +83,7 @@ type RenderedMarkdownContent = {
 };
 
 export { MarkdownConversionError };
+export type { MarkdownConversionErrorContext } from "./errors.js";
 
 export {
   CalloutStyle,
@@ -129,6 +132,36 @@ export {
   TextReplacementMode,
   TocOptions,
 } from "./types.js";
+
+export {
+  MarkdownDocxPlugin,
+  MarkdownDocxPluginApiVersion,
+  PluginAstTransformContext,
+  PluginBlockNodeHandler,
+  PluginBlockNodeInput,
+  PluginBlockResult,
+  PluginChildrenResult,
+  PluginCodeBlockResult,
+  PluginConflictPolicy,
+  PluginFailureMode,
+  PluginFenceHandler,
+  PluginFenceInput,
+  PluginHeadingResult,
+  PluginImageResult,
+  PluginInlineContent,
+  PluginInlineText,
+  PluginOptions,
+  PluginParagraphResult,
+  PluginRenderContext,
+  PluginRenderResult,
+  PluginResolvedImageOptions,
+  PluginResolvedOptions,
+  PluginResourceContext,
+  PluginSectionContext,
+  PluginSetupContext,
+  PluginSkipResult,
+  PluginTableResult,
+} from "./pluginTypes.js";
 
 /**
  * Convert Markdown to Docx file
@@ -346,8 +379,12 @@ export async function parseToDocxOptions(
     const headingBookmarkCounter = { count: 0 };
     const tocPlaceholders = new WeakSet<object>();
     let elementCount = 0;
+    const pluginRuntime = await PluginRuntime.create({
+      options,
+      sectionCount: resolvedSections.length,
+    });
 
-    for (const section of resolvedSections) {
+    for (const [sectionIndex, section] of resolvedSections.entries()) {
       throwIfAborted(options.signal);
       await yieldToAbortSignal(options.signal);
       const rendered = await renderMarkdownContent(
@@ -364,6 +401,13 @@ export async function parseToDocxOptions(
           tableWidthTwips: getSectionContentWidthTwips(section.config),
           footnoteIdOffset: maxFootnoteId,
           crossReferences,
+          pluginRuntime,
+          pluginSection: {
+            index: sectionIndex,
+            count: resolvedSections.length,
+            kind: "section",
+            contentWidthTwips: getSectionContentWidthTwips(section.config),
+          },
         }
       );
       elementCount = rendered.elementCount;
@@ -494,8 +538,16 @@ async function patchMarkdownInDocxWithOutput(
     const failedRemoteImageCounter = { count: 0 };
     const headingBookmarkCounter = { count: 0 };
     let elementCount = 0;
+    const patchEntries = Object.entries(patches);
+    const pluginRuntime = await PluginRuntime.create({
+      options: {
+        ...options,
+        style: normalizeStyleInput(options.style),
+      },
+      sectionCount: patchEntries.length,
+    });
 
-    for (const [placeholder, patch] of Object.entries(patches)) {
+    for (const [patchIndex, [placeholder, patch]] of patchEntries.entries()) {
       throwIfAborted(options.signal);
       await yieldToAbortSignal(options.signal);
 
@@ -518,6 +570,8 @@ async function patchMarkdownInDocxWithOutput(
         maxInputLength: options.maxInputLength,
         maxElements: options.maxElements,
         signal: options.signal,
+        plugins: options.plugins,
+        pluginOptions: options.pluginOptions,
       };
 
       validateInput(normalizedPatch.markdown, renderOptions);
@@ -533,6 +587,14 @@ async function patchMarkdownInDocxWithOutput(
           failedRemoteImageCounter,
           headingBookmarkCounter,
           tableWidthTwips: options.tableWidthTwips,
+          pluginRuntime,
+          pluginSection: {
+            index: patchIndex,
+            count: patchEntries.length,
+            kind: "patch",
+            placeholder,
+            contentWidthTwips: options.tableWidthTwips ?? 9746,
+          },
           validateModel: (model) =>
             assertPatchCompatibleModel(model, placeholder),
           validateAst: (ast) => assertPatchCompatibleAst(ast, placeholder),
@@ -660,12 +722,14 @@ async function renderMarkdownContent(
     tocPlaceholders?: WeakSet<object>;
     tableWidthTwips?: number;
     footnoteIdOffset?: number;
+    pluginRuntime?: PluginRuntime;
+    pluginSection?: PluginSectionContext;
     validateModel?: (model: DocxDocumentModel) => void;
     validateAst?: (ast: Root) => void;
     crossReferences?: CrossReferenceRegistry;
   } = {}
 ): Promise<{ content: RenderedMarkdownContent; elementCount: number }> {
-  const ast = await parseMarkdownToAst(
+  let ast = await parseMarkdownToAst(
     markdown,
     options.mathRendering?.enabled !== false,
   );
@@ -679,6 +743,15 @@ async function renderMarkdownContent(
     );
   }
 
+  if (renderOptions.pluginRuntime && renderOptions.pluginSection) {
+    ast = await renderOptions.pluginRuntime.transformAst(
+      ast,
+      style,
+      renderOptions.pluginSection,
+      options.signal,
+    );
+  }
+
   renderOptions.validateAst?.(ast);
 
   throwIfAborted(options.signal);
@@ -688,12 +761,14 @@ async function renderMarkdownContent(
     renderOptions.currentElementCount ?? 0,
     options.signal
   );
+  const pluginElementCounter = { count: elementCount };
 
   const model = mdastToDocxModel(
     ast,
     style,
     options,
     renderOptions.crossReferences,
+    renderOptions.pluginRuntime,
   );
   renderOptions.validateModel?.(model);
   throwIfAborted(options.signal);
@@ -706,9 +781,13 @@ async function renderMarkdownContent(
     tocPlaceholders: renderOptions.tocPlaceholders,
     tableWidthTwips: renderOptions.tableWidthTwips,
     footnoteIdOffset: renderOptions.footnoteIdOffset,
+    pluginRuntime: renderOptions.pluginRuntime,
+    pluginSection: renderOptions.pluginSection,
+    pluginElementCounter,
+    maxElements: options.maxElements,
   });
 
-  return { content, elementCount };
+  return { content, elementCount: pluginElementCounter.count };
 }
 
 async function prepareCrossReferenceRegistry(
@@ -802,6 +881,10 @@ function assertPatchCompatibleModel(
     }
 
     if (node.type === "blockquote") {
+      stack.push(...node.children);
+    }
+
+    if (node.type === "pluginBlock") {
       stack.push(...node.children);
     }
   }

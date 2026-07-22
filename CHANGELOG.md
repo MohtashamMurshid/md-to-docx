@@ -1,3 +1,13 @@
+## [3.0.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.18.0...v3.0.0) (2026-07-22)
+
+### ⚠ BREAKING CHANGES
+
+* release version 3
+
+### Features
+
+* release version 3 ([c0efa32](https://github.com/MohtashamMurshid/md-to-docx/commit/c0efa32f8456ae83d4bce86626adb4d4a314333a))
+
 ## [Unreleased]
 
 ### Features

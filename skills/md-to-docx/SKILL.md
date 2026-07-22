@@ -1,6 +1,6 @@
 ---
 name: md-to-docx
-description: Convert Markdown files and strings into DOCX documents using @mohtasham/md-to-docx. Use when a user needs Markdown to Word conversion, CLI-based file conversion, options-driven styling/alignment/font family, TOC/page break handling, underline/strikethrough formatting, multi-section documents with per-section headers/footers, or programmatic conversion in Node/browser code.
+description: Convert Markdown files and strings into DOCX documents using @mohtasham/md-to-docx. Use when a user needs Markdown to Word conversion, CLI-based file conversion, reference-DOCX styles or placeholder patching, options-driven styling/alignment/font family, TOC/page break handling, underline/strikethrough formatting, multi-section documents with per-section headers/footers, or programmatic conversion in Node/browser code.
 ---
 
 # md-to-docx
@@ -35,6 +35,7 @@ CLI contract:
 - Options JSON can include the same shapes as the API: `style`, `template`, `sections`, and `textReplacements`
 - Help flags: `-h` or `--help`
 - On success, expect: `DOCX created at: <absolute-path>`
+- Reference DOCX modes require binary input and are programmatic APIs, not CLI flags.
 
 ## Programmatic Mode
 
@@ -58,6 +59,15 @@ downloadDocx(blob, "output.docx");
 
 Use `convertMarkdownToDocx(markdown, options?)` to produce a DOCX `Blob`.
 Use `downloadDocx(blob, filename?)` only in browser environments.
+
+## Reference DOCX Workflows
+
+Choose one explicitly:
+
+- `convertMarkdownWithReferenceDocxToBuffer(markdown, referenceBytes, options?)` creates a fresh Markdown-owned body and adopts reference named styles, theme/fonts, final-section page layout, and headers/footers.
+- `patchMarkdownInDocxToBuffer(referenceBytes, patches, options?)` preserves the existing body and replaces named placeholders such as `{{body}}`.
+
+Reference-style generation never copies static reference body text. Prefer exact `{ id: "..." }` selectors when style names are duplicated; use `{ name: "..." }` for visible Word names. Treat uploaded references as untrusted and keep the default ZIP limits unless the caller has a justified larger bound.
 
 ## Multi-Section Documents
 

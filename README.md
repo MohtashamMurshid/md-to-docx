@@ -33,6 +33,7 @@ A TypeScript-first library and CLI that turns Markdown into production-ready Wor
   - [Text find-and-replace](#text-find-and-replace)
   - [Server-side processing limits](#server-side-processing-limits)
   - [RTL / bidirectional text](#rtl--bidirectional-text)
+  - [Reference DOCX style generation](#reference-docx-style-generation)
   - [Reference DOCX placeholder patching](#reference-docx-placeholder-patching)
 - [Supported Markdown](#supported-markdown)
 - [API reference](#api-reference)
@@ -52,6 +53,7 @@ A TypeScript-first library and CLI that turns Markdown into production-ready Wor
 - **TypeScript-native** — fully typed options surface, including `CodeHighlightTheme`, `Options`, and `DocumentSection`.
 - **Multi-section documents** — cover pages, per-section headers/footers, page numbering resets, mixed orientations, style overrides.
 - **Reference DOCX patching** — Node-friendly placeholder replacement for inserting generated Markdown into an existing `.docx` package.
+- **Reference DOCX style generation** — create a fresh Markdown-derived document while adopting named styles, theme/fonts, page geometry, and final-section headers/footers from a trusted or untrusted Word reference.
 - **Optional syntax highlighting** — opt-in, powered by `[lowlight](https://github.com/wooorm/lowlight)`; ships a GitHub-light theme and lets you override any token color.
 - **Native Word math** — Markdown `$...$` and `$$...$$` equations render as editable Word math for a documented TeX subset.
 - **Works everywhere** — Node.js (18+) and modern browsers; the package ships ESM with type declarations.
@@ -124,6 +126,8 @@ The `--options` JSON file accepts the same shape as the programmatic `Options` a
   "codeHighlighting": { "enabled": true }
 }
 ```
+
+Reference-DOCX style generation and placeholder patching require binary DOCX input, so they are programmatic APIs rather than CLI flags. The CLI continues to use ordinary `convertMarkdownToBuffer`; a JSON `reference` field is not loaded as a file path.
 
 For a multi-section document, use `template` + `sections` (the CLI ignores the positional markdown argument when `sections` is provided):
 
@@ -244,6 +248,77 @@ const blob = await convertMarkdownToDocx("", {
 
 **Precedence (last wins):** global `style` → `template.style` → per-section `style`. For `headers` / `footers`, each slot (`default`, `first`, `even`) can inherit, override, or be explicitly disabled with `null`.
 
+### Reference DOCX style generation
+
+Use `convertMarkdownWithReferenceDocxToBuffer` to generate a **brand-new** document whose content comes only from Markdown while its Word presentation comes from an existing `.docx`. This is the reference-styles workflow; it does not look for placeholders and does not copy cover pages, closing paragraphs, or any other static body content from the reference.
+
+```typescript
+import {
+  convertMarkdownWithReferenceDocxToBuffer,
+} from "@mohtasham/md-to-docx";
+import fs from "node:fs/promises";
+
+const reference = await fs.readFile("corporate-reference.docx");
+const markdown = `# Quarterly Update
+
+Revenue increased **18%**.
+
+1. Confirm the forecast
+2. Publish the board pack`;
+
+const output = await convertMarkdownWithReferenceDocxToBuffer(
+  markdown,
+  reference,
+  {
+    reference: {
+      styles: {
+        normal: { name: "Corporate Body" },
+        heading1: { id: "CorpHeading1" },
+        blockquote: { name: "Executive Quote" },
+        codeBlock: { name: "Code Block" },
+        table: { name: "Corporate Table" },
+      },
+      missingStyleBehavior: "throw",
+      duplicateStyleNameBehavior: "throw",
+      preservePageLayout: true,
+      preserveHeadersAndFooters: true,
+    },
+  },
+);
+
+await fs.writeFile("quarterly-update.docx", output);
+```
+
+Style selectors are exact and deterministic. `{ id: "..." }` matches `w:styleId`; `{ name: "..." }` matches the visible `w:name`. Supported roles are `normal`, `title`, `heading1` through `heading6`, `blockquote`, `codeBlock`, `caption`, `listParagraph`, `table`, `strong`, `emphasis`, `inlineCode`, and `hyperlink`. Omitted roles try conventional Word IDs/names and otherwise retain generated formatting; `null` disables reference adoption for that role. `missingStyleBehavior` applies to explicit selectors and defaults to `"fallback"`. Duplicate name selectors throw by default; use an ID to disambiguate or deliberately set `duplicateStyleNameBehavior: "first"`.
+
+The package merge preserves or derives:
+
+- Reference `styles.xml`, including paragraph, character, table styles, document defaults, and style links; converter-required styles missing from the reference are appended.
+- Theme and font-table parts reached through the reference document relationships, including bounded embedded-font parts.
+- Reference numbering definitions, remapped above generated abstract/instance IDs so Markdown bullets and ordered lists cannot collide with style-linked numbering.
+- Final-reference-section page size, orientation, margins, columns/grid, page-number settings, and header/footer references. The same reference presentation is applied to every newly generated section, and table width is derived from the adopted page geometry.
+- Header/footer XML plus internal image dependencies and external hyperlinks. External relationships are never fetched during conversion.
+
+Deliberate exclusions and limitations:
+
+- Reference body content, comments, footnotes, custom properties, document settings, macros, embedded objects, and unused media are not copied.
+- Only the final reference section is used as the presentation source. Multi-section reference-body sequencing is not replayed.
+- Header/footer internal relationships other than images (for example charts, OLE objects, or `altChunk`) throw `MarkdownConversionError` instead of silently creating a broken or active-content package.
+- Caption mapping applies when generated content contains a `Caption` paragraph style; image alt text is not promoted into a separate caption by this mode.
+- `Buffer` output is Node-only. Blob/ArrayBuffer helpers work in modern browsers with in-memory DOCX bytes, but Node is the primary tested environment for reference-package workflows.
+
+Reference DOCX files are treated as untrusted ZIP packages. Entry paths are checked, external relationships are not fetched, XML DTD/entity declarations are rejected, and processing honors `AbortSignal`. Defaults are 16 MiB compressed, 64 MiB total uncompressed, 16 MiB per entry, and 512 entries; override them with `reference.limits`. Malformed packages and limit failures throw `MarkdownConversionError` with a typed `ReferenceDocxErrorContext` such as `{ phase: "reference-docx", code: "PACKAGE_LIMIT_EXCEEDED", limit, actual }`.
+
+#### Migration and design notes
+
+Choose the workflow by ownership of the body:
+
+- Use ordinary `convertMarkdownToDocx*` when the converter owns both content and styling. Its output path is unchanged when reference mode is unused.
+- Use `convertMarkdownWithReferenceDocx*` when Markdown owns all new body content and an existing DOCX supplies reusable presentation.
+- Use `patchMarkdownInDocx*` when the existing DOCX body must remain and Markdown belongs only at named placeholders.
+
+Moving from placeholder patching to reference-style generation usually means deleting placeholders from the workflow, passing the full Markdown document once, and adding role selectors for organization-specific style names. Static cover or boilerplate content must be expressed as Markdown/new sections or retained via placeholder patching; it is intentionally not inherited by reference-style generation.
+
 ### Reference DOCX placeholder patching
 
 Use `patchMarkdownInDocxToBuffer` when you already have a Word template and want Markdown inserted at named placeholders. This workflow preserves the original DOCX package around the patched location, including existing styles, headers, footers, margins, cover pages, and static content.
@@ -293,7 +368,7 @@ Supported in this first mode:
 
 Current limitations:
 
-- This is not a "reference styles" mode for generating a brand-new DOCX from another DOCX.
+- This API patches an existing body; use `convertMarkdownWithReferenceDocx*` for a brand-new document that adopts reference styles.
 - This does not append to the end of a document unless the template contains a placeholder at that location.
 - Markdown table width is not inferred from the reference DOCX. Set `tableWidthTwips` to match the placeholder section's content width when the template differs from the default A4 portrait width.
 - Ordered lists, generated `[TOC]`, and Word comments are rejected in patch markdown because they require package-level merges that are not supported yet.
@@ -588,6 +663,8 @@ await convertMarkdownToDocx(markdown, {
 | Page break        | `\pagebreak`                   | Place on its own line                                |
 | Comments          | `<!-- COMMENT: text -->`       | Rendered as Word comments                            |
 
+Reference-style generation supports the same Markdown surface, including ordered/bullet lists, tables, images, links, footnotes, and generated TOCs. Package-level parts produced from Markdown remain owned by the converter; reference numbering and presentation parts are merged around them with collision-safe IDs.
+
 Markdown footnotes use the GFM/remark syntax:
 
 ```markdown
@@ -618,6 +695,18 @@ Converts Markdown text to DOCX bytes in any runtime with `ArrayBuffer` support.
 ### `convertMarkdownToBuffer(markdown, options?): Promise<Buffer>`
 
 Node-friendly helper for writing DOCX output to disk, object storage, or HTTP responses.
+
+### `convertMarkdownWithReferenceDocx(markdown, referenceDocx, options?): Promise<Blob>`
+
+Generates a fresh Markdown-derived DOCX and adopts named styles and selected presentation parts from reference DOCX bytes. The reference body is excluded.
+
+### `convertMarkdownWithReferenceDocxToArrayBuffer(markdown, referenceDocx, options?): Promise<ArrayBuffer>`
+
+ArrayBuffer-returning reference-style helper for runtimes with in-memory DOCX bytes.
+
+### `convertMarkdownWithReferenceDocxToBuffer(markdown, referenceDocx, options?): Promise<Buffer>`
+
+Node-friendly reference-style helper. `referenceDocx` accepts `Buffer`, `Uint8Array`, `ArrayBuffer`, or `Blob` bytes; string/path inputs are rejected rather than read implicitly.
 
 ### `patchMarkdownInDocx(referenceDocx, patches, options?): Promise<Blob>`
 
@@ -654,6 +743,39 @@ interface Options {
   textReplacements?: TextReplacement[];
   textReplacementMode?: "trusted" | "untrusted";
   imageHandling?: ImageHandlingOptions;
+}
+```
+
+### `ReferenceDocxGenerationOptions`
+
+```typescript
+type ReferenceDocxStyleSelector =
+  | { id: string; name?: never }
+  | { name: string; id?: never };
+
+type ReferenceDocxStyleRole =
+  | "normal" | "title"
+  | "heading1" | "heading2" | "heading3"
+  | "heading4" | "heading5" | "heading6"
+  | "blockquote" | "codeBlock" | "caption" | "listParagraph"
+  | "table" | "strong" | "emphasis" | "inlineCode" | "hyperlink";
+
+interface ReferenceDocxGenerationOptions extends Options {
+  reference?: {
+    styles?: Partial<
+      Record<ReferenceDocxStyleRole, ReferenceDocxStyleSelector | null>
+    >;
+    missingStyleBehavior?: "fallback" | "throw";
+    duplicateStyleNameBehavior?: "first" | "throw";
+    preservePageLayout?: boolean;
+    preserveHeadersAndFooters?: boolean;
+    limits?: {
+      maxCompressedBytes?: number;
+      maxUncompressedBytes?: number;
+      maxEntryUncompressedBytes?: number;
+      maxEntries?: number;
+    };
+  };
 }
 ```
 
@@ -818,7 +940,7 @@ Alignment & direction
 
 ### Errors
 
-All conversion failures throw `MarkdownConversionError` (exported from the root). The error exposes a typed `context` field (e.g. `{ orientation, sectionIndex }`) to make debugging easier.
+All conversion failures throw `MarkdownConversionError` (exported from the root). The error exposes a typed `context` field (e.g. `{ orientation, sectionIndex }`) to make debugging easier. Reference-package failures use exported `ReferenceDocxErrorContext` and stable codes including `INVALID_ZIP`, `INVALID_PACKAGE`, `UNSAFE_ENTRY_PATH`, `PACKAGE_LIMIT_EXCEEDED`, `MISSING_STYLE`, `DUPLICATE_STYLE_NAME`, `STYLE_TYPE_MISMATCH`, `UNSUPPORTED_RELATIONSHIP`, and `ABORTED`.
 
 ## Requirements
 

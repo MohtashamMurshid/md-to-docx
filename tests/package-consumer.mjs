@@ -55,10 +55,13 @@ try {
   fs.writeFileSync(
     path.join(consumerDir, "index.ts"),
     [
-      'import { convertMarkdownToDocx } from "@mohtasham/md-to-docx";',
+      'import { convertMarkdownToDocx, convertMarkdownWithReferenceDocxToBuffer, type ReferenceDocxGenerationOptions } from "@mohtasham/md-to-docx";',
       "",
       "async function main() {",
+      "  const referenceOptions: ReferenceDocxGenerationOptions = { reference: { missingStyleBehavior: \"throw\" } };",
       '  const doc = await convertMarkdownToDocx("# Hello");',
+      "  void convertMarkdownWithReferenceDocxToBuffer;",
+      "  void referenceOptions;",
       "  console.log(doc instanceof Blob);",
       "}",
       "",

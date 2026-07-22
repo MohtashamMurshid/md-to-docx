@@ -11,7 +11,7 @@ function hasUnpairedSurrogate(value: string): boolean {
     const code = value.charCodeAt(index);
     if (code >= 0xd800 && code <= 0xdbff) {
       const next = value.charCodeAt(index + 1);
-      if (next < 0xdc00 || next > 0xdfff) return true;
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
       index++;
     } else if (code >= 0xdc00 && code <= 0xdfff) {
       return true;

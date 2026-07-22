@@ -30,6 +30,7 @@ function run(command, args, options = {}) {
     cwd: options.cwd ?? consumerDir,
     env: consumerEnv,
     stdio: "inherit",
+    timeout: options.timeout ?? 5 * 60 * 1000,
   });
 }
 

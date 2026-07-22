@@ -208,7 +208,7 @@ export async function processChartBlock(
       },
       paragraphOptions,
       signal,
-      false,
+      true,
       title,
       prefixChildren,
     );

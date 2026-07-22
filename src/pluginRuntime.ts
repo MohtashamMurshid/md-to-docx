@@ -34,6 +34,8 @@ const BUILT_IN_BLOCK_NODES = new Set([
   "thematicBreak",
   "footnoteDefinition",
   "footnoteReference",
+  "definition",
+  "yaml",
 ]);
 
 interface RegisteredPlugin {

@@ -32,6 +32,8 @@ const REQUIRED_PARTS = [
 
 const RELATIONSHIP_NS =
   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/";
+const EMPTY_NUMBERING_XML =
+  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>';
 
 type StyleType = "paragraph" | "character" | "table" | string;
 
@@ -1423,7 +1425,10 @@ export async function applyReferenceDocxPresentation(
     const outputZip = await JSZip.loadAsync(generatedDocx);
     let documentXml = await readXml(outputZip, "word/document.xml");
     const generatedStylesXml = await readXml(outputZip, "word/styles.xml");
-    const generatedNumberingXml = await readXml(outputZip, "word/numbering.xml");
+    const hasGeneratedNumbering = Boolean(outputZip.file("word/numbering.xml"));
+    const generatedNumberingXml = hasGeneratedNumbering
+      ? await readXml(outputZip, "word/numbering.xml")
+      : EMPTY_NUMBERING_XML;
     let relationshipsXml = await readXml(
       outputZip,
       "word/_rels/document.xml.rels",
@@ -1443,6 +1448,33 @@ export async function applyReferenceDocxPresentation(
     );
     const stylesXml = mergeStyles(remappedReferenceStyles, generatedStylesXml);
     documentXml = applyStyleMapToDocument(documentXml, styleMap);
+
+    if (!hasGeneratedNumbering) {
+      const outputRelationships = parseRelationships(
+        relationshipsXml,
+        "word/_rels/document.xml.rels",
+      );
+      const existingNumberingRelationship = outputRelationships.find(
+        (relationship) => relationship.type.endsWith("/numbering"),
+      );
+      relationshipsXml = replaceOrAddRelationship(
+        relationshipsXml,
+        {
+          id:
+            existingNumberingRelationship?.id ??
+            nextRelationshipId(outputRelationships),
+          type: `${RELATIONSHIP_NS}numbering`,
+          target: "numbering.xml",
+          xml: "",
+        },
+        existingNumberingRelationship,
+      );
+      contentTypesXml = addContentType(
+        contentTypesXml,
+        "word/numbering.xml",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml",
+      );
+    }
 
     const sectionResult = await adoptSectionPresentation(
       documentXml,

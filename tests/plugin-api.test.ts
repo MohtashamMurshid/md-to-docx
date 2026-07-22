@@ -366,6 +366,21 @@ Footnote reference[^plugin].
         plugins: [fencePlugin("acme.mermaid", () => ({ type: "skip" }), { language: "mermaid" })],
       }),
     ).rejects.toThrow("conflicts with an enabled built-in renderer");
+
+    for (const nodeType of ["definition", "yaml"]) {
+      await expect(
+        convertMarkdownToDocx("text", {
+          plugins: [{
+            apiVersion: 1,
+            name: `acme.${nodeType}`,
+            blockNodes: [{
+              nodeTypes: [nodeType],
+              render: () => ({ type: "skip" }),
+            }],
+          }],
+        }),
+      ).rejects.toThrow("cannot override a built-in node type");
+    }
   });
 
   it.each<["fallback" | "skip" | "throw", boolean, boolean]>([

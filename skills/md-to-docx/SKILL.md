@@ -154,7 +154,7 @@ Support includes:
 - `COMMENT: ...`
 - `[TOC]` on its own line
 - `\pagebreak` on its own line
-- Horizontal rules (`---`) are skipped during DOCX generation
+- Markdown thematic breaks (`---`, `***`, `___`) render as native Word paragraph borders
 
 ## Style Options Quick Reference
 

@@ -10,6 +10,10 @@ import {
   MarkdownConversionError,
   type ReferenceDocxErrorContext,
 } from "../src/index";
+import {
+  applyReferenceDocxPresentation,
+  loadReferenceDocx,
+} from "../src/referenceDocx";
 
 const fixturePath = path.join(
   process.cwd(),
@@ -405,6 +409,43 @@ const answer = 42;
     expect(
       await xml(await JSZip.loadAsync(output), "word/document.xml"),
     ).toContain("Reused successfully");
+  });
+
+  it("accepts generated packages without a numbering part", async () => {
+    const generatedZip = await JSZip.loadAsync(
+      await convertMarkdownToBuffer("# Generated without numbering"),
+    );
+    generatedZip.remove("word/numbering.xml");
+    generatedZip.file(
+      "word/_rels/document.xml.rels",
+      (await xml(generatedZip, "word/_rels/document.xml.rels")).replace(
+        /<Relationship\b(?=[^>]*Type="[^"]*\/numbering")[^>]*\/>/,
+        "",
+      ),
+    );
+    generatedZip.file(
+      "[Content_Types].xml",
+      (await xml(generatedZip, "[Content_Types].xml")).replace(
+        /<Override\b(?=[^>]*PartName="\/word\/numbering\.xml")[^>]*\/>/,
+        "",
+      ),
+    );
+    const generated = await generatedZip.generateAsync({ type: "arraybuffer" });
+    const reference = await loadReferenceDocx(await createReferenceFixture());
+    const output = await JSZip.loadAsync(
+      await applyReferenceDocxPresentation(generated, reference),
+    );
+
+    expect(await xml(output, "word/numbering.xml")).toContain("<w:numbering");
+    expect(await xml(output, "word/_rels/document.xml.rels")).toContain(
+      "/numbering\" Target=\"numbering.xml\"",
+    );
+    expect(await xml(output, "[Content_Types].xml")).toContain(
+      'PartName="/word/numbering.xml"',
+    );
+    expect(await xml(output, "word/document.xml")).toContain(
+      "Generated without numbering",
+    );
   });
 
   it("rejects unsupported active header/footer relationship constructs", async () => {

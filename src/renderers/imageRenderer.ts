@@ -187,7 +187,7 @@ export interface ProcessImageDataInput {
   maxImageBytes?: number;
   paragraphOptions?: Partial<IParagraphOptions>;
   signal?: AbortSignal;
-  /** Preserve Markdown image alt text in Word drawing properties. */
+  /** Preserve image alt text in Word drawing properties. Defaults to true. */
   preserveAltText?: boolean;
   /** Runs placed before the image, used for task markers in list items. */
   prefixChildren?: readonly ParagraphChild[];
@@ -254,25 +254,20 @@ export function processImageData(
           ...(input.prefixChildren ?? []),
           new ImageRun({
             data: imageData,
-            ...(input.preserveAltText
-              ? {
-                  altText: {
-                    name: input.altText || "Image",
-                    description: input.altText || undefined,
-                    title: input.altText || undefined,
-                  },
-                }
-              : {}),
             transformation: {
               width: outWidth,
               height: finalHeight,
             },
             type: imageType,
-            altText: drawingAltText(
-              input.altText,
-              input.title,
-              "Image",
-            ),
+            ...(input.preserveAltText !== false
+              ? {
+                  altText: drawingAltText(
+                    input.altText,
+                    input.title,
+                    "Image",
+                  ),
+                }
+              : {}),
           }),
         ],
         alignment:

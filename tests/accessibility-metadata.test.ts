@@ -250,6 +250,9 @@ describe("drawing accessibility properties", () => {
     await expect(
       convertMarkdownToDocx(`![bad\u0001alt](${ONE_PX_PNG})`),
     ).rejects.toThrow(MarkdownConversionError);
+    await expect(
+      convertMarkdownToDocx(`![bad\ud800](${ONE_PX_PNG})`),
+    ).rejects.toThrow(MarkdownConversionError);
   });
 
   it("writes chart alt/title properties for built-in and custom rendering", async () => {

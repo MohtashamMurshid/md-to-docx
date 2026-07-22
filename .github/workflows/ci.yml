@@ -19,6 +19,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -42,16 +44,22 @@ jobs:
         run: npm run lint
 
   package-managers:
-    name: package managers
+    name: package managers (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["18", "20"]
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: "20"
+          node-version: ${{ matrix.node-version }}
           cache: "npm"
 
       - name: Setup pnpm

@@ -457,7 +457,7 @@ describe("Rendering: footnotes", () => {
     expect(footnoteRels).toContain("https://example.com/fn");
   });
 
-  it("handles multiple footnotes and repeated references deterministically", async () => {
+  it("renders repeated footnote references as valid NOTEREF fields", async () => {
     const blob = await convertMarkdownToDocx(
       "First[^alpha], second[^beta], first again[^alpha].\n\n[^beta]: Beta body.\n[^alpha]: Alpha body.",
     );
@@ -470,7 +470,11 @@ describe("Rendering: footnotes", () => {
         documentXml.matchAll(/<w:footnoteReference w:id="(\d+)"\/>/g),
         (match) => match[1],
       ),
-    ).toEqual(["1", "2", "1"]);
+    ).toEqual(["1", "2"]);
+    expect(documentXml).toContain('w:name="mdfootnote_1"');
+    expect(documentXml).toContain(
+      'w:instr=" NOTEREF mdfootnote_1 \\h \\f "',
+    );
     expect(footnotesXml.indexOf('w:id="1"')).toBeLessThan(
       footnotesXml.indexOf('w:id="2"'),
     );

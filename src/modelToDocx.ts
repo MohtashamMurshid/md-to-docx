@@ -234,7 +234,23 @@ export async function modelToDocx(
           ),
         );
       } else if (node.type === "footnoteReference") {
-        out.push(new FootnoteReferenceRun(node.id + footnoteIdOffset));
+        const adjustedId = node.id + footnoteIdOffset;
+        const bookmarkId = `mdfootnote_${adjustedId}`;
+        if (node.isRepeatedReference) {
+          out.push(
+            new SimpleField(
+              ` NOTEREF ${bookmarkId} \\h \\f `,
+              String(adjustedId),
+            ),
+          );
+        } else {
+          out.push(
+            new Bookmark({
+              id: bookmarkId,
+              children: [new FootnoteReferenceRun(adjustedId)],
+            }),
+          );
+        }
       } else if (node.type === "mathInline") {
         out.push(renderMathNode(node.value, false));
       } else if (node.link && !isSafeLinkUrl(node.link)) {

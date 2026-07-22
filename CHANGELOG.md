@@ -25,6 +25,11 @@
 
 - Preserve existing Mermaid/chart callbacks and the existing parse/model/render path when plugins, captions, reference-style generation, and metadata/accessibility options are omitted.
 
+### Bug Fixes
+
+- Render repeated citations of the same footnote as Word `NOTEREF` cross-references instead of duplicate native footnote references that Word repairs as unreadable content.
+- Allow automatic field updates on open to be disabled with `captions.updateFieldsOnOpen: false`, avoiding Word's field-update prompt when cached field values are sufficient.
+
 ## [2.18.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.17.0...v2.18.0) (2026-06-19)
 
 ### Features

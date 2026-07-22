@@ -25,6 +25,8 @@ export interface DocxFootnoteReferenceNode {
   type: "footnoteReference";
   identifier: string;
   id: number;
+  /** Later references use a NOTEREF field instead of a duplicate native footnote reference. */
+  isRepeatedReference?: boolean;
 }
 
 export interface DocxCrossReferenceNode {

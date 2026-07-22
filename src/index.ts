@@ -526,7 +526,9 @@ export async function parseToDocxOptions(
           : {}),
         paragraphStyles: buildParagraphStyles(style),
       },
-      ...(crossReferences && crossReferences.definitions.size > 0
+      ...(crossReferences &&
+      crossReferences.definitions.size > 0 &&
+      options.captions?.updateFieldsOnOpen !== false
         ? { features: { updateFields: true } }
         : {}),
       ...(normalizedMetadata

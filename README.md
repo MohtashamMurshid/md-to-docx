@@ -1031,6 +1031,7 @@ interface Options {
 | `italic`          | `boolean`                  | `false`      | Italicize caption labels and text.               |
 | `size`            | `number`                   | paragraph size | Caption size in half-points.                    |
 | `failureMode`     | `"preserve" \| "throw"`   | `"preserve"` | Preserve invalid syntax literally or fail early. |
+| `updateFieldsOnOpen` | `boolean`                | `true`       | Ask Word to refresh fields on open; set `false` to avoid the security prompt and update manually. |
 
 ### `ReferenceDocxGenerationOptions`
 

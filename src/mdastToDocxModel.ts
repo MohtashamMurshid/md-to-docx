@@ -114,6 +114,7 @@ export function mdastToDocxModel(
   const children: DocxBlockNode[] = [];
   const footnoteDefinitions = new Map<string, FootnoteDefinition>();
   const referencedFootnoteIds = new Map<string, number>();
+  const footnoteReferenceCounts = new Map<string, number>();
   let numberedListSequenceId = 0;
   const listSequenceMap = new Map<List, number>();
 
@@ -647,10 +648,14 @@ export function mdastToDocxModel(
             allowFootnoteReferences &&
             footnoteDefinitions.has(normalizedIdentifier)
           ) {
+            const referenceCount =
+              (footnoteReferenceCounts.get(normalizedIdentifier) ?? 0) + 1;
+            footnoteReferenceCounts.set(normalizedIdentifier, referenceCount);
             result.push({
               type: "footnoteReference",
               identifier: normalizedIdentifier,
               id: footnoteReferenceId(normalizedIdentifier),
+              isRepeatedReference: referenceCount > 1,
             });
           } else {
             result.push({

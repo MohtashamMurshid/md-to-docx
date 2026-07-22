@@ -65,6 +65,30 @@ describe("figure/table captions and cross-references", () => {
     expect(xml.match(/Figure 1/g)).toHaveLength(2);
   });
 
+  it("can suppress Word's automatic field-update prompt", async () => {
+    const blob = await convertMarkdownToDocx(
+      `![Prompt-free figure](${ONE_PX_PNG})
+
+: Prompt-free caption {#fig:prompt-free}`,
+      { captions: { updateFieldsOnOpen: false } },
+    );
+    const settings = await (await getZip(blob))
+      .file("word/settings.xml")
+      ?.async("string");
+
+    expect(settings).not.toContain("<w:updateFields");
+  });
+
+  it("validates the automatic field-update option", async () => {
+    await expect(
+      convertMarkdownToDocx("Text", {
+        captions: { updateFieldsOnOpen: "no" as unknown as boolean },
+      }),
+    ).rejects.toThrow(
+      "Invalid captions.updateFieldsOnOpen: Must be a boolean",
+    );
+  });
+
   it("continues automatic numbering across document sections", async () => {
     const xml = await getDocumentXml(
       await convertMarkdownToDocx("", {

@@ -315,6 +315,14 @@ function validateCaptionOptionsInput(captions: CaptionOptions | undefined): void
     );
   }
   if (
+    captions.updateFieldsOnOpen !== undefined &&
+    typeof captions.updateFieldsOnOpen !== "boolean"
+  ) {
+    throw new MarkdownConversionError(
+      "Invalid captions.updateFieldsOnOpen: Must be a boolean",
+    );
+  }
+  if (
     captions.size !== undefined &&
     (!Number.isFinite(captions.size) || captions.size < 8 || captions.size > 144)
   ) {

@@ -339,6 +339,12 @@ export interface CaptionOptions {
    * text, or throw a MarkdownConversionError. Defaults to "preserve".
    */
   failureMode?: CaptionFailureMode;
+  /**
+   * Ask Word to refresh document fields when the file opens. Defaults to true.
+   * Set false to avoid Word's field-update security prompt and update fields
+   * manually with Ctrl+A, F9 when needed.
+   */
+  updateFieldsOnOpen?: boolean;
 }
 
 export interface MathRenderingOptions {

@@ -162,8 +162,7 @@ export function mdastToDocxModel(
       case "html":
         return classifyHtmlNode((node as { value?: string }).value || "");
       case "thematicBreak":
-        // Horizontal rule - skip for now
-        return null;
+        return { type: "horizontalRule" };
       default:
         return null;
     }
@@ -296,6 +295,8 @@ export function mdastToDocxModel(
       listItems.push({
         type: "listItem",
         children: itemChildren,
+        checked:
+          typeof item.checked === "boolean" ? item.checked : undefined,
       });
     }
 

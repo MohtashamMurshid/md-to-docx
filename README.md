@@ -577,16 +577,23 @@ await convertMarkdownToDocx(markdown, {
 | Mermaid diagrams  | `````mermaid                   | Opt-in image rendering; code fallback                |
 | Chart blocks      | `````chart / chartjs           | Opt-in PNG rendering; Chart.js-like JSON subset      |
 | Lists             | `-`, `*`, `1.`                 | Bullet, numbered, nested, rich formatting inside     |
+| Task lists        | `- [ ]`, `- [x]`, `- [X]`     | GFM; unchecked `☐`, checked `☒`; preserves nesting   |
 | Tables            | `\| a \| b \|`                 | GFM tables                                           |
 | Blockquotes       | `> text`                       |                                                      |
 | Callouts          | `> [!NOTE]`                    | GitHub-style callout blocks                          |
 | Links             | `[text](url)`                  |                                                      |
 | Images            | `![alt](url)`                  | HTTP(S) and `data:` URLs; supports `#w=...&h=...` sizing |
 | Footnotes         | `Text[^1]` + `[^1]: Note text` | Native Word footnotes                                |
-| Horizontal rule   | `---`                          | Skipped during conversion                            |
+| Horizontal rule   | `---`, `***`, `___`            | Native Word paragraph border                         |
 | Table of Contents | `[TOC]`                        | Clickable, auto-populated                            |
 | Page break        | `\pagebreak`                   | Place on its own line                                |
 | Comments          | `<!-- COMMENT: text -->`       | Rendered as Word comments                            |
+
+Task-list checkboxes use Unicode ballot-box text (`☐` U+2610 and `☒` U+2612)
+inside the existing Word list paragraph. This deterministic representation has
+no form controls, macros, or font-specific Wingdings encoding, so task items
+retain normal bullet/number markers, nesting, and inline formatting across DOCX
+readers. The checkboxes are display-only, not interactive controls.
 
 Markdown footnotes use the GFM/remark syntax:
 

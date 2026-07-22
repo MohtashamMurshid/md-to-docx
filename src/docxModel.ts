@@ -44,6 +44,8 @@ export interface DocxHeadingNode {
 export interface DocxListItemNode {
   type: "listItem";
   children: DocxBlockNode[];
+  /** GFM task state; undefined means this is an ordinary list item. */
+  checked?: boolean;
 }
 
 export interface DocxListNode {
@@ -115,6 +117,10 @@ export interface DocxTocPlaceholderNode {
   type: "tocPlaceholder";
 }
 
+export interface DocxHorizontalRuleNode {
+  type: "horizontalRule";
+}
+
 export interface DocxFootnoteDefinitionNode {
   identifier: string;
   id: number;
@@ -134,6 +140,7 @@ export type DocxBlockNode =
   | DocxTableNode
   | DocxCommentNode
   | DocxPageBreakNode
+  | DocxHorizontalRuleNode
   | DocxTocPlaceholderNode;
 
 export interface DocxDocumentModel {

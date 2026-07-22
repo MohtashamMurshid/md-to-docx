@@ -37,6 +37,7 @@ import {
 import { processChartBlock } from "./renderers/chartRenderer.js";
 import { parseTexMath, renderNativeMath } from "./renderers/mathRenderer.js";
 import { processInlineCode } from "./renderers/textRenderer.js";
+import { processHorizontalRule } from "./renderers/horizontalRuleRenderer.js";
 import { resolveFontFamily } from "./utils/styleUtils.js";
 import { sanitizeForBookmarkId } from "./utils/bookmarkUtils.js";
 import { throwIfAborted } from "./processingLimits.js";
@@ -60,7 +61,13 @@ interface ListMarkerContext {
   isOrdered: boolean;
   level: number;
   sequenceId: number | undefined;
+  taskChecked?: boolean;
 }
+
+const TASK_MARKERS = {
+  unchecked: "\u2610 ",
+  checked: "\u2612 ",
+} as const;
 
 const SAFE_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
 
@@ -327,6 +334,7 @@ export async function modelToDocx(
     level: number,
     sequenceId: number | undefined,
     context: RenderContext = {},
+    taskChecked?: boolean,
   ): Paragraph {
     const quoteStyle = context.quoteLevel
       ? blockquoteParagraphStyle(
@@ -336,7 +344,20 @@ export async function modelToDocx(
         )
       : undefined;
     const base = {
-      children: renderInlineNodes(nodes, { size: style.listItemSize || 24 }),
+      children: renderInlineNodes(
+        taskChecked === undefined
+          ? nodes
+          : [
+              {
+                type: "text",
+                value: taskChecked
+                  ? TASK_MARKERS.checked
+                  : TASK_MARKERS.unchecked,
+              },
+              ...nodes,
+            ],
+        { size: style.listItemSize || 24 },
+      ),
       spacing: {
         before: style.paragraphSpacing / 2,
         after: style.paragraphSpacing / 2,
@@ -513,6 +534,17 @@ export async function modelToDocx(
         return [new Paragraph({ children: [new PageBreak()] })];
       }
 
+      case "horizontalRule": {
+        const quoteStyle = context.quoteLevel
+          ? blockquoteParagraphStyle(
+              style,
+              context.quoteLevel,
+              context.calloutType,
+            )
+          : undefined;
+        return [processHorizontalRule(style, quoteStyle)];
+      }
+
       case "tocPlaceholder": {
         const placeholder = new Paragraph({});
         renderOptions.tocPlaceholders?.add(placeholder);
@@ -657,6 +689,7 @@ export async function modelToDocx(
               level,
               sequenceId,
               context,
+              item.checked,
             ),
           );
         } else {
@@ -672,7 +705,12 @@ export async function modelToDocx(
         // Other block types - render normally but they'll appear as part of list item
         const markerContext =
           paragraphs.length === 0
-            ? { isOrdered, level, sequenceId }
+            ? {
+                isOrdered,
+                level,
+                sequenceId,
+                taskChecked: item.checked,
+              }
             : undefined;
         const rendered = await renderBlockNodeWithListMarker(
           child,
@@ -692,7 +730,14 @@ export async function modelToDocx(
     // If no paragraphs were created, create an empty list item
     if (paragraphs.length === 0) {
       paragraphs.push(
-        listParagraphFromInlineNodes([], isOrdered, level, sequenceId, context),
+        listParagraphFromInlineNodes(
+          [],
+          isOrdered,
+          level,
+          sequenceId,
+          context,
+          item.checked,
+        ),
       );
     }
 
@@ -742,6 +787,49 @@ export async function modelToDocx(
     context: RenderContext,
     listMarker?: ListMarkerContext,
   ): Promise<(Paragraph | Table)[]> {
+    if (node.type === "horizontalRule") {
+      const quoteStyle = context.quoteLevel
+        ? blockquoteParagraphStyle(
+            style,
+            context.quoteLevel,
+            context.calloutType,
+          )
+        : undefined;
+      const quoteIndent = quoteStyle?.indent.left ?? 0;
+      return [
+        ...(listMarker
+          ? [
+              listParagraphFromInlineNodes(
+                [],
+                listMarker.isOrdered,
+                listMarker.level,
+                listMarker.sequenceId,
+                context,
+                listMarker.taskChecked,
+              ),
+            ]
+          : []),
+        processHorizontalRule(style, {
+          ...quoteStyle,
+          indent: { left: quoteIndent + 720 * (listLevel + 1) },
+        }),
+      ];
+    }
+
+    if (listMarker?.taskChecked !== undefined) {
+      return [
+        listParagraphFromInlineNodes(
+          [],
+          listMarker.isOrdered,
+          listMarker.level,
+          listMarker.sequenceId,
+          context,
+          listMarker.taskChecked,
+        ),
+        ...(await renderBlockNode(node, listLevel, context)),
+      ];
+    }
+
     if (node.type === "image" || node.type === "chartBlock") {
       return node.type === "image"
         ? renderImageNode(node, context, listMarker)
@@ -761,6 +849,7 @@ export async function modelToDocx(
           listMarker.level,
           listMarker.sequenceId,
           context,
+          listMarker.taskChecked,
         ),
         ...rendered,
       ];

@@ -115,6 +115,101 @@ describe("stable custom renderer plugin API", () => {
     expect(xml.match(/<w:numPr>/g)?.length).toBe(1);
   });
 
+  it("keeps task-list numbering, checkbox, and plugin content together", async () => {
+    const plugin: MarkdownDocxPlugin = {
+      apiVersion: 1,
+      name: "acme.task",
+      transformAst(root) {
+        const list = root.children[0] as Parent;
+        const item = list.children[0] as Parent;
+        const paragraph = item.children[0] as Parent;
+        paragraph.type = "taskDirective";
+      },
+      blockNodes: [
+        {
+          nodeTypes: ["taskDirective"],
+          render: () => ({
+            type: "paragraph",
+            children: "plugin task body",
+          }),
+        },
+      ],
+    };
+    const xml = await getDocumentXml(
+      await convertMarkdownToDocx(
+        "- [ ] replace me",
+        { plugins: [plugin] },
+      ),
+    );
+    const taskParagraph = xml.match(
+      /<w:p\b(?:(?!<\/w:p>)[\s\S])*?plugin task body(?:(?!<\/w:p>)[\s\S])*?<\/w:p>/,
+    )?.[0];
+
+    expect(taskParagraph).toContain("<w:numPr>");
+    expect(taskParagraph).toContain("☐ ");
+    expect(xml.match(/<w:numPr>/g)).toHaveLength(1);
+  });
+
+  it("discovers captions and references from the rendered post-transform AST", async () => {
+    const plugin: MarkdownDocxPlugin = {
+      apiVersion: 1,
+      name: "acme.caption-order",
+      transformAst(root) {
+        const firstPair = root.children.splice(1, 2);
+        const secondPair = root.children.splice(1, 2);
+        root.children.splice(1, 0, ...secondPair, ...firstPair);
+        root.children.push(
+          {
+            type: "paragraph",
+            children: [{ type: "text", value: "See [@tbl:added]." }],
+          },
+          {
+            type: "table",
+            align: [null],
+            children: [
+              {
+                type: "tableRow",
+                children: [
+                  {
+                    type: "tableCell",
+                    children: [{ type: "text", value: "Added" }],
+                  },
+                ],
+              },
+            ],
+          } as unknown as Root["children"][number],
+          {
+            type: "paragraph",
+            children: [{ type: "text", value: ": Added table {#tbl:added}" }],
+          },
+        );
+      },
+    };
+    const xml = await getDocumentXml(
+      await convertMarkdownToDocx(
+        `See [@fig:second], then [@fig:first].
+
+![First](data:image/png;base64,${ONE_PX_PNG_BYTES.toString("base64")})
+
+: First {#fig:first}
+
+![Second](data:image/png;base64,${ONE_PX_PNG_BYTES.toString("base64")})
+
+: Second {#fig:second}`,
+        {
+          plugins: [plugin],
+          captions: { failureMode: "throw" },
+          imageHandling: { dataUrls: { enabled: true } },
+        },
+      ),
+    );
+
+    expect(xml).toMatch(/REF[^>]*>(?:(?!<\/w:fldSimple>)[\s\S])*?Figure 1/);
+    expect(xml).toContain("Figure 2");
+    expect(xml).toContain("Table 1");
+    expect(xml).toContain("Added table");
+  });
+
   it("reports blockquote/callout and footnote nesting without dropping output", async () => {
     const parents: string[] = [];
     const plugin = fencePlugin("acme.contexts", (value, context) => {
@@ -336,6 +431,29 @@ Footnote reference[^plugin].
     await expect(
       convertMarkdownToDocx("```notice\nbase\n```", {
         plugins: [
+          fencePlugin("acme.inline-output-limit", () => ({
+            type: "paragraph",
+            children: Array.from({ length: 100 }, (_, index) => `item-${index}`),
+          })),
+        ],
+        maxElements: 3,
+      }),
+    ).rejects.toThrow("Markdown element count exceeds maxElements");
+    await expect(
+      convertMarkdownToDocx("```notice\nbase\n```", {
+        plugins: [
+          fencePlugin("acme.table-output-limit", () => ({
+            type: "table",
+            headers: [["Header"]],
+            rows: Array.from({ length: 20 }, () => [["Cell"]]),
+          })),
+        ],
+        maxElements: 10,
+      }),
+    ).rejects.toThrow("Markdown element count exceeds maxElements");
+    await expect(
+      convertMarkdownToDocx("```notice\nbase\n```", {
+        plugins: [
           fencePlugin("acme.output-limit", () => [
             { type: "paragraph", children: "one" },
             { type: "paragraph", children: "two" },
@@ -360,6 +478,22 @@ Footnote reference[^plugin].
     const media = Object.keys(zip.files).filter((path) => path.startsWith("word/media/") && !path.endsWith("/"));
     expect(media).toHaveLength(1);
     expect(xml).toContain("Image could not be loaded");
+  });
+
+  it("enforces strict missing-alt policy for plugin images", async () => {
+    await expect(
+      convertMarkdownToDocx("```notice\nimage\n```", {
+        plugins: [
+          fencePlugin("acme.strict-image", () => ({
+            type: "image",
+            data: ONE_PX_PNG_BYTES,
+            contentType: "image/png",
+            alt: "   ",
+          })),
+        ],
+        accessibility: { missingImageAltText: "throw" },
+      }),
+    ).rejects.toThrow("strict accessibility mode requires a non-empty description");
   });
 
   it("shares plugin state across sections but isolates separate conversions", async () => {

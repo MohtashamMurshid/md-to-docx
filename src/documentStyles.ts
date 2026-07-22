@@ -1,4 +1,4 @@
-import { AlignmentType, IParagraphStyleOptions } from "docx";
+import { AlignmentType, IStylesOptions } from "docx";
 import { Style } from "./types.js";
 import { resolveFontFamily } from "./utils/styleUtils.js";
 import { runLanguage } from "./accessibility.js";
@@ -20,14 +20,16 @@ function headingRunSize(level: number, style: Style): number {
 }
 
 /**
- * Builds the paragraph style definitions (Title, Heading1-6, Strong) shared
- * by every generated document. Heading styles only differ by font size and
- * spacing, so they are generated from a small table.
+ * Customizes docx's built-in style definitions instead of appending a second
+ * style with the same ID. Duplicate style IDs are invalid WordprocessingML
+ * and also make generated documents unsafe to reuse as reference DOCX input.
  */
-export function buildParagraphStyles(style: Style): IParagraphStyleOptions[] {
+export function buildDefaultStyles(
+  style: Style,
+): NonNullable<IStylesOptions["default"]> {
   const font = resolveFontFamily(style);
 
-  const headingStyles: IParagraphStyleOptions[] = HEADING_SPACING.map(
+  const headingStyles = HEADING_SPACING.map(
     (spacing, index) => {
       const level = index + 1;
       return {
@@ -52,13 +54,18 @@ export function buildParagraphStyles(style: Style): IParagraphStyleOptions[] {
     }
   );
 
-  return [
-    {
-      id: "Title",
-      name: "Title",
-      basedOn: "Normal",
-      next: "Normal",
-      quickFormat: true,
+  return {
+    ...(style.language || style.direction === "RTL"
+      ? {
+          document: {
+            run: {
+              ...(style.language ? { language: runLanguage(style) } : {}),
+              ...(style.direction === "RTL" ? { rightToLeft: true } : {}),
+            },
+          },
+        }
+      : {}),
+    title: {
       run: {
         size: style.titleSize,
         bold: true,
@@ -75,10 +82,10 @@ export function buildParagraphStyles(style: Style): IParagraphStyleOptions[] {
         alignment: AlignmentType.CENTER,
       },
     },
-    ...headingStyles,
-    {
-      id: "Strong",
-      name: "Strong",
+    ...Object.fromEntries(
+      headingStyles.map((heading, index) => [`heading${index + 1}`, heading]),
+    ),
+    strong: {
       run: {
         bold: true,
         font,
@@ -86,5 +93,5 @@ export function buildParagraphStyles(style: Style): IParagraphStyleOptions[] {
         ...(style.direction === "RTL" ? { rightToLeft: true } : {}),
       },
     },
-  ];
+  };
 }

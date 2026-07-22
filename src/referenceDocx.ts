@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import { DOMParser } from "@xmldom/xmldom";
 import { MarkdownConversionError } from "./errors.js";
 import { yieldToAbortSignal } from "./processingLimits.js";
 import type {
@@ -229,6 +230,25 @@ function assertSafeXml(xml: string, entry: string): void {
       `Reference DOCX XML part ${entry} contains a prohibited DTD or entity declaration`,
       "MALFORMED_XML",
       { entry },
+    );
+  }
+  try {
+    const document = new DOMParser({
+      onError(level, message) {
+        if (level !== "warning") throw new Error(message);
+      },
+    }).parseFromString(xml, "application/xml");
+    if (
+      !document.documentElement ||
+      document.getElementsByTagName("parsererror").length > 0
+    ) {
+      throw new Error("XML parser did not produce a well-formed document");
+    }
+  } catch (error) {
+    throw referenceError(
+      `Reference DOCX XML part ${entry} is malformed`,
+      "MALFORMED_XML",
+      { entry, originalError: error },
     );
   }
 }

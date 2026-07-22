@@ -19,7 +19,12 @@ export interface MarkdownConversionErrorContext {
  * @param context - The context of the error
  */
 export class MarkdownConversionError extends Error {
-  constructor(message: string, public context?: MarkdownConversionErrorContext) {
+  /**
+   * Kept as `unknown` for source compatibility with v2 consumers that attach
+   * their own primitive, array, or object context values. Core errors use the
+   * exported {@link MarkdownConversionErrorContext} shape internally.
+   */
+  constructor(message: string, public context?: unknown) {
     super(message);
     this.name = "MarkdownConversionError";
   }

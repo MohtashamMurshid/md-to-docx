@@ -982,6 +982,10 @@ export async function modelToDocx(
       return renderMermaidNode(node, context, listMarker);
     }
 
+    if (node.type === "pluginBlock") {
+      return renderPluginNode(node, listLevel, context, listMarker);
+    }
+
     if (listMarker?.taskChecked !== undefined) {
       return [
         listParagraphFromInlineNodes(
@@ -994,10 +998,6 @@ export async function modelToDocx(
         ),
         ...(await renderBlockNode(node, listLevel, context)),
       ];
-    }
-
-    if (node.type === "pluginBlock") {
-      return renderPluginNode(node, listLevel, context, listMarker);
     }
 
     if (listMarker) {
@@ -1021,10 +1021,12 @@ export async function modelToDocx(
   function imageCouldNotLoadParagraph(
     alt: string,
     paragraphOptions: Partial<IParagraphOptions> = {},
+    prefixChildren: readonly ParagraphChild[] = [],
   ): Paragraph {
     return new Paragraph({
       ...paragraphOptions,
       children: [
+        ...prefixChildren,
         new TextRun({
           text: `[Image could not be loaded: ${alt}]`,
           italics: true,
@@ -1312,6 +1314,46 @@ export async function modelToDocx(
     });
   }
 
+  function pluginInlineElementCount(
+    content: PluginInlineContent | readonly PluginInlineContent[],
+  ): number {
+    return pluginInlineNodes(content).length;
+  }
+
+  function pluginResultElementCount(result: PluginBlockResult): number {
+    if (!result || typeof result !== "object" || typeof result.type !== "string") {
+      throw new Error("Plugin returned an invalid block result");
+    }
+    switch (result.type) {
+      case "skip":
+      case "children":
+        return 0;
+      case "image":
+      case "codeBlock":
+        return 1;
+      case "paragraph":
+      case "heading":
+        return 1 + pluginInlineElementCount(result.children);
+      case "table": {
+        let count = 2;
+        for (const cell of result.headers) {
+          count += 1 + pluginInlineElementCount(cell);
+        }
+        for (const row of result.rows) {
+          count++;
+          for (const cell of row) {
+            count += 1 + pluginInlineElementCount(cell);
+          }
+        }
+        return count;
+      }
+      default:
+        throw new Error(
+          `Unsupported plugin result type: ${(result as { type: string }).type}`,
+        );
+    }
+  }
+
   function pluginFallback(
     node: Extract<DocxBlockNode, { type: "pluginBlock" }>,
     listLevel: number,
@@ -1414,12 +1456,20 @@ export async function modelToDocx(
       return renderPluginChildren(node, listLevel, context, listMarker);
     }
     if (result.type === "image") {
+      const altText = result.alt ?? "";
+      validateImageText(altText, undefined, "Plugin image");
+      assertImageAltPolicy(
+        altText,
+        options.accessibility,
+        `plugin "${node.handler.pluginName}" image`,
+      );
       const paragraphOptions = imageParagraphOptions(context, listMarker);
       if (processedImageCounter.count >= imageHandling.maxImages) {
         return [
           imageCouldNotLoadParagraph(
             result.alt || "plugin image limit reached",
             paragraphOptions,
+            taskMarkerChildren(listMarker),
           ),
         ];
       }
@@ -1434,6 +1484,7 @@ export async function modelToDocx(
           maxImageBytes: imageHandling.maxImageBytes,
           paragraphOptions,
           signal: options.signal,
+          prefixChildren: taskMarkerChildren(listMarker),
         },
         style,
       );
@@ -1455,6 +1506,7 @@ export async function modelToDocx(
                 listMarker.level,
                 listMarker.sequenceId,
                 context,
+                listMarker.taskChecked,
               )
             : listContinuationParagraphFromInlineNodes(
                 inlineNodes,
@@ -1583,9 +1635,10 @@ export async function modelToDocx(
         throw new Error("Plugin renderer returned no result");
       }
       const blocks = Array.isArray(result) ? result : [result];
-      const additionalElements = blocks.filter(
-        (block) => block.type !== "children" && block.type !== "skip",
-      ).length;
+      const additionalElements = blocks.reduce(
+        (count, block) => count + pluginResultElementCount(block),
+        0,
+      );
       if (renderOptions.pluginElementCounter) {
         renderOptions.pluginElementCounter.count += additionalElements;
         if (
@@ -1628,6 +1681,13 @@ export async function modelToDocx(
       if (
         error instanceof MarkdownConversionError &&
         error.message === "Markdown element count exceeds maxElements"
+      ) {
+        throw error;
+      }
+      if (
+        error instanceof MarkdownConversionError &&
+        (error.context as { missingImageAltText?: unknown } | undefined)
+          ?.missingImageAltText === "throw"
       ) {
         throw error;
       }

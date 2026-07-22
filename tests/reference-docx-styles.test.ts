@@ -362,6 +362,51 @@ const answer = 42;
     ).rejects.toMatchObject({ context: { code: "PACKAGE_LIMIT_EXCEEDED" } });
   });
 
+  it("rejects malformed required and recursively imported XML parts", async () => {
+    const malformedStyles = await createReferenceFixture((zip) => {
+      zip.file(
+        "word/styles.xml",
+        STYLES_XML.replace("</w:styles>", "<w:style></w:styles>"),
+      );
+    });
+    await expect(
+      convertMarkdownWithReferenceDocxToBuffer("text", malformedStyles),
+    ).rejects.toMatchObject({
+      context: { code: "MALFORMED_XML", entry: "word/styles.xml" },
+    });
+
+    const malformedHeader = await createReferenceFixture((zip) => {
+      zip.file(
+        "word/header1.xml",
+        '<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p></w:hdr>',
+      );
+    });
+    await expect(
+      convertMarkdownWithReferenceDocxToBuffer("text", malformedHeader),
+    ).rejects.toMatchObject({
+      context: { code: "MALFORMED_XML", entry: "word/header1.xml" },
+    });
+  });
+
+  it("reuses generated DOCX files as deterministic reference input", async () => {
+    const generated = await convertMarkdownToBuffer("# Generated reference");
+    const generatedZip = await JSZip.loadAsync(generated);
+    const generatedStyles = await xml(generatedZip, "word/styles.xml");
+    const styleIds = Array.from(
+      generatedStyles.matchAll(/<w:style\b[^>]*w:styleId="([^"]+)"/g),
+      (match) => match[1],
+    );
+
+    expect(new Set(styleIds).size).toBe(styleIds.length);
+    const output = await convertMarkdownWithReferenceDocxToBuffer(
+      "# Reused successfully",
+      generated,
+    );
+    expect(
+      await xml(await JSZip.loadAsync(output), "word/document.xml"),
+    ).toContain("Reused successfully");
+  });
+
   it("rejects unsupported active header/footer relationship constructs", async () => {
     const reference = await createReferenceFixture(async (zip) => {
       const relsPath = "word/_rels/header1.xml.rels";

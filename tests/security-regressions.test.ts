@@ -119,6 +119,25 @@ describe("Security regressions", () => {
     );
   });
 
+  it("runs trusted text replacement callbacks once per matching section", async () => {
+    let calls = 0;
+    const blob = await convertMarkdownToDocx("", {
+      sections: [{ markdown: "TOKEN" }, { markdown: "TOKEN" }],
+      textReplacementMode: "trusted",
+      textReplacements: [
+        {
+          find: "TOKEN",
+          replace: () => `replacement-${++calls}`,
+        },
+      ],
+    });
+
+    const documentXml = await getDocumentXml(blob);
+    expect(calls).toBe(2);
+    expect(documentXml).toContain("replacement-1");
+    expect(documentXml).toContain("replacement-2");
+  });
+
   it("rejects invalid textReplacementMode values", async () => {
     await expect(
       convertMarkdownToDocx("Hello", {

@@ -41,7 +41,7 @@ import {
   replaceTocPlaceholders,
   TocHeadingEntry,
 } from "./tocBuilder.js";
-import { buildParagraphStyles } from "./documentStyles.js";
+import { buildDefaultStyles } from "./documentStyles.js";
 import {
   enforceElementLimit,
   enforceInputLength,
@@ -65,7 +65,7 @@ import {
   normalizeDocumentMetadata,
   validateDocumentMetadata,
 } from "./metadata.js";
-import { runLanguage, validateAccessibilityOptions } from "./accessibility.js";
+import { validateAccessibilityOptions } from "./accessibility.js";
 
 const defaultStyle: Style = {
   titleSize: 32,
@@ -388,10 +388,6 @@ export async function parseToDocxOptions(
     };
 
     const resolvedSections = resolveSections(markdown, options, style);
-    const crossReferences = await prepareCrossReferenceRegistry(
-      resolvedSections.map((section) => section.markdown),
-      options,
-    );
     const renderedSections: {
       children: (Paragraph | Table)[];
       style: Style;
@@ -410,6 +406,24 @@ export async function parseToDocxOptions(
       options,
       sectionCount: resolvedSections.length,
     });
+    const preparedAsts: Root[] = [];
+    for (const [sectionIndex, section] of resolvedSections.entries()) {
+      preparedAsts.push(
+        await prepareMarkdownAst(section.markdown, section.style, options, {
+          pluginRuntime,
+          pluginSection: {
+            index: sectionIndex,
+            count: resolvedSections.length,
+            kind: "section",
+            contentWidthTwips: getSectionContentWidthTwips(section.config),
+          },
+        }),
+      );
+    }
+    const crossReferences = buildCrossReferenceRegistry(
+      preparedAsts,
+      options.captions,
+    );
 
     for (const [sectionIndex, section] of resolvedSections.entries()) {
       throwIfAborted(options.signal);
@@ -427,6 +441,7 @@ export async function parseToDocxOptions(
           tocPlaceholders,
           tableWidthTwips: getSectionContentWidthTwips(section.config),
           footnoteIdOffset: maxFootnoteId,
+          preparedAst: preparedAsts[sectionIndex],
           crossReferences,
           pluginRuntime,
           pluginSection: {
@@ -510,21 +525,7 @@ export async function parseToDocxOptions(
       sections: docSections,
       ...(Object.keys(footnotes).length > 0 ? { footnotes } : {}),
       styles: {
-        ...(style.language || style.direction === "RTL"
-          ? {
-              default: {
-                document: {
-                  run: {
-                    ...(style.language
-                      ? { language: runLanguage(style) }
-                      : {}),
-                    ...(style.direction === "RTL" ? { rightToLeft: true } : {}),
-                  },
-                },
-              },
-            }
-          : {}),
-        paragraphStyles: buildParagraphStyles(style),
+        default: buildDefaultStyles(style),
       },
       ...(crossReferences &&
       crossReferences.definitions.size > 0 &&
@@ -803,30 +804,12 @@ async function renderMarkdownContent(
     validateModel?: (model: DocxDocumentModel) => void;
     validateAst?: (ast: Root) => void;
     crossReferences?: CrossReferenceRegistry;
+    preparedAst?: Root;
   } = {}
 ): Promise<{ content: RenderedMarkdownContent; elementCount: number }> {
-  let ast = await parseMarkdownToAst(
-    markdown,
-    options.mathRendering?.enabled !== false,
-  );
-  await yieldToAbortSignal(options.signal);
-
-  if (options.textReplacements && options.textReplacements.length > 0) {
-    applyTextReplacements(
-      ast,
-      options.textReplacements,
-      options.textReplacementMode,
-    );
-  }
-
-  if (renderOptions.pluginRuntime && renderOptions.pluginSection) {
-    ast = await renderOptions.pluginRuntime.transformAst(
-      ast,
-      style,
-      renderOptions.pluginSection,
-      options.signal,
-    );
-  }
+  const ast =
+    renderOptions.preparedAst ??
+    (await prepareMarkdownAst(markdown, style, options, renderOptions));
 
   renderOptions.validateAst?.(ast);
 
@@ -866,38 +849,37 @@ async function renderMarkdownContent(
   return { content, elementCount: pluginElementCounter.count };
 }
 
-async function prepareCrossReferenceRegistry(
-  markdownSections: string[],
+async function prepareMarkdownAst(
+  markdown: string,
+  style: Style,
   options: Options,
-): Promise<CrossReferenceRegistry | undefined> {
-  const mayContainSyntax =
-    options.textReplacements !== undefined ||
-    markdownSections.some((section) =>
-      /(?:\{#(?:fig|tbl):|\[@(?:fig|tbl):)/.test(section),
+  renderOptions: {
+    pluginRuntime?: PluginRuntime;
+    pluginSection?: PluginSectionContext;
+  } = {},
+): Promise<Root> {
+  throwIfAborted(options.signal);
+  let ast = await parseMarkdownToAst(
+    markdown,
+    options.mathRendering?.enabled !== false,
+  );
+  await yieldToAbortSignal(options.signal);
+  if (options.textReplacements && options.textReplacements.length > 0) {
+    applyTextReplacements(
+      ast,
+      options.textReplacements,
+      options.textReplacementMode,
     );
-  if (!mayContainSyntax) {
-    return undefined;
   }
-
-  const roots: Root[] = [];
-  for (const markdown of markdownSections) {
-    throwIfAborted(options.signal);
-    const ast = await parseMarkdownToAst(
-      markdown,
-      options.mathRendering?.enabled !== false,
+  if (renderOptions.pluginRuntime && renderOptions.pluginSection) {
+    ast = await renderOptions.pluginRuntime.transformAst(
+      ast,
+      style,
+      renderOptions.pluginSection,
+      options.signal,
     );
-    if (options.textReplacements && options.textReplacements.length > 0) {
-      applyTextReplacements(
-        ast,
-        options.textReplacements,
-        options.textReplacementMode,
-      );
-    }
-    roots.push(ast);
-    await yieldToAbortSignal(options.signal);
   }
-
-  return buildCrossReferenceRegistry(roots, options.captions);
+  return ast;
 }
 
 function assertPatchCompatibleAst(ast: Root, placeholder: string): void {

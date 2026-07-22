@@ -67,7 +67,9 @@ describe("figure/table captions and cross-references", () => {
 
   it("can suppress Word's automatic field-update prompt", async () => {
     const blob = await convertMarkdownToDocx(
-      `![Prompt-free figure](${ONE_PX_PNG})
+      `See [@fig:prompt-free].
+
+![Prompt-free figure](${ONE_PX_PNG})
 
 : Prompt-free caption {#fig:prompt-free}`,
       { captions: { updateFieldsOnOpen: false } },
@@ -77,6 +79,9 @@ describe("figure/table captions and cross-references", () => {
       ?.async("string");
 
     expect(settings).not.toContain("<w:updateFields");
+    const xml = await getDocumentXml(blob);
+    expect(fieldInstructions(xml, "REF")).toHaveLength(1);
+    expect(xml).toContain("Figure 1");
   });
 
   it("validates the automatic field-update option", async () => {

@@ -1,3 +1,11 @@
+## [Unreleased]
+
+### Features
+
+- Add a true reference-DOCX style generation workflow through `convertMarkdownWithReferenceDocx`, `convertMarkdownWithReferenceDocxToArrayBuffer`, and `convertMarkdownWithReferenceDocxToBuffer`.
+- Adopt named paragraph, character, and table styles with typed ID/name overrides while preserving theme/fonts, final-section page presentation, and headers/footers without copying static reference body content.
+- Merge reference numbering, relationships, and content types with collision-safe IDs and bounded untrusted-ZIP validation, cancellation, and actionable `ReferenceDocxErrorContext` codes.
+
 ## [2.18.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.17.0...v2.18.0) (2026-06-19)
 
 ### Features

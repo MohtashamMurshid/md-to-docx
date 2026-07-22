@@ -15,7 +15,9 @@ import {
   MarkdownDocxPatch,
   Options,
   PatchMarkdownOptions,
+  ReferenceDocxBytes,
   ReferenceDocxInput,
+  ReferenceDocxGenerationOptions,
   SectionConfig,
   Style,
 } from "./types.js";
@@ -51,6 +53,11 @@ import {
   containsCaptionOrCrossReferenceSyntax,
 } from "./crossReferences.js";
 import type { CrossReferenceRegistry } from "./crossReferences.js";
+import {
+  applyReferenceDocxPresentation,
+  buildReferenceConversionOptions,
+  loadReferenceDocx,
+} from "./referenceDocx.js";
 
 const defaultStyle: Style = {
   titleSize: 32,
@@ -101,7 +108,16 @@ export {
   MermaidRenderingOptions,
   Options,
   PatchMarkdownOptions,
+  ReferenceDocxErrorCode,
+  ReferenceDocxErrorContext,
+  ReferenceDocxBytes,
+  ReferenceDocxGenerationOptions,
   ReferenceDocxInput,
+  ReferenceDocxModeOptions,
+  ReferenceDocxPackageLimits,
+  ReferenceDocxStyleMap,
+  ReferenceDocxStyleRole,
+  ReferenceDocxStyleSelector,
   RemoteImageHandlingOptions,
   SectionConfig,
   SectionTemplate,
@@ -158,6 +174,93 @@ export async function convertMarkdownToBuffer(
   options: Options = defaultOptions
 ): Promise<Buffer> {
   return Buffer.from(await convertMarkdownToArrayBuffer(markdown, options));
+}
+
+/**
+ * Generate a brand-new DOCX from Markdown while adopting presentation from a
+ * reference DOCX. Unlike patchMarkdownInDocx, reference body content and
+ * placeholders are never copied.
+ */
+export async function convertMarkdownWithReferenceDocx(
+  markdown: string,
+  referenceDocx: ReferenceDocxBytes,
+  options: ReferenceDocxGenerationOptions = {},
+): Promise<Blob> {
+  const bytes = await convertMarkdownWithReferenceDocxBytes(
+    markdown,
+    referenceDocx,
+    options,
+  );
+  return new Blob([bytes], {
+    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
+}
+
+export async function convertMarkdownWithReferenceDocxToArrayBuffer(
+  markdown: string,
+  referenceDocx: ReferenceDocxBytes,
+  options: ReferenceDocxGenerationOptions = {},
+): Promise<ArrayBuffer> {
+  const bytes = await convertMarkdownWithReferenceDocxBytes(
+    markdown,
+    referenceDocx,
+    options,
+  );
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+}
+
+export async function convertMarkdownWithReferenceDocxToBuffer(
+  markdown: string,
+  referenceDocx: ReferenceDocxBytes,
+  options: ReferenceDocxGenerationOptions = {},
+): Promise<Buffer> {
+  return Buffer.from(
+    await convertMarkdownWithReferenceDocxToArrayBuffer(
+      markdown,
+      referenceDocx,
+      options,
+    ),
+  );
+}
+
+async function convertMarkdownWithReferenceDocxBytes(
+  markdown: string,
+  referenceDocx: ReferenceDocxBytes,
+  options: ReferenceDocxGenerationOptions,
+): Promise<Uint8Array> {
+  try {
+    const reference = await loadReferenceDocx(
+      referenceDocx,
+      options.reference,
+      options.signal,
+    );
+    const conversionOptions = buildReferenceConversionOptions(options, reference);
+    const generated = await convertMarkdownToArrayBuffer(
+      markdown,
+      conversionOptions,
+    );
+    return applyReferenceDocxPresentation(
+      generated,
+      reference,
+      options.reference,
+      options.signal,
+    );
+  } catch (error) {
+    if (error instanceof MarkdownConversionError) throw error;
+    throw new MarkdownConversionError(
+      `Failed to generate DOCX from reference: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`,
+      {
+        phase: "reference-docx",
+        code: "INVALID_PACKAGE",
+        originalError: error,
+      },
+    );
+  }
 }
 
 /**

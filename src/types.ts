@@ -341,6 +341,108 @@ export interface MathRenderingOptions {
 
 export type ReferenceDocxInput = InputDataType;
 
+/** In-memory bytes accepted by the reference-style generation workflow. */
+export type ReferenceDocxBytes = Uint8Array | ArrayBuffer | Blob;
+
+/** Semantic Markdown roles that can adopt a named style from a reference DOCX. */
+export type ReferenceDocxStyleRole =
+  | "normal"
+  | "title"
+  | "heading1"
+  | "heading2"
+  | "heading3"
+  | "heading4"
+  | "heading5"
+  | "heading6"
+  | "blockquote"
+  | "codeBlock"
+  | "caption"
+  | "listParagraph"
+  | "table"
+  | "strong"
+  | "emphasis"
+  | "inlineCode"
+  | "hyperlink";
+
+/** Selects a reference style deterministically by its Word ID or display name. */
+export type ReferenceDocxStyleSelector =
+  | { id: string; name?: never }
+  | { name: string; id?: never };
+
+export type ReferenceDocxStyleMap = Partial<
+  Record<ReferenceDocxStyleRole, ReferenceDocxStyleSelector | null>
+>;
+
+export interface ReferenceDocxPackageLimits {
+  /** Maximum uploaded/reference ZIP size. Defaults to 16 MiB. */
+  maxCompressedBytes?: number;
+  /** Maximum sum of central-directory uncompressed sizes. Defaults to 64 MiB. */
+  maxUncompressedBytes?: number;
+  /** Maximum uncompressed size of one ZIP entry. Defaults to 16 MiB. */
+  maxEntryUncompressedBytes?: number;
+  /** Maximum ZIP entry count. Defaults to 512. */
+  maxEntries?: number;
+}
+
+export interface ReferenceDocxModeOptions {
+  /**
+   * Typed overrides for Markdown-role to Word-style mapping. Omit a role to
+   * use conventional Word IDs/names; set it to null to keep generated styling.
+   */
+  styles?: ReferenceDocxStyleMap;
+  /**
+   * Behavior when an explicit style selector cannot be resolved. Defaults to
+   * "fallback", which keeps the converter's generated style/direct formatting.
+   */
+  missingStyleBehavior?: "fallback" | "throw";
+  /**
+   * Behavior when a name selector matches multiple styles. Defaults to
+   * "throw"; "first" selects the first definition in styles.xml.
+   */
+  duplicateStyleNameBehavior?: "first" | "throw";
+  /** Copy page size, margins, orientation, and relevant final-section settings. */
+  preservePageLayout?: boolean;
+  /** Import final-section headers and footers without copying reference body text. */
+  preserveHeadersAndFooters?: boolean;
+  /** Bounded ZIP/package processing limits for the untrusted reference input. */
+  limits?: ReferenceDocxPackageLimits;
+}
+
+/**
+ * Options for generating a new DOCX whose presentation is adopted from a
+ * reference package. This is separate from placeholder patching.
+ */
+export interface ReferenceDocxGenerationOptions extends Options {
+  reference?: ReferenceDocxModeOptions;
+}
+
+export type ReferenceDocxErrorCode =
+  | "ABORTED"
+  | "INVALID_INPUT"
+  | "INVALID_ZIP"
+  | "INVALID_PACKAGE"
+  | "UNSAFE_ENTRY_PATH"
+  | "PACKAGE_LIMIT_EXCEEDED"
+  | "MISSING_PACKAGE_PART"
+  | "MALFORMED_XML"
+  | "MISSING_STYLE"
+  | "DUPLICATE_STYLE_NAME"
+  | "STYLE_TYPE_MISMATCH"
+  | "UNSUPPORTED_RELATIONSHIP";
+
+/** Actionable context exposed by reference-mode MarkdownConversionError values. */
+export interface ReferenceDocxErrorContext {
+  phase: "reference-docx";
+  code: ReferenceDocxErrorCode;
+  entry?: string;
+  role?: ReferenceDocxStyleRole;
+  selector?: ReferenceDocxStyleSelector;
+  relationshipType?: string;
+  limit?: number;
+  actual?: number;
+  originalError?: unknown;
+}
+
 export type MarkdownDocxPatch =
   | string
   | {

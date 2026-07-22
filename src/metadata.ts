@@ -392,9 +392,8 @@ async function writeAppProperties(
   zip: JSZip,
   metadata: NormalizedMetadata,
   source: DocumentMetadata,
-  mode: MetadataMode,
 ): Promise<boolean> {
-  if (mode === "patch" && source.company === undefined) return false;
+  if (source.company === undefined) return false;
   const document =
     (await readXmlPart(zip, "docProps/app.xml")) ?? createAppDocument();
   replaceElement(document, APP_NS, "Company", "Company", metadata.company);
@@ -543,7 +542,7 @@ export async function applyDocumentMetadata(
   await yieldToAbortSignal(signal);
 
   const coreWritten = await writeCoreProperties(zip, metadata, source, mode);
-  const appWritten = await writeAppProperties(zip, metadata, source, mode);
+  const appWritten = await writeAppProperties(zip, metadata, source);
   const customWritten = await writeCustomProperties(zip, metadata, source, mode);
   if (coreWritten) await ensurePackagePartRegistration(zip, "core");
   if (appWritten) await ensurePackagePartRegistration(zip, "app");

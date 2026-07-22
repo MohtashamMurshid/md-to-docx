@@ -9,6 +9,7 @@ import {
   patchMarkdownInDocxToArrayBuffer,
   patchMarkdownInDocxToBuffer,
 } from "../src/index";
+import { applyDocumentMetadata } from "../src/metadata";
 import { getDocumentXml, getZip } from "./helpers";
 
 const ONE_PX_PNG =
@@ -131,6 +132,43 @@ describe("document metadata package parts", () => {
     expect(core).toContain("dcterms:modified");
     expect(core).toContain("Un-named");
     expect(styles).not.toContain("<w:lang");
+  });
+
+  it("treats an empty metadata object as an explicit normalized metadata set", async () => {
+    const zip = await getZip(
+      await convertMarkdownToDocx("Content", { metadata: {} }),
+    );
+    const core = await part(zip, "docProps/core.xml");
+
+    expect(core).not.toContain("dcterms:created");
+    expect(core).not.toContain("dcterms:modified");
+    expect(core).not.toContain("Un-named");
+  });
+
+  it("preserves extended app properties when company is omitted", async () => {
+    const sourceZip = await getZip(await convertMarkdownToDocx("Content"));
+    const app = await part(sourceZip, "docProps/app.xml");
+    sourceZip.file(
+      "docProps/app.xml",
+      app.replace(
+        /\/>\n?$/u,
+        "><Company>Existing Co</Company></Properties>",
+      ),
+    );
+    const source = await sourceZip.generateAsync({ type: "nodebuffer" });
+
+    const updated = (await applyDocumentMetadata(
+      source,
+      { title: "Updated title" },
+      "new",
+      "nodebuffer",
+    )) as Buffer;
+    const updatedZip = await zipFromBuffer(updated);
+
+    expect(await part(updatedZip, "docProps/core.xml")).toContain("Updated title");
+    expect(await part(updatedZip, "docProps/app.xml")).toContain(
+      "<Company>Existing Co</Company>",
+    );
   });
 
   it("returns metadata consistently from Blob, ArrayBuffer, and Buffer helpers", async () => {

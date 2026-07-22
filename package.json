@@ -21,6 +21,8 @@
     "lint": "eslint src tests",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.mjs",
     "test:consumer": "node tests/package-consumer.mjs",
+    "test:package-managers": "node tests/package-manager-consumer.mjs pnpm && node tests/package-manager-consumer.mjs bun",
+    "test:package-manager": "node tests/package-manager-consumer.mjs",
     "test:single": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.mjs",
     "prepare": "npm run build",
     "release": "semantic-release"

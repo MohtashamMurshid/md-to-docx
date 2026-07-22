@@ -23,6 +23,7 @@ import {
   Style,
 } from "./types.js";
 import { resolveFontFamily } from "./utils/styleUtils.js";
+import { runLanguage } from "./accessibility.js";
 
 type ResolvedPageNumbering = NonNullable<SectionConfig["pageNumbering"]>;
 type HeaderFooterChannel = "default" | "first" | "even";
@@ -343,6 +344,7 @@ function createHeaderFooterParagraph(
         size: style.paragraphSize || 24,
         font: resolveFontFamily(style),
         rightToLeft: style.direction === "RTL",
+        language: runLanguage(style),
       }),
     ],
   });

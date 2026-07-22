@@ -611,7 +611,7 @@ describe("Rendering: chart blocks", () => {
     const mediaFiles = mediaFilesFromZip(zip);
 
     expect(documentXml).toContain("<w:drawing>");
-    expect(documentXml).not.toContain("Revenue chart");
+    expect(documentXml).toContain('descr="Revenue chart"');
     expect(mediaFiles).toHaveLength(1);
     expect(mediaFiles[0]).toMatch(/\.png$/);
   });

@@ -45,6 +45,12 @@ import {
   throwIfAborted,
   yieldToAbortSignal,
 } from "./processingLimits.js";
+import {
+  applyDocumentMetadata,
+  normalizeDocumentMetadata,
+  validateDocumentMetadata,
+} from "./metadata.js";
+import { runLanguage, validateAccessibilityOptions } from "./accessibility.js";
 
 const defaultStyle: Style = {
   titleSize: 32,
@@ -78,13 +84,16 @@ export {
   ChartRenderer,
   ChartRendererInput,
   ChartRenderingOptions,
+  AccessibilityOptions,
   CodeHighlightOptions,
   CodeHighlightTheme,
   DataUrlImageHandlingOptions,
   DocumentSection,
+  DocumentMetadata,
   HeaderFooterContent,
   HeaderFooterGroup,
   ImageHandlingOptions,
+  MissingImageAltTextBehavior,
   MarkdownDocxPatch,
   MathRenderingOptions,
   MermaidRenderInput,
@@ -120,7 +129,16 @@ export async function convertMarkdownToDocx(
     const docxOptions = await parseToDocxOptions(markdown, options);
     await yieldToAbortSignal(options.signal);
     const doc = new Document(docxOptions);
-    const blob = await Packer.toBlob(doc);
+    let blob = await Packer.toBlob(doc);
+    if (options.metadata) {
+      blob = (await applyDocumentMetadata(
+        blob,
+        options.metadata,
+        "new",
+        "blob",
+        options.signal,
+      )) as Blob;
+    }
     await yieldToAbortSignal(options.signal);
     return blob;
   } catch (error) {
@@ -212,8 +230,17 @@ export async function parseToDocxOptions(
     throwIfAborted(options.signal);
     enforceInputLength(markdown, options);
 
+    const normalizedMetadata = options.metadata
+      ? normalizeDocumentMetadata(options.metadata)
+      : undefined;
     const normalizedStyle = normalizeStyleInput(options.style);
-    const style: Style = { ...defaultStyle, ...normalizedStyle };
+    const style: Style = {
+      ...defaultStyle,
+      ...(normalizedMetadata?.language
+        ? { language: normalizedMetadata.language }
+        : {}),
+      ...normalizedStyle,
+    };
 
     const resolvedSections = resolveSections(markdown, options, style);
     const renderedSections: {
@@ -322,8 +349,34 @@ export async function parseToDocxOptions(
       sections: docSections,
       ...(Object.keys(footnotes).length > 0 ? { footnotes } : {}),
       styles: {
+        ...(style.language || style.direction === "RTL"
+          ? {
+              default: {
+                document: {
+                  run: {
+                    ...(style.language
+                      ? { language: runLanguage(style) }
+                      : {}),
+                    ...(style.direction === "RTL" ? { rightToLeft: true } : {}),
+                  },
+                },
+              },
+            }
+          : {}),
         paragraphStyles: buildParagraphStyles(style),
       },
+      ...(normalizedMetadata
+        ? {
+            title: normalizedMetadata.title,
+            subject: normalizedMetadata.subject,
+            description: normalizedMetadata.description,
+            creator: normalizedMetadata.creator,
+            keywords: normalizedMetadata.keywords,
+            customProperties: Object.entries(normalizedMetadata.custom ?? {}).map(
+              ([name, value]) => ({ name, value }),
+            ),
+          }
+        : {}),
     };
   } catch (error) {
     if (error instanceof MarkdownConversionError) {
@@ -373,6 +426,9 @@ async function patchMarkdownInDocxWithOutput(
     const processedImageCounter = { count: 0 };
     const failedRemoteImageCounter = { count: 0 };
     const headingBookmarkCounter = { count: 0 };
+    const metadata = options.metadata
+      ? normalizeDocumentMetadata(options.metadata)
+      : undefined;
     let elementCount = 0;
 
     for (const [placeholder, patch] of Object.entries(patches)) {
@@ -384,7 +440,11 @@ async function patchMarkdownInDocxWithOutput(
         ...(options.style || {}),
         ...(normalizedPatch.style || {}),
       });
-      const style: Style = { ...defaultStyle, ...normalizedStyle };
+      const style: Style = {
+        ...defaultStyle,
+        ...(metadata?.language ? { language: metadata.language } : {}),
+        ...normalizedStyle,
+      };
       const renderOptions: Options = {
         documentType: options.documentType || defaultOptions.documentType,
         style,
@@ -395,6 +455,8 @@ async function patchMarkdownInDocxWithOutput(
         chartRendering: options.chartRendering,
         codeHighlighting: options.codeHighlighting,
         imageHandling: options.imageHandling,
+        metadata: options.metadata,
+        accessibility: options.accessibility,
         maxInputLength: options.maxInputLength,
         maxElements: options.maxElements,
         signal: options.signal,
@@ -425,7 +487,7 @@ async function patchMarkdownInDocxWithOutput(
       };
     }
 
-    const patched = await patchDocument({
+    let patched = await patchDocument({
       outputType,
       data: referenceDocx,
       patches: docxPatches,
@@ -433,6 +495,16 @@ async function patchMarkdownInDocxWithOutput(
       placeholderDelimiters: options.placeholderDelimiters,
       recursive: options.recursive ?? true,
     });
+
+    if (options.metadata) {
+      patched = await applyDocumentMetadata(
+        patched,
+        options.metadata,
+        "patch",
+        outputType,
+        options.signal,
+      ) as typeof patched;
+    }
 
     await yieldToAbortSignal(options.signal);
     return patched;
@@ -453,6 +525,8 @@ function validatePatchInputs(
   patches: Record<string, MarkdownDocxPatch>,
   options: PatchMarkdownOptions
 ): void {
+  validateDocumentMetadata(options.metadata);
+  validateAccessibilityOptions(options.accessibility);
   if (!patches || typeof patches !== "object" || Array.isArray(patches)) {
     throw new MarkdownConversionError(
       "Invalid patches: Must be an object keyed by placeholder name"

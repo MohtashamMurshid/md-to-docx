@@ -1,3 +1,15 @@
+## [Unreleased]
+
+### Features
+
+- Add typed core, extended, and custom Word document metadata with deterministic opt-in timestamps and preserve/override behavior for reference DOCX patching.
+- Propagate Markdown, chart, and Mermaid alt text into Word drawing properties; add permissive and strict missing-alt policies.
+- Add document and per-style proofing language semantics while preserving existing RTL direction precedence, semantic headings, and repeatable table-header rows.
+
+### Documentation
+
+- Document accessibility responsibilities and the current inability to emit Word's decorative-image extension; this feature does not claim automatic WCAG or Section 508 compliance.
+
 ## [2.18.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.17.0...v2.18.0) (2026-06-19)
 
 ### Features

@@ -12,6 +12,14 @@ import {
 } from "./types.js";
 import { MarkdownConversionError } from "./errors.js";
 import {
+  validateAccessibilityOptions,
+  validateOoxmlText,
+} from "./accessibility.js";
+import {
+  MAX_METADATA_LANGUAGE_LENGTH,
+  validateDocumentMetadata,
+} from "./metadata.js";
+import {
   normalizeSectionConfig,
   normalizeStyleInput,
 } from "./sectionBuilder.js";
@@ -121,6 +129,20 @@ function validateStyleInput(
       "Invalid fontFamily: Must be a non-empty string",
       { styleContext, fontFamily: style.fontFamily }
     );
+  }
+
+  if (style.language !== undefined) {
+    validateOoxmlText(
+      style.language,
+      `${styleContext}.language`,
+      MAX_METADATA_LANGUAGE_LENGTH,
+    );
+    if (!/^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/u.test(style.language)) {
+      throw new MarkdownConversionError(
+        "Invalid style language: Must be a BCP 47-style language tag",
+        { styleContext, language: style.language },
+      );
+    }
   }
 
   validateHexColorOption(style.inlineCodeColor, "inlineCodeColor", styleContext);
@@ -628,6 +650,8 @@ export function validateInput(markdown: string, options: Options): void {
   }
 
   validateStyleInput(normalizeStyleInput(options.style), "options.style");
+  validateDocumentMetadata(options.metadata);
+  validateAccessibilityOptions(options.accessibility);
   validateTocOptionsInput(options.toc);
   validateMathRenderingInput(options.mathRendering);
   validateImageHandlingInput(options.imageHandling);

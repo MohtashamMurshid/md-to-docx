@@ -9,6 +9,12 @@ import {
 } from "../types.js";
 import { MarkdownConversionError } from "../errors.js";
 import { throwIfAborted } from "../processingLimits.js";
+import type { AccessibilityOptions } from "../types.js";
+import {
+  assertImageAltPolicy,
+  runLanguage,
+  validateImageText,
+} from "../accessibility.js";
 import { resolveFontFamily } from "../utils/styleUtils.js";
 import { processImage } from "./imageRenderer.js";
 import type { ProcessImageResult } from "./imageRenderer.js";
@@ -147,6 +153,29 @@ export function resolveChartRenderingOptions(
   };
 }
 
+/**
+ * Applies accessibility gates before image-count short-circuiting or a custom
+ * renderer can run. Invalid chart schema is still handled by the configured
+ * chart failure policy in `processChartBlock`.
+ */
+export function validateChartAccessibility(
+  value: string,
+  accessibility?: AccessibilityOptions,
+): void {
+  try {
+    const definition = parseChartDefinition(value);
+    const explicitAlt = definition.alt ?? "";
+    validateImageText(
+      explicitAlt,
+      definition.options?.plugins?.title?.text,
+      "chart image",
+    );
+    assertImageAltPolicy(explicitAlt, accessibility, "chart block");
+  } catch (error) {
+    if (error instanceof MarkdownConversionError) throw error;
+  }
+}
+
 export async function processChartBlock(
   value: string,
   style: Style,
@@ -154,12 +183,18 @@ export async function processChartBlock(
   imageHandling: ImageHandlingOptions | undefined,
   paragraphOptions: Partial<IParagraphOptions> = {},
   signal?: AbortSignal,
+  accessibility?: AccessibilityOptions,
 ): Promise<ProcessImageResult> {
   const resolved = resolveChartRenderingOptions(chartRendering);
 
   try {
     throwIfAborted(signal);
-    const chart = await renderChart(value, resolved, signal);
+    const definition = parseChartDefinition(value);
+    const explicitAlt = definition.alt ?? "";
+    const title = definition.options?.plugins?.title?.text;
+    validateImageText(explicitAlt, title, "chart image");
+    assertImageAltPolicy(explicitAlt, accessibility, "chart block");
+    const chart = await renderChart(definition, resolved, signal);
     const sizedDataUrl = `${chart.dataUrl}#${chart.width}x${chart.height}`;
     const alt = chart.definition.alt || chart.definition.type;
     const result = await processImage(
@@ -172,6 +207,7 @@ export async function processChartBlock(
       },
       paragraphOptions,
       signal,
+      title,
     );
     return result;
   } catch (error) {
@@ -200,6 +236,8 @@ export async function processChartBlock(
               italics: true,
               color: "FF0000",
               font: resolveFontFamily(style),
+              language: runLanguage(style),
+              rightToLeft: style.direction === "RTL",
             }),
           ],
           alignment: AlignmentType.CENTER,
@@ -211,12 +249,11 @@ export async function processChartBlock(
 }
 
 async function renderChart(
-  value: string,
+  definition: ChartBlockDefinition,
   options: ResolvedChartRenderingOptions,
   signal?: AbortSignal,
 ): Promise<ChartRenderData> {
   throwIfAborted(signal);
-  const definition = parseChartDefinition(value);
   const width = resolveDimension(
     definition.width,
     options.width,

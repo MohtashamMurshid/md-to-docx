@@ -33,6 +33,7 @@ A TypeScript-first library and CLI that turns Markdown into production-ready Wor
   - [Text find-and-replace](#text-find-and-replace)
   - [Server-side processing limits](#server-side-processing-limits)
   - [RTL / bidirectional text](#rtl--bidirectional-text)
+  - [Document metadata and accessibility](#document-metadata-and-accessibility)
   - [Reference DOCX placeholder patching](#reference-docx-placeholder-patching)
 - [Supported Markdown](#supported-markdown)
 - [API reference](#api-reference)
@@ -52,6 +53,7 @@ A TypeScript-first library and CLI that turns Markdown into production-ready Wor
 - **TypeScript-native** — fully typed options surface, including `CodeHighlightTheme`, `Options`, and `DocumentSection`.
 - **Multi-section documents** — cover pages, per-section headers/footers, page numbering resets, mixed orientations, style overrides.
 - **Reference DOCX patching** — Node-friendly placeholder replacement for inserting generated Markdown into an existing `.docx` package.
+- **Accessible document semantics** — real Word drawing descriptions, strict missing-alt gates, proofing language, semantic headings/table headers, and typed package metadata.
 - **Optional syntax highlighting** — opt-in, powered by `[lowlight](https://github.com/wooorm/lowlight)`; ships a GitHub-light theme and lets you override any token color.
 - **Native Word math** — Markdown `$...$` and `$$...$$` equations render as editable Word math for a documented TeX subset.
 - **Works everywhere** — Node.js (18+) and modern browsers; the package ships ESM with type declarations.
@@ -244,6 +246,76 @@ const blob = await convertMarkdownToDocx("", {
 
 **Precedence (last wins):** global `style` → `template.style` → per-section `style`. For `headers` / `footers`, each slot (`default`, `first`, `even`) can inherit, override, or be explicitly disabled with `null`.
 
+### Document metadata and accessibility
+
+Metadata is opt-in and shared by the whole DOCX package, including multi-section documents:
+
+```typescript
+import type { DocumentMetadata, Options } from "@mohtasham/md-to-docx";
+
+const metadata: DocumentMetadata = {
+  title: "Quarterly accessibility review",
+  subject: "Product documentation",
+  description: "Review findings and remediation status",
+  creator: "Documentation Team", // Word's Author / dc:creator
+  keywords: ["accessibility", "DOCX", "review"],
+  category: "Engineering",
+  company: "Example Co",
+  language: "en-GB",
+  created: "2026-07-01T09:00:00Z", // only emitted when supplied
+  custom: {
+    ReviewState: "Draft",
+    Build: "v3",
+  },
+};
+
+const options: Options = {
+  metadata,
+  accessibility: { missingImageAltText: "throw" },
+};
+
+const blob = await convertMarkdownToDocx(
+  `# Revenue
+
+![Bar chart comparing Q1 and Q2 revenue](./revenue.png "Quarterly revenue")`,
+  options,
+);
+```
+
+Supported package fields:
+
+| API field | Word / OOXML destination | Notes |
+| --- | --- | --- |
+| `title` | Core `dc:title` | |
+| `subject` | Core `dc:subject` | |
+| `description` | Core `dc:description` | |
+| `creator` / `author` | Core `dc:creator` (Word Author) | `creator` wins if both are supplied. |
+| `keywords` | Core `cp:keywords` | A list is joined with `; `. |
+| `category` | Core `cp:category` | |
+| `language` | Core `dc:language` and generated Word run styles | BCP 47-style tag. |
+| `company` | Extended `Company` in `docProps/app.xml` | |
+| `created`, `modified` | Core `dcterms:*` | Normalized to UTC ISO timestamps; never synthesized on the opt-in metadata path. |
+| `custom` | String-valued properties in `docProps/custom.xml` | Up to 64 properties. |
+
+For a new document, providing `metadata` creates a normalized metadata set; unspecified creation/modification timestamps are omitted. Omitting `metadata` uses the legacy packing path unchanged. For placeholder patching, omitting `metadata` preserves the reference package. Supplying it overrides only the provided core/app fields, merges provided custom properties by case-insensitive name, and preserves every unspecified reference value, including existing timestamps. There is no separate reference-style generation mode: patching continues to preserve the reference DOCX styles, while ordinary conversion creates a new document.
+
+Metadata and drawing text are untrusted input. Invalid OOXML control characters and unpaired surrogates are rejected with `MarkdownConversionError`; metadata values are limited to 4,096 characters, language tags to 64 characters, custom names to 255 characters, keyword lists to 128 entries, and image descriptions/titles to 2,048/512 characters. XML-special characters are escaped. Metadata processing performs no network lookup and observes the conversion `AbortSignal` between package operations.
+
+#### Image descriptions and strict mode
+
+- Markdown image alt text is written to the actual Word drawing `descr` property for data URLs, allowed remote images, and ordinary image URLs. A Markdown image title is written as the Word drawing name/title.
+- Chart blocks use the explicit JSON `alt`; the configured chart title becomes the drawing title. This applies to the built-in and custom chart renderer.
+- Mermaid renderers can return `altText` and `title` with their image bytes. In permissive mode, a missing value retains the compatibility fallback `Mermaid diagram`.
+- `accessibility.missingImageAltText` defaults to `"permissive"`. Set it to `"throw"` to reject missing/whitespace-only Markdown, chart, or Mermaid alt text with `MarkdownConversionError`. Normal/remote Markdown images are rejected before any fetch; charts are rejected before a custom renderer runs.
+
+Empty Markdown alt text is allowed only in permissive mode. It is **not** marked as decorative: `docx@9.5` cannot emit Word's decorative-object extension, so this package does not fake that semantic. If decorative status is required, mark it in Word after generation or use an OOXML post-processor that correctly supports that extension.
+
+#### Language, RTL, headings, and tables
+
+`metadata.language` sets the package language and is the fallback Word proofing language. Content language precedence is: `metadata.language` → global `style.language` → `template.style.language` → per-section `style.language`. `style.direction` is independent and keeps its existing global/template/section precedence: `"RTL"` emits bidirectional paragraphs, RTL runs, and the bidirectional language tag; `"LTR"` does not infer direction from the language tag. Generated Markdown headings remain real Word Heading 1–6 paragraphs with outline levels, and the first Markdown table row remains a repeatable Word table-header row.
+
+These features improve machine-readable DOCX semantics; they do **not** certify WCAG or Section 508 compliance. Consumers remain responsible for meaningful alt text, logical heading order, table complexity/scope, color contrast, link purpose, reading order, template accessibility, and an end-to-end review with Word's Accessibility Checker or an equivalent tool.
+
 ### Reference DOCX placeholder patching
 
 Use `patchMarkdownInDocxToBuffer` when you already have a Word template and want Markdown inserted at named placeholders. This workflow preserves the original DOCX package around the patched location, including existing styles, headers, footers, margins, cover pages, and static content.
@@ -364,6 +436,8 @@ await convertMarkdownToDocx(markdown, {
 
 Supported built-in chart types are `bar`, `line`, `pie`, and `doughnut`. `data.datasets[].data` must contain finite numbers; `data.labels` is optional and must be an array of strings when present. `width` and `height` can be set per block, otherwise `chartRendering.width` / `chartRendering.height` are used. Invalid chart JSON or schema issues render a visible placeholder by default; set `invalidDefinitionBehavior: "throw"` to fail conversion with `MarkdownConversionError`.
 
+Set the block's `alt` to a meaningful chart description. Strict accessibility mode requires it. If `options.plugins.title.text` is present, it is also written as the Word drawing title.
+
 The built-in renderer is offline and has no network, native canvas, or browser runtime dependency. It produces simple PNG geometry for the supported subset. For full Chart.js layout, fonts, plugins, or custom drawing, pass `chartRendering.renderer`; the callback receives the parsed definition plus resolved dimensions and must return a PNG data URL or PNG bytes. In Node, that renderer can use optional project dependencies such as `chart.js` with `canvas` or `skia-canvas`; those packages are not bundled by `@mohtasham/md-to-docx`.
 
 ### Mermaid diagram blocks
@@ -391,6 +465,8 @@ await convertMarkdownToDocx(markdown, {
         data: pngBytes,
         contentType: "image/png",
         width: 640,
+        altText: "Flow from Start to Done",
+        title: "Process flow",
       };
     },
   },
@@ -641,6 +717,8 @@ Browser-only async helper that triggers a file download. Throws in non-browser e
 interface Options {
   documentType?: "document" | "report";
   style?: Style;
+  metadata?: DocumentMetadata;
+  accessibility?: AccessibilityOptions;
   toc?: TocOptions;
   mathRendering?: MathRenderingOptions;
   maxInputLength?: number;
@@ -670,6 +748,8 @@ type MarkdownDocxPatch =
 interface PatchMarkdownOptions {
   documentType?: "document" | "report";
   style?: Partial<Style>;
+  metadata?: DocumentMetadata;
+  accessibility?: AccessibilityOptions;
   codeHighlighting?: CodeHighlightOptions;
   mathRendering?: MathRenderingOptions;
   mermaidRendering?: MermaidRenderingOptions;
@@ -734,6 +814,30 @@ Alignment & direction
 | `headingAlignment`                        | `"LEFT" | "RIGHT"             |
 | `heading1Alignment` … `heading6Alignment` | Same    | Overrides per level |
 | `direction`                               | `"LTR"  | "RTL"`              |
+| `language`                                | `string`  | BCP 47-style Word proofing language; overrides `metadata.language` for this style scope |
+
+#### `DocumentMetadata`
+
+```typescript
+interface DocumentMetadata {
+  title?: string;
+  subject?: string;
+  description?: string;
+  creator?: string;
+  author?: string;
+  keywords?: string | readonly string[];
+  category?: string;
+  company?: string;
+  language?: string;
+  created?: Date | string;
+  modified?: Date | string;
+  custom?: Readonly<Record<string, string>>;
+}
+
+interface AccessibilityOptions {
+  missingImageAltText?: "permissive" | "throw";
+}
+```
 
 #### `TocOptions`
 
@@ -801,6 +905,8 @@ Alignment & direction
 | `enabled`     | `false`       | Turn fenced Mermaid rendering on.                                    |
 | `render`      | `undefined`   | Converts a Mermaid block into PNG, JPEG, or GIF bytes.               |
 | `failureMode` | `"codeBlock"` | Behavior when rendering is unavailable, returns no image, or throws. |
+
+`MermaidRenderResult` may include `altText?: string` and `title?: string`; both are written to the Word drawing properties when present.
 
 
 #### `TextReplacement`

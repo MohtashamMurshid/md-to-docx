@@ -7,6 +7,7 @@ import {
 } from "docx";
 import { Style, TocOptions } from "./types.js";
 import { resolveFontFamily } from "./utils/styleUtils.js";
+import { runLanguage } from "./accessibility.js";
 
 export type TocHeadingEntry = {
   text: string;
@@ -91,6 +92,8 @@ export function buildTocContent(
                 bold,
                 italics: italic,
                 font: resolveFontFamily(style),
+                language: runLanguage(style),
+                rightToLeft: style.direction === "RTL",
               }),
             ],
           }),

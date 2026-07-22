@@ -24,6 +24,7 @@ A TypeScript-first library and CLI that turns Markdown into production-ready Wor
   - [React](#react)
 - [Features](#features)
   - [Multi-section documents (template + sections)](#multi-section-documents-template--sections)
+  - [Figure and table captions](#figure-and-table-captions)
   - [Syntax-highlighted code blocks](#syntax-highlighted-code-blocks)
   - [Chart fenced blocks](#chart-fenced-blocks)
   - [Mermaid diagram blocks](#mermaid-diagram-blocks)
@@ -51,6 +52,7 @@ A TypeScript-first library and CLI that turns Markdown into production-ready Wor
 - **First-class CLI** — `npx @mohtasham/md-to-docx input.md output.docx`.
 - **TypeScript-native** — fully typed options surface, including `CodeHighlightTheme`, `Options`, and `DocumentSection`.
 - **Multi-section documents** — cover pages, per-section headers/footers, page numbering resets, mixed orientations, style overrides.
+- **Captioned figures and tables** — automatic document-wide numbering, stable Word bookmarks, and clickable cross-references.
 - **Reference DOCX patching** — Node-friendly placeholder replacement for inserting generated Markdown into an existing `.docx` package.
 - **Optional syntax highlighting** — opt-in, powered by `[lowlight](https://github.com/wooorm/lowlight)`; ships a GitHub-light theme and lets you override any token color.
 - **Native Word math** — Markdown `$...$` and `$$...$$` equations render as editable Word math for a documented TeX subset.
@@ -244,6 +246,51 @@ const blob = await convertMarkdownToDocx("", {
 
 **Precedence (last wins):** global `style` → `template.style` → per-section `style`. For `headers` / `footers`, each slot (`default`, `first`, `even`) can inherit, override, or be explicitly disabled with `null`.
 
+### Figure and table captions
+
+Use a Pandoc-style caption paragraph immediately after a standalone image or GFM table. Leave a blank line before the caption paragraph, start it with `: `, and finish it with a kind-prefixed identifier. Reference the identifier with pandoc-crossref-style `[@fig:id]` or `[@tbl:id]` syntax:
+
+```markdown
+The architecture is shown in [@fig:architecture]. Results are in [@tbl:results].
+
+![Accessible architecture diagram](architecture.png)
+
+: System *architecture* {#fig:architecture}
+
+| Metric | Value |
+| --- | ---: |
+| Accuracy | 98% |
+
+: **Evaluation** results {#tbl:results}
+```
+
+The output contains `Figure 1` and `Table 1` captions. References are native clickable Word `REF` fields; caption numbers are native `SEQ` fields wrapped in stable bookmarks. Figure and table sequences are independent and continue across every entry in `options.sections`, including forward references. Word is asked to refresh fields when the document opens, and deterministic cached values keep the generated DOCX readable before a refresh.
+
+Syntax and edge cases:
+
+- A figure must be a paragraph containing exactly one image. Its existing Markdown alt text remains the image's Word accessibility text; the separate caption paragraph supplies the visible caption and supports normal inline formatting.
+- A caption ID is case-sensitive, must use the matching `fig:` or `tbl:` prefix, cannot contain whitespace or braces, and is limited to 128 characters. Other punctuation is accepted and converted to a deterministic Word-safe bookmark.
+- The caption must be the next Markdown block. Without the blank line, Markdown treats the lines as one paragraph/table; without a valid adjacent caption, existing images and tables render unchanged.
+- By default, malformed captions, later duplicate IDs, and unresolved references remain visible as literal text. Set `captions.failureMode: "throw"` to reject them instead. The first duplicate definition wins in preserve mode.
+- Put `[@fig:id]` in inline code when it should remain literal. Caption/reference syntax is rejected with a clear validation error by the reference-DOCX patch APIs because patch order and existing bookmark collisions cannot be resolved safely yet.
+
+Labels, placement, and presentation can be adjusted without changing Markdown:
+
+```typescript
+await convertMarkdownToDocx(markdown, {
+  captions: {
+    figureLabel: "Illustration",
+    tableLabel: "Dataset",
+    figurePlacement: "below",
+    tablePlacement: "above",
+    alignment: "CENTER",
+    italic: true,
+    size: 20,
+    failureMode: "throw",
+  },
+});
+```
+
 ### Reference DOCX placeholder patching
 
 Use `patchMarkdownInDocxToBuffer` when you already have a Word template and want Markdown inserted at named placeholders. This workflow preserves the original DOCX package around the patched location, including existing styles, headers, footers, margins, cover pages, and static content.
@@ -296,7 +343,7 @@ Current limitations:
 - This is not a "reference styles" mode for generating a brand-new DOCX from another DOCX.
 - This does not append to the end of a document unless the template contains a placeholder at that location.
 - Markdown table width is not inferred from the reference DOCX. Set `tableWidthTwips` to match the placeholder section's content width when the template differs from the default A4 portrait width.
-- Ordered lists, generated `[TOC]`, and Word comments are rejected in patch markdown because they require package-level merges that are not supported yet.
+- Ordered lists, generated `[TOC]`, Word comments, and caption/cross-reference syntax are rejected in patch markdown because they require package-level ordering or merges that are not supported safely yet.
 - Browser use may work when you provide DOCX bytes, but this workflow is designed and tested for Node.
 
 ### Syntax-highlighted code blocks
@@ -582,6 +629,9 @@ await convertMarkdownToDocx(markdown, {
 | Callouts          | `> [!NOTE]`                    | GitHub-style callout blocks                          |
 | Links             | `[text](url)`                  |                                                      |
 | Images            | `![alt](url)`                  | HTTP(S) and `data:` URLs; supports `#w=...&h=...` sizing |
+| Figure captions   | `: Caption {#fig:id}`          | Place after a standalone image; automatic numbering      |
+| Table captions    | `: Caption {#tbl:id}`          | Place after a GFM table; automatic numbering             |
+| Cross-references  | `[@fig:id]`, `[@tbl:id]`       | Native clickable Word references; forward refs supported |
 | Footnotes         | `Text[^1]` + `[^1]: Note text` | Native Word footnotes                                |
 | Horizontal rule   | `---`                          | Skipped during conversion                            |
 | Table of Contents | `[TOC]`                        | Clickable, auto-populated                            |
@@ -651,11 +701,25 @@ interface Options {
   codeHighlighting?: CodeHighlightOptions;
   mermaidRendering?: MermaidRenderingOptions;
   chartRendering?: ChartRenderingOptions;
+  captions?: CaptionOptions;
   textReplacements?: TextReplacement[];
   textReplacementMode?: "trusted" | "untrusted";
   imageHandling?: ImageHandlingOptions;
 }
 ```
+
+#### `CaptionOptions`
+
+| Field             | Type                       | Default      | Description                                      |
+| ----------------- | -------------------------- | ------------ | ------------------------------------------------ |
+| `figureLabel`     | `string`                   | `"Figure"`   | Label rendered before figure numbers.            |
+| `tableLabel`      | `string`                   | `"Table"`    | Label rendered before table numbers.             |
+| `figurePlacement` | `"above" \| "below"`      | `"below"`    | Figure caption position.                         |
+| `tablePlacement`  | `"above" \| "below"`      | `"below"`    | Table caption position.                          |
+| `alignment`       | `AlignmentOption`          | `"CENTER"`   | Caption paragraph alignment.                     |
+| `italic`          | `boolean`                  | `false`      | Italicize caption labels and text.               |
+| `size`            | `number`                   | paragraph size | Caption size in half-points.                    |
+| `failureMode`     | `"preserve" \| "throw"`   | `"preserve"` | Preserve invalid syntax literally or fail early. |
 
 ### `PatchMarkdownOptions`
 

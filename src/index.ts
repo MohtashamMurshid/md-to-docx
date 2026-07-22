@@ -20,6 +20,7 @@ import {
   Style,
 } from "./types.js";
 import type { DocxBlockNode, DocxDocumentModel } from "./docxModel.js";
+import type { Root } from "mdast";
 import { parseMarkdownToAst, applyTextReplacements } from "./markdownAst.js";
 import { mdastToDocxModel } from "./mdastToDocxModel.js";
 import { modelToDocx } from "./modelToDocx.js";
@@ -45,6 +46,11 @@ import {
   throwIfAborted,
   yieldToAbortSignal,
 } from "./processingLimits.js";
+import {
+  buildCrossReferenceRegistry,
+  containsCaptionOrCrossReferenceSyntax,
+} from "./crossReferences.js";
+import type { CrossReferenceRegistry } from "./crossReferences.js";
 
 const defaultStyle: Style = {
   titleSize: 32,
@@ -72,6 +78,9 @@ export { MarkdownConversionError };
 export {
   CalloutStyle,
   CalloutType,
+  CaptionFailureMode,
+  CaptionOptions,
+  CaptionPlacement,
   ChartBlockDefinition,
   ChartBlockType,
   ChartDataset,
@@ -216,6 +225,10 @@ export async function parseToDocxOptions(
     const style: Style = { ...defaultStyle, ...normalizedStyle };
 
     const resolvedSections = resolveSections(markdown, options, style);
+    const crossReferences = await prepareCrossReferenceRegistry(
+      resolvedSections.map((section) => section.markdown),
+      options,
+    );
     const renderedSections: {
       children: (Paragraph | Table)[];
       style: Style;
@@ -247,6 +260,7 @@ export async function parseToDocxOptions(
           tocPlaceholders,
           tableWidthTwips: getSectionContentWidthTwips(section.config),
           footnoteIdOffset: maxFootnoteId,
+          crossReferences,
         }
       );
       elementCount = rendered.elementCount;
@@ -324,6 +338,9 @@ export async function parseToDocxOptions(
       styles: {
         paragraphStyles: buildParagraphStyles(style),
       },
+      ...(crossReferences && crossReferences.definitions.size > 0
+        ? { features: { updateFields: true } }
+        : {}),
     };
   } catch (error) {
     if (error instanceof MarkdownConversionError) {
@@ -415,6 +432,7 @@ async function patchMarkdownInDocxWithOutput(
           tableWidthTwips: options.tableWidthTwips,
           validateModel: (model) =>
             assertPatchCompatibleModel(model, placeholder),
+          validateAst: (ast) => assertPatchCompatibleAst(ast, placeholder),
         }
       );
       elementCount = rendered.elementCount;
@@ -540,6 +558,8 @@ async function renderMarkdownContent(
     tableWidthTwips?: number;
     footnoteIdOffset?: number;
     validateModel?: (model: DocxDocumentModel) => void;
+    validateAst?: (ast: Root) => void;
+    crossReferences?: CrossReferenceRegistry;
   } = {}
 ): Promise<{ content: RenderedMarkdownContent; elementCount: number }> {
   const ast = await parseMarkdownToAst(
@@ -556,6 +576,8 @@ async function renderMarkdownContent(
     );
   }
 
+  renderOptions.validateAst?.(ast);
+
   throwIfAborted(options.signal);
   const elementCount = enforceElementLimit(
     ast,
@@ -564,7 +586,12 @@ async function renderMarkdownContent(
     options.signal
   );
 
-  const model = mdastToDocxModel(ast, style, options);
+  const model = mdastToDocxModel(
+    ast,
+    style,
+    options,
+    renderOptions.crossReferences,
+  );
   renderOptions.validateModel?.(model);
   throwIfAborted(options.signal);
 
@@ -579,6 +606,49 @@ async function renderMarkdownContent(
   });
 
   return { content, elementCount };
+}
+
+async function prepareCrossReferenceRegistry(
+  markdownSections: string[],
+  options: Options,
+): Promise<CrossReferenceRegistry | undefined> {
+  const mayContainSyntax =
+    options.textReplacements !== undefined ||
+    markdownSections.some((section) =>
+      /(?:\{#(?:fig|tbl):|\[@(?:fig|tbl):)/.test(section),
+    );
+  if (!mayContainSyntax) {
+    return undefined;
+  }
+
+  const roots: Root[] = [];
+  for (const markdown of markdownSections) {
+    throwIfAborted(options.signal);
+    const ast = await parseMarkdownToAst(
+      markdown,
+      options.mathRendering?.enabled !== false,
+    );
+    if (options.textReplacements && options.textReplacements.length > 0) {
+      applyTextReplacements(
+        ast,
+        options.textReplacements,
+        options.textReplacementMode,
+      );
+    }
+    roots.push(ast);
+    await yieldToAbortSignal(options.signal);
+  }
+
+  return buildCrossReferenceRegistry(roots, options.captions);
+}
+
+function assertPatchCompatibleAst(ast: Root, placeholder: string): void {
+  if (containsCaptionOrCrossReferenceSyntax(ast)) {
+    throw new MarkdownConversionError(
+      "Patch markdown does not support captions or cross-references yet",
+      { placeholder },
+    );
+  }
 }
 
 function assertPatchCompatibleModel(

@@ -295,6 +295,36 @@ export interface Options {
    * default; when disabled, those fences render as ordinary code blocks.
    */
   chartRendering?: ChartRenderingOptions;
+  /**
+   * Labels, placement, styling, and validation behavior for figure/table
+   * captions and cross-references.
+   */
+  captions?: CaptionOptions;
+}
+
+export type CaptionPlacement = "above" | "below";
+export type CaptionFailureMode = "preserve" | "throw";
+
+export interface CaptionOptions {
+  /** Human-readable label before figure numbers. Defaults to "Figure". */
+  figureLabel?: string;
+  /** Human-readable label before table numbers. Defaults to "Table". */
+  tableLabel?: string;
+  /** Figure caption position relative to the image. Defaults to "below". */
+  figurePlacement?: CaptionPlacement;
+  /** Table caption position relative to the table. Defaults to "below". */
+  tablePlacement?: CaptionPlacement;
+  /** Caption paragraph alignment. Defaults to CENTER. */
+  alignment?: AlignmentOption;
+  /** Whether caption text is italic. Defaults to false. */
+  italic?: boolean;
+  /** Caption font size in half-points. Defaults to the paragraph size. */
+  size?: number;
+  /**
+   * Preserve malformed/duplicate syntax and unresolved references as literal
+   * text, or throw a MarkdownConversionError. Defaults to "preserve".
+   */
+  failureMode?: CaptionFailureMode;
 }
 
 export interface MathRenderingOptions {

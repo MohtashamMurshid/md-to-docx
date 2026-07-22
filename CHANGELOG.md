@@ -127,6 +127,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Pandoc-style figure and table captions with document-wide automatic numbering, stable Word bookmarks, native clickable cross-references, multi-section and forward-reference support, typed label/placement/style/failure options, and explicit reference-DOCX patch validation.
+
 ## [2.10.0] - 2026-04-17
 
 ### Added

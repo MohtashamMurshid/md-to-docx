@@ -147,4 +147,20 @@ Hello **team**.
       })
     ).rejects.toThrow("ordered lists");
   });
+
+  it("fails clearly when patch markdown uses captions or cross-references", async () => {
+    const template = fs.readFileSync(fixturePath);
+
+    await expect(
+      patchMarkdownInDocxToBuffer(template, {
+        body: `| A |
+| --- |
+| B |
+
+: Patched table {#tbl:patched}`,
+      }),
+    ).rejects.toThrow(
+      "Patch markdown does not support captions or cross-references yet",
+    );
+  });
 });

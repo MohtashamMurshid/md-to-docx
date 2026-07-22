@@ -1,5 +1,6 @@
 import {
   AlignmentOption,
+  CaptionOptions,
   CalloutType,
   DocumentSection,
   HeaderFooterGroup,
@@ -243,6 +244,68 @@ function validateMathRenderingInput(
     throw new MarkdownConversionError(
       'Invalid mathRendering.unsupported: Must be "text" or "throw"',
       { unsupported: mathRendering.unsupported }
+    );
+  }
+}
+
+function validateCaptionOptionsInput(captions: CaptionOptions | undefined): void {
+  if (!captions) {
+    return;
+  }
+
+  for (const [name, value] of [
+    ["figureLabel", captions.figureLabel],
+    ["tableLabel", captions.tableLabel],
+  ] as const) {
+    if (
+      value !== undefined &&
+      (typeof value !== "string" || value.trim().length === 0)
+    ) {
+      throw new MarkdownConversionError(
+        `Invalid captions.${name}: Must be a non-empty string`,
+      );
+    }
+  }
+
+  for (const [name, value] of [
+    ["figurePlacement", captions.figurePlacement],
+    ["tablePlacement", captions.tablePlacement],
+  ] as const) {
+    if (value !== undefined && value !== "above" && value !== "below") {
+      throw new MarkdownConversionError(
+        `Invalid captions.${name}: Must be above or below`,
+      );
+    }
+  }
+
+  if (
+    captions.alignment !== undefined &&
+    !validAlignments.includes(captions.alignment)
+  ) {
+    throw new MarkdownConversionError(
+      "Invalid captions.alignment: Must be LEFT, CENTER, RIGHT, or JUSTIFIED",
+    );
+  }
+  if (captions.italic !== undefined && typeof captions.italic !== "boolean") {
+    throw new MarkdownConversionError(
+      "Invalid captions.italic: Must be a boolean",
+    );
+  }
+  if (
+    captions.size !== undefined &&
+    (!Number.isFinite(captions.size) || captions.size < 8 || captions.size > 144)
+  ) {
+    throw new MarkdownConversionError(
+      "Invalid captions.size: Must be between 8 and 144 half-points",
+    );
+  }
+  if (
+    captions.failureMode !== undefined &&
+    captions.failureMode !== "preserve" &&
+    captions.failureMode !== "throw"
+  ) {
+    throw new MarkdownConversionError(
+      "Invalid captions.failureMode: Must be preserve or throw",
     );
   }
 }
@@ -630,6 +693,7 @@ export function validateInput(markdown: string, options: Options): void {
   validateStyleInput(normalizeStyleInput(options.style), "options.style");
   validateTocOptionsInput(options.toc);
   validateMathRenderingInput(options.mathRendering);
+  validateCaptionOptionsInput(options.captions);
   validateImageHandlingInput(options.imageHandling);
   validateChartRenderingInput(options.chartRendering);
   validateMermaidRenderingInput(options.mermaidRendering);

@@ -181,6 +181,8 @@ export interface ProcessImageDataInput {
   maxImageBytes?: number;
   paragraphOptions?: Partial<IParagraphOptions>;
   signal?: AbortSignal;
+  /** Preserve Markdown image alt text in Word drawing properties. */
+  preserveAltText?: boolean;
 }
 
 /**
@@ -242,6 +244,15 @@ export function processImageData(
         children: [
           new ImageRun({
             data: imageData,
+            ...(input.preserveAltText
+              ? {
+                  altText: {
+                    name: input.altText || "Image",
+                    description: input.altText || undefined,
+                    title: input.altText || undefined,
+                  },
+                }
+              : {}),
             transformation: {
               width: outWidth,
               height: finalHeight,
@@ -269,6 +280,7 @@ export async function processImage(
   imageHandling?: ImageHandlingOptions,
   paragraphOptions: Partial<IParagraphOptions> = {},
   signal?: AbortSignal,
+  preserveAltText = true,
 ): Promise<ProcessImageResult> {
   try {
     throwIfAborted(signal);
@@ -370,6 +382,7 @@ export async function processImage(
         maxImageBytes: resolvedImageHandling.maxImageBytes,
         paragraphOptions,
         signal,
+        preserveAltText,
       },
       style,
     );

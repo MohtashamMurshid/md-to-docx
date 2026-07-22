@@ -95,6 +95,26 @@ Merge precedence:
 
 Use `pageNumbering.display` for common footer numbering modes: `none`, `current`, `currentAndTotal`, or `currentAndSectionTotal`.
 
+## Figure and Table References
+
+Place a Pandoc-style caption paragraph after a standalone image or table, with a blank line between the block and caption. Use `[@fig:id]` or `[@tbl:id]` in prose:
+
+```markdown
+See [@fig:flow] and [@tbl:metrics].
+
+![Accessible flow diagram](flow.png)
+
+: Request *flow* {#fig:flow}
+
+| Metric | Value |
+| --- | --- |
+| p95 | 120 ms |
+
+: Performance metrics {#tbl:metrics}
+```
+
+Figure and table numbering continues across sections. Use `options.captions` for labels, placement, alignment, italics, size, and `failureMode`. Reference-DOCX patch mode rejects this syntax with a validation error.
+
 ## Text Replacements
 
 Use `textReplacements` to rewrite text before conversion:
@@ -119,6 +139,7 @@ Support includes:
 - Tables (with inline formatting: bold, italic, code, links, strikethrough in cells)
 - Code blocks and inline code (with configurable `codeBlockAlignment`)
 - Links and images
+- Automatically numbered figure/table captions and clickable cross-references
 - Text replacements before rendering via `textReplacements`
 - `COMMENT: ...`
 - `[TOC]` on its own line

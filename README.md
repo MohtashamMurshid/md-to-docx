@@ -167,6 +167,13 @@ const blob = await convertMarkdownToDocx("# Hello\n\nWorld.");
 downloadDocx(blob, "hello.docx");
 ```
 
+Browser conversion supports Markdown without remote images, embedded `data:`
+image URLs, and image bytes returned by trusted renderer plugins/callbacks.
+HTTP(S) Markdown images render as visible fallback text in browser builds, even
+if `imageHandling.remote.enabled` is set. Browsers do not expose the DNS and
+connection controls needed to apply the package's server-side SSRF protections.
+Convert on a trusted Node.js endpoint when remote images must be fetched.
+
 ### Node.js
 
 ```typescript
@@ -180,6 +187,8 @@ await fs.writeFile("output.docx", buffer);
 ### React
 
 ```tsx
+"use client";
+
 import { useState } from "react";
 import { convertMarkdownToDocx, downloadDocx } from "@mohtasham/md-to-docx";
 
@@ -199,6 +208,10 @@ export function MarkdownExporter() {
   );
 }
 ```
+
+This root import is supported in client components, including Next.js
+Turbopack builds. The same browser image boundary applies: use `data:` images
+or perform conversion in a Node.js route when Markdown contains remote images.
 
 ## Features
 
@@ -915,7 +928,7 @@ await convertMarkdownToDocx(markdown, {
 | Blockquotes       | `> text`                       |                                                      |
 | Callouts          | `> [!NOTE]`                    | GitHub-style callout blocks                          |
 | Links             | `[text](url)`                  |                                                      |
-| Images            | `![alt](url)`                  | HTTP(S) and `data:` URLs; supports `#w=...&h=...` sizing |
+| Images            | `![alt](url)`                  | `data:` URLs in all runtimes; opt-in HTTP(S) fetching in Node.js; supports `#w=...&h=...` sizing |
 | Figure captions   | `: Caption {#fig:id}`          | Place after a standalone image; automatic numbering      |
 | Table captions    | `: Caption {#tbl:id}`          | Place after a GFM table; automatic numbering             |
 | Cross-references  | `[@fig:id]`, `[@tbl:id]`       | Native clickable Word references; forward refs supported |
@@ -1018,6 +1031,35 @@ interface Options {
   imageHandling?: ImageHandlingOptions;
 }
 ```
+
+#### `ImageHandlingOptions`
+
+Remote image fetching is disabled by default. In Node.js, enabling it preserves
+the full SSRF policy: HTTPS-only URLs, optional exact-host allowlisting,
+private-network blocking, DNS-pinned TLS connections, redirect limits, byte
+limits, and a total timeout. An explicitly empty `allowedHosts` array denies
+every host.
+
+```typescript
+await convertMarkdownToDocx(markdown, {
+  imageHandling: {
+    remote: {
+      enabled: true,
+      allowedHosts: ["images.example.com"],
+    },
+    maxImages: 25,
+    maxImageBytes: 5 * 1024 * 1024,
+    fetchTimeoutMs: 10_000,
+    maxRedirects: 3,
+    maxUrlLength: 2048,
+  },
+});
+```
+
+`remote.enabled` and `remote.allowedHosts` apply only to Node.js. Browser builds
+never issue remote image requests from Markdown; those images become visible
+fallback paragraphs. Browser callers can use `data:` image URLs, return trusted
+bytes from a plugin or diagram renderer, or send the conversion to a server.
 
 #### `CaptionOptions`
 
@@ -1297,7 +1339,8 @@ All conversion failures throw `MarkdownConversionError` (exported from the root)
 ## Requirements
 
 - **Node.js** ≥ 18 (ESM-only package)
-- **Browsers:** any evergreen browser that supports ES2020 + Blobs
+- **Browsers:** any evergreen browser that supports ES2020 + Blobs; remote
+  Markdown images require server-side conversion
 
 ## Install as an agent skill
 

@@ -1,60 +1,14 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { Agent, buildConnector } from "undici";
-import { ImageHandlingOptions } from "../types.js";
 import { throwIfAborted } from "../processingLimits.js";
+import type { ResolvedImageHandlingOptions } from "./imageHandling.js";
 
-export interface ResolvedImageHandlingOptions {
-  remote: {
-    enabled: boolean;
-    allowedHosts?: string[];
-  };
-  dataUrls: {
-    enabled: boolean;
-  };
-  maxImages: number;
-  maxImageBytes: number;
-  fetchTimeoutMs: number;
-  maxRedirects: number;
-  maxUrlLength: number;
-}
-
-export const DEFAULT_IMAGE_HANDLING: ResolvedImageHandlingOptions = {
-  remote: {
-    enabled: false,
-  },
-  dataUrls: {
-    enabled: true,
-  },
-  maxImages: 50,
-  maxImageBytes: 5 * 1024 * 1024,
-  fetchTimeoutMs: 10_000,
-  maxRedirects: 3,
-  maxUrlLength: 2048,
-};
-
-export function resolveImageHandlingOptions(
-  options?: ImageHandlingOptions
-): ResolvedImageHandlingOptions {
-  return {
-    remote: {
-      enabled: options?.remote?.enabled === true,
-      allowedHosts: options?.remote?.allowedHosts?.map((host) =>
-        host.trim().toLowerCase()
-      ),
-    },
-    dataUrls: {
-      enabled: options?.dataUrls?.enabled !== false,
-    },
-    maxImages: options?.maxImages ?? DEFAULT_IMAGE_HANDLING.maxImages,
-    maxImageBytes:
-      options?.maxImageBytes ?? DEFAULT_IMAGE_HANDLING.maxImageBytes,
-    fetchTimeoutMs:
-      options?.fetchTimeoutMs ?? DEFAULT_IMAGE_HANDLING.fetchTimeoutMs,
-    maxRedirects: options?.maxRedirects ?? DEFAULT_IMAGE_HANDLING.maxRedirects,
-    maxUrlLength: options?.maxUrlLength ?? DEFAULT_IMAGE_HANDLING.maxUrlLength,
-  };
-}
+export {
+  DEFAULT_IMAGE_HANDLING,
+  resolveImageHandlingOptions,
+} from "./imageHandling.js";
+export type { ResolvedImageHandlingOptions } from "./imageHandling.js";
 
 function isPrivateIPv4(address: string): boolean {
   const parts = address.split(".").map((part) => Number(part));
@@ -138,10 +92,6 @@ function isBlockedIpAddress(address: string): boolean {
     return isPrivateIPv6(address);
   }
   return true;
-}
-
-function usePinnedHttpsConnections(): boolean {
-  return typeof process !== "undefined" && process.versions?.node != null;
 }
 
 function enforceRemoteHttpsPolicy(
@@ -230,31 +180,20 @@ function buildPinnedHttpsAgent(
 }
 
 /**
- * Validates policy + DNS/IP rules. On Node, returns an Undici Agent that pins TLS
- * to the resolved address so fetch cannot reconnect via a second DNS lookup (rebinding).
- * In browser-like runtimes without process.versions.node, returns undefined and callers use plain fetch after validation.
+ * Validates policy + DNS/IP rules and returns an Undici Agent that pins TLS to
+ * the resolved address so fetch cannot reconnect via a second DNS lookup
+ * (rebinding).
  */
-async function preparePinnedAgentIfNeeded(
+async function preparePinnedAgent(
   url: URL,
   options: ResolvedImageHandlingOptions,
   dnsTimeoutMs: number
-): Promise<Agent | undefined> {
+): Promise<Agent> {
   enforceRemoteHttpsPolicy(url, options);
 
   const literalFamily = isIP(url.hostname);
   const port = Number(url.port) || 443;
   const tlsServerName = url.hostname;
-
-  if (!usePinnedHttpsConnections()) {
-    if (literalFamily !== 0) {
-      if (isBlockedIpAddress(url.hostname)) {
-        throw new Error("Remote image host resolves to a blocked network address");
-      }
-      return undefined;
-    }
-    await resolveVerifiedAddresses(url.hostname, dnsTimeoutMs);
-    return undefined;
-  }
 
   if (literalFamily !== 0) {
     if (isBlockedIpAddress(url.hostname)) {
@@ -470,7 +409,7 @@ export async function fetchRemoteImage(
 
       await closePinned();
       pinnedAgent = await abortableCallerPromise(
-        preparePinnedAgentIfNeeded(currentUrl, options, dnsBudgetMs),
+        preparePinnedAgent(currentUrl, options, dnsBudgetMs),
         signal
       );
 

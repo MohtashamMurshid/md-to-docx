@@ -8,6 +8,9 @@ const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   ".."
 );
+// Keep the fixture under the repository's node_modules so ancestor lookup finds
+// next/react/react-dom there, while the app resolves md-to-docx from its packed
+// copy in appDir/node_modules first.
 const tempRoot = fs.mkdtempSync(
   path.join(repoRoot, "node_modules", ".browser-bundle-")
 );
@@ -136,11 +139,16 @@ try {
     throw new Error("Next.js did not emit any client JavaScript chunks");
   }
 
-  const forbiddenImports = [
-    "node:dns/promises",
-    "node:net",
-    'from"undici"',
-    'require("undici")',
+  const forbiddenSubstrings = ["node:dns/promises", "node:net"];
+  const forbiddenPatterns = [
+    {
+      label: "undici package specifier",
+      pattern: /["']undici(?:\/[^"']*)?["']/,
+    },
+    {
+      label: "bundled undici module",
+      pattern: /["'][^"']*node_modules\/undici(?:\/[^"']*)?["']/,
+    },
   ];
   let foundBrowserRemoteImagePolicy = false;
   for (const filePath of clientFiles) {
@@ -148,10 +156,17 @@ try {
     foundBrowserRemoteImagePolicy ||= source.includes(
       "Remote image fetching is unavailable in browsers"
     );
-    for (const forbiddenImport of forbiddenImports) {
-      if (source.includes(forbiddenImport)) {
+    for (const forbidden of forbiddenSubstrings) {
+      if (source.includes(forbidden)) {
         throw new Error(
-          `Browser chunk ${path.relative(appDir, filePath)} contains ${forbiddenImport}`
+          `Browser chunk ${path.relative(appDir, filePath)} contains ${forbidden}`
+        );
+      }
+    }
+    for (const { label, pattern } of forbiddenPatterns) {
+      if (pattern.test(source)) {
+        throw new Error(
+          `Browser chunk ${path.relative(appDir, filePath)} contains ${label} (${pattern})`
         );
       }
     }

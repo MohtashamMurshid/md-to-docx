@@ -5,7 +5,7 @@ import { resolveFontFamily } from "../utils/styleUtils.js";
 import {
   fetchRemoteImage,
   resolveImageHandlingOptions,
-} from "../utils/secureImageFetch.js";
+} from "#secure-image-fetch";
 import { MarkdownConversionError } from "../errors.js";
 import { throwIfAborted } from "../processingLimits.js";
 import {
@@ -17,8 +17,8 @@ import {
 export {
   DEFAULT_IMAGE_HANDLING,
   resolveImageHandlingOptions,
-} from "../utils/secureImageFetch.js";
-export type { ResolvedImageHandlingOptions } from "../utils/secureImageFetch.js";
+} from "#secure-image-fetch";
+export type { ResolvedImageHandlingOptions } from "#secure-image-fetch";
 
 /**
  * Upper bound for rendered image dimensions in pixels. Hints come from

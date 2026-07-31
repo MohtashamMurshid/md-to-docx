@@ -4,6 +4,8 @@ export default {
   setupFilesAfterEnv: ["<rootDir>/tests/jest.polyfills.mjs"],
   extensionsToTreatAsEsm: [".ts"],
   moduleNameMapper: {
+    "^#secure-image-fetch$":
+      "<rootDir>/src/utils/secureImageFetch.node.ts",
     "^(\\.{1,2}/.*)\\.js$": "$1",
   },
   transform: {

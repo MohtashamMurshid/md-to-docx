@@ -37,6 +37,9 @@ jobs:
       - name: Verify package consumer imports
         run: npm run test:consumer
 
+      - name: Verify Next.js client bundle
+        run: npm run test:browser-bundle
+
       - name: Run tests
         run: npm test
 

@@ -577,13 +577,15 @@ export interface TocOptions {
 
 export interface RemoteImageHandlingOptions {
   /**
-   * Allow fetching remote images. Defaults to false.
+   * Allow fetching remote images in Node.js. Defaults to false. Browser builds
+   * always reject remote image fetching because they cannot enforce the DNS/IP
+   * validation and connection pinning required by the server-side SSRF policy.
    */
   enabled?: boolean;
   /**
-   * Optional exact host allowlist. Host names are compared case-insensitively.
-   * When provided, the list fails closed: an empty array denies every host.
-   * Omit the option to allow any (public) host.
+   * Node.js-only exact host allowlist. Host names are compared
+   * case-insensitively. When provided, the list fails closed: an empty array
+   * denies every host. Omit the option to allow any public host.
    */
   allowedHosts?: string[];
 }

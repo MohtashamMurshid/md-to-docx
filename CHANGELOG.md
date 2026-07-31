@@ -1,3 +1,9 @@
+## [3.0.1](https://github.com/MohtashamMurshid/md-to-docx/compare/v3.0.0...v3.0.1) (2026-07-31)
+
+### Bug Fixes
+
+* restore browser bundle compatibility ([#87](https://github.com/MohtashamMurshid/md-to-docx/issues/87)) ([a7d5a63](https://github.com/MohtashamMurshid/md-to-docx/commit/a7d5a63e36c4794f16c7fc8bdc81c592b5b83c1c))
+
 ## [3.0.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v2.18.0...v3.0.0) (2026-07-22)
 
 ### ⚠ BREAKING CHANGES

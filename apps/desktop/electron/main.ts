@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs/promises";
@@ -61,6 +61,28 @@ ipcMain.handle("document:save-docx", async (_event, payload: { filename: string;
 });
 
 app.whenReady().then(() => {
+  if (!process.env.VITE_DEV_SERVER_URL) {
+    const productionCsp = [
+      "default-src 'self' file:",
+      "script-src 'self' file:",
+      "style-src 'self' file:",
+      "img-src 'self' file: data: blob:",
+      "font-src 'self' file:",
+      "connect-src 'none'",
+      "object-src 'none'",
+      "base-uri 'none'",
+      "form-action 'none'",
+      "frame-src 'none'",
+    ].join("; ");
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          "Content-Security-Policy": [productionCsp],
+        },
+      });
+    });
+  }
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

@@ -5,4 +5,4 @@ release/
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
-doctera-desktop.png
+/doctera-desktop.png

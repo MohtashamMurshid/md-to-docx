@@ -223,6 +223,11 @@ export default function App() {
       className="app-shell"
       onKeyDown={(event) => {
         if (!(event.metaKey || event.ctrlKey)) return;
+        if (event.key.toLowerCase() === "n") {
+          event.preventDefault();
+          setGalleryOpen(true);
+          setSettingsOpen(false);
+        }
         if (event.key.toLowerCase() === "k") {
           event.preventDefault();
           searchInput.current?.focus();
@@ -243,7 +248,7 @@ export default function App() {
         </div>
 
         <button className="new-document" onClick={() => setGalleryOpen(true)}>
-          <Plus size={15} /> New document <kbd>N</kbd>
+          <Plus size={15} /> New document <kbd>⌘N</kbd>
         </button>
 
         <div className="search">

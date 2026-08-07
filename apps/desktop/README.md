@@ -4,8 +4,10 @@ A local-first Electron document studio built on `@mohtasham/md-to-docx`.
 
 ## Features
 
-- Markdown editor and rendered preview
+- Vercel-inspired monochrome interface with bundled Geist typography
+- Visual template gallery showing how every document structure will look
 - Six reusable document presets: blank, report, proposal, research paper, meeting brief, and résumé
+- Markdown editor and rendered preview
 - `.md` import and native `.docx` save dialogs
 - Typeface, body-size, alignment, and page-number controls
 - Context-isolated Electron preload; conversion stays on-device

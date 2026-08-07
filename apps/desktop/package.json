@@ -1,9 +1,9 @@
 {
-  "name": "md-to-docx-studio",
+  "name": "smarttex-desktop",
   "version": "0.1.0",
-  "description": "A local-first Markdown to Word document studio with reusable templates.",
+  "description": "Smarttex is a local-first intelligent document studio with reusable templates.",
   "author": "Mohtasham Murshid",
-  "desktopName": "Doctera",
+  "desktopName": "Smarttex",
   "private": true,
   "type": "module",
   "main": "dist-electron/main.js",
@@ -38,8 +38,8 @@
     "wait-on": "^8.0.1"
   },
   "build": {
-    "appId": "dev.mohtasham.doctera",
-    "productName": "Doctera",
+    "appId": "ai.smarttex.desktop",
+    "productName": "Smarttex",
     "directories": { "output": "release" },
     "files": ["dist/**/*", "dist-electron/**/*", "package.json"],
     "linux": { "target": ["AppImage"], "category": "Office", "icon": "assets/icon.png", "syncDesktopName": true }

@@ -1,6 +1,8 @@
-# Doctera desktop
+# Smarttex desktop
 
-A local-first Electron document studio built on `@mohtasham/md-to-docx`.
+Smarttex is the intelligent document studio for [Smarttex.ai](https://smarttex.ai), built on `@mohtasham/md-to-docx`.
+
+The original **Synthesis Mark** visualizes text entering as parallel lines, bending through an intelligent transformation, and leaving as one resolved flow. It deliberately avoids document-page and generic AI-spark iconography.
 
 ## Features
 

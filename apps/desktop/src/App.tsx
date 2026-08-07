@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react";
+import logoMark from "../assets/logo-mark.svg";
 import { templates, type Template } from "./templates";
 
 type Tab = "write" | "preview";
@@ -234,8 +235,8 @@ export default function App() {
     >
       <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
         <div className="brand">
-          <span className="brand-triangle" />
-          <strong>Doctera</strong>
+          <img className="brand-mark" src={logoMark} alt="" />
+          <strong>Smarttex</strong>
           <span className="brand-separator" />
           <span>Studio</span>
           <button className="icon-button sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="Close menu"><X size={16} /></button>

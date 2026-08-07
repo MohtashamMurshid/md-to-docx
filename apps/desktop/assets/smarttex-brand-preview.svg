@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="800" viewBox="0 0 1400 800" fill="none">
+  <rect width="1400" height="800" fill="#000"/>
+  <path d="M124 250h208c57.438 0 104 43.532 104 97.231S389.438 444.462 332 444.462H221.5c-26.786 0-48.5 20.31-48.5 45.366s21.714 45.365 48.5 45.365H436" stroke="#fff" stroke-width="48" stroke-linecap="square" stroke-linejoin="round"/>
+  <path d="M124 318h201c25.405 0 46 17.908 46 40s-20.595 40-46 40H221c-57.438 0-104 43.532-104 97.231S164.562 592.462 222 592.462h214" stroke="#737373" stroke-width="12" stroke-linecap="square" opacity=".9"/>
+  <circle cx="124" cy="250" r="20" fill="#fff"/>
+  <circle cx="436" cy="535.193" r="20" fill="#fff"/>
+  <text x="530" y="412" fill="#fff" font-family="Arial, sans-serif" font-size="138" font-weight="600" letter-spacing="-8">Smarttex</text>
+  <text x="540" y="482" fill="#737373" font-family="Arial, sans-serif" font-size="28" font-weight="400" letter-spacing="1">INTELLIGENT DOCUMENT SYSTEMS</text>
+  <line x1="540" y1="535" x2="1228" y2="535" stroke="#262626"/>
+  <text x="540" y="582" fill="#a3a3a3" font-family="monospace" font-size="20">SMARTTEX.AI</text>
+  <text x="1210" y="582" fill="#525252" font-family="monospace" font-size="18" text-anchor="end">SYNTHESIS MARK / 01</text>
+</svg>

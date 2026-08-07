@@ -1,6 +1,6 @@
-# Doctera design system
+# Smarttex design system
 
-Doctera uses a restrained, Vercel-inspired desktop language adapted from the principles published at [vercel.com/design.md](https://vercel.com/design.md). It does not copy Vercel branding or product wording.
+Smarttex uses a restrained, Vercel-inspired desktop language adapted from the principles published at [vercel.com/design.md](https://vercel.com/design.md). It does not copy Vercel branding or product wording.
 
 ## Product principles
 
@@ -9,6 +9,15 @@ Doctera uses a restrained, Vercel-inspired desktop language adapted from the pri
 - **One continuous canvas.** Use borders only for real boundaries: the navigation rail, editor, evidence table, and interactive controls.
 - **Show before choosing.** Every template has a miniature page example that communicates its hierarchy and intended use.
 - **Local by default.** Privacy status remains visible without becoming promotional.
+
+## Brand identity
+
+The **Synthesis Mark** is a continuous S-shaped signal path with a secondary line flowing through it. It represents raw text entering, being intelligently restructured, and leaving as a resolved document system. Endpoint nodes imply an input/output pipeline without using a document page, folded corner, magic wand, or generic AI sparkle.
+
+- Primary mark: `assets/logo-mark.svg`
+- Desktop icon: `assets/icon.svg` and `assets/icon.png`
+- Brand presentation: `assets/smarttex-brand-preview.svg`
+- Domain: `Smarttex.ai`
 
 ## Foundation
 

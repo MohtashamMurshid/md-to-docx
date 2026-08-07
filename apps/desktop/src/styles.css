@@ -36,7 +36,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .sidebar { min-width: 0; background: #050505; border-right: 1px solid var(--border); display: flex; flex-direction: column; z-index: 20; }
 .brand { height: 58px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 9px; padding: 0 16px; font-size: 13px; }
 .brand strong { font-weight: 600; letter-spacing: -.01em; }.brand > span:last-of-type { color: var(--muted); }
-.brand-triangle { width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 15px solid #fff; }
+.brand-mark { width: 20px; height: 20px; object-fit: contain; }
 .brand-separator { width: 1px; height: 16px; background: #333; margin: 0 2px; }
 .new-document { margin: 14px 12px 8px; height: 34px; border: 1px solid var(--border); border-radius: 6px; background: #111; display: flex; align-items: center; padding: 0 10px; gap: 8px; cursor: pointer; font-size: 12px; font-weight: 500; transition: background 140ms ease, border-color 140ms ease, transform 120ms var(--ease-out); }
 .new-document:hover { border-color: #444; background: #171717; }.new-document:active { transform: scale(.98); }.new-document kbd { margin-left: auto; color: #777; font: 10px "Geist Mono"; }

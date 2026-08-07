@@ -27,6 +27,12 @@ function createWindow() {
     if (url.startsWith("https://")) void shell.openExternal(url);
     return { action: "deny" };
   });
+  window.webContents.on("will-navigate", (event, url) => {
+    const currentDocument = window.webContents.getURL().split("#")[0];
+    if (url === currentDocument || url.startsWith(`${currentDocument}#`)) return;
+    event.preventDefault();
+    if (url.startsWith("https://")) void shell.openExternal(url);
+  });
 
   const devUrl = process.env.VITE_DEV_SERVER_URL;
   if (devUrl) void window.loadURL(devUrl);

@@ -1373,6 +1373,19 @@ npm test        # run the Jest suite
 
 Tests run offline against generated Word XML using JSZip. Set `DEBUG_DOCX=1` to have tests also write `.docx` artifacts under `test-output/` for manual inspection.
 
+### Doctera desktop app
+
+The [`apps/desktop`](./apps/desktop) workspace is a local-first Electron document studio with reusable report, proposal, research, meeting, résumé, and blank presets.
+
+```bash
+cd apps/desktop
+npm install
+npm run dev:electron  # Electron + Vite development
+npm run build         # typecheck and production renderer/main builds
+```
+
+The renderer can also run with `npm run dev` for browser-based visual QA. Document conversion remains local in both modes.
+
 ## Changelog
 
 See [CHANGELOG.md](./CHANGELOG.md) for a detailed history.

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+dist-electron/
+release/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+doctera-desktop.png

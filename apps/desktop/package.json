@@ -1,0 +1,46 @@
+{
+  "name": "md-to-docx-studio",
+  "version": "0.1.0",
+  "description": "A local-first Markdown to Word document studio with reusable templates.",
+  "author": "Mohtasham Murshid",
+  "desktopName": "Doctera",
+  "private": true,
+  "type": "module",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "dev:electron": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "build": "tsc -b && vite build && tsc -p electron/tsconfig.json && node --input-type=module -e \"import { copyFileSync } from 'node:fs'; copyFileSync('electron/preload.cjs', 'dist-electron/preload.cjs')\"",
+    "preview": "vite preview --host 127.0.0.1",
+    "start": "electron .",
+    "package:linux": "npm run build && electron-builder --linux AppImage",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@mohtasham/md-to-docx": "file:../..",
+    "lucide-react": "^0.468.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "@types/node": "^22.10.5",
+    "@types/react": "^19.0.3",
+    "@types/react-dom": "^19.0.2",
+    "@vitejs/plugin-react": "^6.0.5",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^43.3.0",
+    "electron-builder": "^26.0.12",
+    "typescript": "^5.8.2",
+    "vite": "^8.0.0",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "dev.mohtasham.doctera",
+    "productName": "Doctera",
+    "directories": { "output": "release" },
+    "files": ["dist/**/*", "dist-electron/**/*", "package.json"],
+    "linux": { "target": ["AppImage"], "category": "Office", "icon": "assets/icon.png", "syncDesktopName": true }
+  }
+}

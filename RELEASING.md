@@ -12,7 +12,7 @@ This package is released automatically by [semantic-release](https://github.com/
    - `feat!:` or body contains `BREAKING CHANGE:` → major (`X.0.0`)
    - `chore:`, `docs:`, `style:`, `refactor:`, `perf:`, `test:`, `ci:`, `build:` → no release
 4. On a releasable commit, the workflow:
-   - Bumps `version` in `package.json` and `package-lock.json`.
+   - Bumps `version` in `package.json`. Dependencies remain frozen by `bun.lock`.
    - Prepends release notes to `CHANGELOG.md`.
    - Commits those changes with `chore(release): x.y.z [skip ci]`.
    - Creates git tag `vx.y.z` and pushes it.
@@ -50,7 +50,7 @@ These need to be configured once in GitHub / npm; they are not captured in the r
 
 ### `[semantic-release]: node version ^22.14.0 || >= 24.10.0 is required`
 
-semantic-release 25+ needs Node 22.14+. The `release.yml` workflow pins `node-version: "22"` for this reason. If you bump the major of `semantic-release`, check its engines field and raise the workflow's Node version accordingly.
+semantic-release 25+ needs Node 22.14+ or Node 24.10+. The `release.yml` workflow uses Node 24 and installs dependencies from `bun.lock` with Bun 1.4. If you bump semantic-release or Bun, check both engine requirements and update the workflow pins together.
 
 ### `EINVALIDNPMTOKEN Invalid npm token` / `401 Unauthorized - GET /-/whoami`
 
@@ -75,7 +75,7 @@ Sometimes GitHub delays the first run for a newly-added workflow by up to a minu
 
 ```bash
 # dry run locally (requires GITHUB_TOKEN and NPM_TOKEN env vars)
-npx semantic-release --dry-run --no-ci
+bun run release -- --dry-run --no-ci
 ```
 
 ## Skipping a release

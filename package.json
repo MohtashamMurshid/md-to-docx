@@ -15,6 +15,7 @@
   },
   "imports": {
     "#secure-image-fetch": {
+      "bun": "./dist/utils/secureImageFetch.node.js",
       "browser": "./dist/utils/secureImageFetch.browser.js",
       "node": "./dist/utils/secureImageFetch.node.js",
       "default": "./dist/utils/secureImageFetch.browser.js"
@@ -27,14 +28,16 @@
     "build": "tsc",
     "lint": "eslint src tests",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.mjs",
-    "test:browser-bundle": "npm run build && node tests/browser-bundle.mjs",
+    "test:browser-bundle": "bun run build && node tests/browser-bundle.mjs",
+    "test:bun-runtime": "bun run build && bun tests/bun-runtime.mjs",
     "test:consumer": "node tests/package-consumer.mjs",
     "test:package-managers": "node tests/package-manager-consumer.mjs pnpm && node tests/package-manager-consumer.mjs bun",
     "test:package-manager": "node tests/package-manager-consumer.mjs",
     "test:single": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config jest.config.mjs",
-    "prepare": "npm run build",
+    "prepack": "bun run build",
     "release": "semantic-release"
   },
+  "packageManager": "bun@1.4.0",
   "keywords": [
     "markdown",
     "docx",

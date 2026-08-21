@@ -90,10 +90,9 @@ Gather into a single `constants.ts` so tweaking is one-file instead of shotgun.
 - **Problem.** `processInlineCode` in `[src/renderers/textRenderer.ts](src/renderers/textRenderer.ts)` hard-codes `color: "444444"`, `shading: "F5F5F5"`, and `size` fallback. Not exposed via `Style`.
 - **Fix.** Add optional `inlineCodeColor`, `inlineCodeBackground`, `inlineCodeSize` to `Style` (or, if doing #4, under a `code` sub-object).
 
-### 14. Switch `prepare` to `prepublishOnly`
+### 14. Switch `prepare` to a publish-only build — completed
 
-- **Problem.** `[package.json](package.json)`'s `prepare: "npm run build"` causes every `npm install` in a consumer repo (and git install) to run `tsc`. Fine for dev, wasteful everywhere else.
-- **Fix.** Either move to `prepublishOnly`, or gate with something that skips when installed as a dep.
+`package.json` now uses `prepack: "bun run build"`, so packed and published artifacts still contain fresh `dist/` output without rebuilding this package during ordinary dependency installation.
 
 ### 15. Add lint/format/typecheck tooling
 

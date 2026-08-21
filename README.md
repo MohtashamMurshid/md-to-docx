@@ -69,6 +69,8 @@ A TypeScript-first library and CLI that turns Markdown into production-ready Wor
 ```bash
 npm install @mohtasham/md-to-docx
 # or
+bun add @mohtasham/md-to-docx
+# or
 pnpm add @mohtasham/md-to-docx
 # or
 yarn add @mohtasham/md-to-docx
@@ -105,6 +107,8 @@ Convert files without writing any code:
 ```bash
 # Run without installing
 npx @mohtasham/md-to-docx input.md output.docx
+# or with Bun
+bunx @mohtasham/md-to-docx input.md output.docx
 
 # Or install globally
 npm install -g @mohtasham/md-to-docx
@@ -1339,6 +1343,7 @@ All conversion failures throw `MarkdownConversionError` (exported from the root)
 ## Requirements
 
 - **Node.js** ≥ 18 (ESM-only package)
+- **Bun** ≥ 1.4 for Bun runtime and package-manager workflows
 - **Browsers:** any evergreen browser that supports ES2020 + Blobs; remote
   Markdown images require server-side conversion
 
@@ -1365,10 +1370,11 @@ npx skills add MohtashamMurshid/md-to-docx --list --full-depth
 ```bash
 git clone https://github.com/MohtashamMurshid/md-to-docx.git
 cd md-to-docx
-npm install
+bun install --frozen-lockfile
 
-npm run build   # compile TypeScript to dist/
-npm test        # run the Jest suite
+bun run build              # compile TypeScript to dist/
+bun run test               # canonical Jest suite on the active Node.js
+bun run test:bun-runtime   # Bun conversion + secure-image runtime checks
 ```
 
 Tests run offline against generated Word XML using JSZip. Set `DEBUG_DOCX=1` to have tests also write `.docx` artifacts under `test-output/` for manual inspection.
@@ -1384,7 +1390,7 @@ PRs and issues are welcome. A few guidelines:
 1. Open an issue to discuss non-trivial changes before sending a patch.
 2. Add or update tests under `tests/` — the suite uses XML-level assertions on the generated DOCX, so changes to rendering should be verified at that level.
 3. Keep the public API surface stable; internal refactors should not require bumping the major version.
-4. Run `npm run build && npm test` before pushing.
+4. Run `bun run build && bun run test && bun run test:bun-runtime` before pushing.
 
 ## License
 

@@ -12,10 +12,12 @@ This branch integrates the version 3 feature set behind one release boundary. Do
 
 ## Release gates
 
-- `npm run build`
-- `npm run lint`
-- `npm test -- --runInBand`
-- `npm run test:consumer`
+- `bun install --frozen-lockfile`
+- `bun run build`
+- `bun run lint`
+- `bun run test -- --runInBand`
+- `bun run test:bun-runtime`
+- `bun run test:consumer`
 - Render and inspect `test-output/v3-all-use-cases.docx` in Microsoft Word
 - Update Word fields with `Ctrl+A`, then `F9`, before checking the TOC, captions, cross-references, and page totals
 - Run Word's Accessibility Checker on the visual fixture

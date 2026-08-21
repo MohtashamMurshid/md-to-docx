@@ -242,7 +242,11 @@ export async function convertMarkdownWithReferenceDocx(
     referenceDocx,
     options,
   );
-  return new Blob([bytes], {
+  // Copy into a concrete ArrayBuffer so this remains a valid BlobPart even when
+  // upstream bytes are typed as Uint8Array<ArrayBufferLike>.
+  const blobBuffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(blobBuffer).set(bytes);
+  return new Blob([blobBuffer], {
     type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   });
 }

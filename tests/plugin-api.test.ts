@@ -569,7 +569,9 @@ Footnote reference[^plugin].
         ],
       },
     );
-    const zip = await getZip(new Blob([output]));
+    const outputBuffer = new ArrayBuffer(output.byteLength);
+    new Uint8Array(outputBuffer).set(output);
+    const zip = await getZip(new Blob([outputBuffer]));
     const xml = await zip.file("word/document.xml")?.async("string");
     expect(xml).toContain("body: patched by plugin");
   });

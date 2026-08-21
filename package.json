@@ -26,6 +26,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "prelint": "bun run build",
     "lint": "eslint src tests",
     "pretest": "bun run build",
     "test": "bun test",

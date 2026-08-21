@@ -56,6 +56,26 @@ async function assertNodeSecureImageAdapter() {
   }
 }
 
+async function assertPrivateNetworkBlocked() {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response(ONE_PX_PNG, { status: 200 });
+  };
+
+  try {
+    const bytes = await convertMarkdownToBuffer(
+      "![private](https://127.0.0.1/image.png)",
+      { imageHandling: { remote: { enabled: true } } },
+    );
+    assertDocx(bytes, "Bun blocked-network conversion");
+    assert.equal(calls, 0, "Bun attempted to fetch a blocked private-network image");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
 async function assertAbortPropagation() {
   const originalFetch = globalThis.fetch;
   const controller = new AbortController();
@@ -90,5 +110,6 @@ async function assertAbortPropagation() {
 
 await assertBasicConversion();
 await assertNodeSecureImageAdapter();
+await assertPrivateNetworkBlocked();
 await assertAbortPropagation();
-console.log("Bun 1.4 runtime conversion, secure image adapter, and abort propagation passed");
+console.log("Bun 1.4 runtime conversion, secure image policy, and abort propagation passed");

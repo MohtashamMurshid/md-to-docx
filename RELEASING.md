@@ -5,8 +5,8 @@ This package is released automatically by [semantic-release](https://github.com/
 ## How it works
 
 1. Open a PR and squash-merge it into `main` with a [Conventional Commits](https://www.conventionalcommits.org/) subject line.
-2. `.github/workflows/release.yml` runs on the push to `main`.
-3. semantic-release analyzes commits since the last `v*` tag and decides whether a release is needed:
+2. `.github/workflows/ci.yml` runs the complete Node, Bun, browser, lint, and package-manager gates on the push to `main`.
+3. The downstream `Release` job starts only after every CI gate passes, then semantic-release analyzes commits since the last `v*` tag:
    - `fix:` → patch (`x.y.Z`)
    - `feat:` → minor (`x.Y.0`)
    - `feat!:` or body contains `BREAKING CHANGE:` → major (`X.0.0`)
@@ -50,7 +50,7 @@ These need to be configured once in GitHub / npm; they are not captured in the r
 
 ### `[semantic-release]: node version ^22.14.0 || >= 24.10.0 is required`
 
-semantic-release 25+ needs Node 22.14+ or Node 24.10+. The `release.yml` workflow uses Node 24 and installs dependencies from `bun.lock` with Bun 1.4. If you bump semantic-release or Bun, check both engine requirements and update the workflow pins together.
+semantic-release 25+ needs Node 22.14+ or Node 24.10+. The gated `Release` job in `ci.yml` uses Node 24 and installs dependencies from `bun.lock` with Bun 1.4. If you bump semantic-release or Bun, check both engine requirements and update the workflow pins together.
 
 ### `EINVALIDNPMTOKEN Invalid npm token` / `401 Unauthorized - GET /-/whoami`
 
@@ -65,7 +65,7 @@ Informational only. semantic-release tries OIDC first, and because this package 
 
 ### Release bot commit triggered another release run
 
-The bot commit must end with `[skip ci]`. The `if:` guard on the `release` job in `release.yml` filters on `github.event.head_commit.message`. If this ever loops, check the `message` template in `.releaserc.json` still contains `[skip ci]`.
+The bot commit must end with `[skip ci]`. The `if:` guard on the downstream `release` job in `ci.yml` filters on `github.event.head_commit.message`. If this ever loops, check the `message` template in `.releaserc.json` still contains `[skip ci]`.
 
 ### Workflow didn't fire after push
 

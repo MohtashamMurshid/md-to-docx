@@ -26,6 +26,6 @@ This branch integrates the version 3 feature set behind one release boundary. Do
 
 1. Keep the release pull request in draft until code review and visual sign-off are complete.
 2. Squash-merge the release pull request into `main` with the exact conventional title `feat!: release version 3`.
-3. Confirm the Release workflow publishes `3.0.0` and creates the corresponding GitHub release and npm package.
+3. Confirm the gated `Release` job publishes `3.0.0` only after the full CI matrix passes, then creates the corresponding GitHub release and npm package.
 
 The package version remains unchanged on this branch because semantic-release owns version files and release notes on `main`.

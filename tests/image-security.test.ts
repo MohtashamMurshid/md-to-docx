@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it, jest } from "@jest/globals";
-import { convertMarkdownToDocx } from "../src/index";
-import type { Options } from "../src/types";
+import { afterEach, describe, expect, it, jest } from "bun:test";
+import { convertMarkdownToDocx } from "../dist/index.js";
+import type { Options } from "../dist/types.js";
 import { getDocumentXml, getZip } from "./helpers";
 
 const ONE_PX_PNG =

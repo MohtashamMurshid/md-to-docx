@@ -1,15 +1,15 @@
-import { describe, expect, it } from "@jest/globals";
+import { describe, expect, it } from "bun:test";
 import type { Node, Parent, Root } from "mdast";
 import {
   convertMarkdownToDocx,
   MarkdownConversionError,
   patchMarkdownInDocxToBuffer,
-} from "../src/index";
+} from "../dist/index.js";
 import type {
   MarkdownDocxPlugin,
   PluginRenderContext,
   PluginRenderResult,
-} from "../src/index";
+} from "../dist/index.js";
 import { getDocumentXml, getZip } from "./helpers";
 import { Document, Packer, Paragraph } from "docx";
 

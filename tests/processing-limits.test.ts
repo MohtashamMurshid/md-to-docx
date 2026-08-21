@@ -1,12 +1,12 @@
-import { afterEach, describe, expect, it, jest } from "@jest/globals";
+import { afterEach, describe, expect, it, jest } from "bun:test";
 import {
   convertMarkdownToDocx,
   MarkdownConversionError,
   parseToDocxOptions,
-} from "../src/index";
-import { modelToDocx } from "../src/modelToDocx";
-import type { DocxDocumentModel } from "../src/docxModel";
-import type { Options, Style } from "../src/types";
+} from "../dist/index.js";
+import { modelToDocx } from "../dist/modelToDocx.js";
+import type { DocxDocumentModel } from "../dist/docxModel.js";
+import type { Options, Style } from "../dist/types.js";
 
 afterEach(() => {
   jest.restoreAllMocks();

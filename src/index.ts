@@ -91,7 +91,7 @@ type RenderedMarkdownContent = {
 export { MarkdownConversionError };
 export type { MarkdownConversionErrorContext } from "./errors.js";
 
-export {
+export type {
   CalloutStyle,
   CalloutType,
   CaptionFailureMode,
@@ -142,7 +142,7 @@ export {
   TocOptions,
 } from "./types.js";
 
-export {
+export type {
   MarkdownDocxPlugin,
   MarkdownDocxPluginApiVersion,
   PluginAstTransformContext,

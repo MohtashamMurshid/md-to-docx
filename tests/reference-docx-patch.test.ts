@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@jest/globals";
+import { describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
 import JSZip from "jszip";
@@ -7,7 +7,7 @@ import {
   MarkdownConversionError,
   patchMarkdownInDocx,
   patchMarkdownInDocxToBuffer,
-} from "../src/index";
+} from "../dist/index.js";
 
 const fixturePath = path.join(
   process.cwd(),

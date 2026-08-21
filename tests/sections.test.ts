@@ -1,10 +1,10 @@
-import { describe, expect, it } from "@jest/globals";
+import { describe, expect, it } from "bun:test";
 import {
   convertMarkdownToDocx,
   MarkdownConversionError,
   parseToDocxOptions,
-} from "../src/index";
-import type { Options } from "../src/types";
+} from "../dist/index.js";
+import type { Options } from "../dist/types.js";
 
 describe("sections API", () => {
   it("builds distinct section properties, footers, and page numbering", async () => {

@@ -1,8 +1,8 @@
-import { describe, expect, it, jest } from "@jest/globals";
+import { describe, expect, it, jest } from "bun:test";
 import {
   fetchRemoteImage,
   resolveImageHandlingOptions,
-} from "../src/utils/secureImageFetch.browser";
+} from "../dist/utils/secureImageFetch.browser.js";
 
 describe("browser remote image policy", () => {
   it("fails closed without issuing a request even when remote images are enabled", async () => {

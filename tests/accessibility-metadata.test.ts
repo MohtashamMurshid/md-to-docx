@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, jest } from "@jest/globals";
+import { afterEach, describe, expect, it, jest } from "bun:test";
 import JSZip from "jszip";
 import {
   convertMarkdownToArrayBuffer,
@@ -8,8 +8,8 @@ import {
   patchMarkdownInDocx,
   patchMarkdownInDocxToArrayBuffer,
   patchMarkdownInDocxToBuffer,
-} from "../src/index";
-import { applyDocumentMetadata } from "../src/metadata";
+} from "../dist/index.js";
+import { applyDocumentMetadata } from "../dist/metadata.js";
 import { getDocumentXml, getZip } from "./helpers";
 
 const ONE_PX_PNG =

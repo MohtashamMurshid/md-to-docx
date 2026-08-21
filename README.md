@@ -1373,11 +1373,11 @@ cd md-to-docx
 bun install --frozen-lockfile
 
 bun run build              # compile TypeScript to dist/
-bun run test               # canonical Jest suite on the active Node.js
+bun run test               # build, then run the canonical suite with bun test
 bun run test:bun-runtime   # Bun conversion + secure-image runtime checks
 ```
 
-Tests run offline against generated Word XML using JSZip. Set `DEBUG_DOCX=1` to have tests also write `.docx` artifacts under `test-output/` for manual inspection.
+The canonical suite runs with Bun's native test runner against the compiled `dist/` package. Tests stay offline and inspect generated Word XML using JSZip. Set `DEBUG_DOCX=1` to also write `.docx` artifacts under `test-output/` for manual inspection.
 
 ## Changelog
 

@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from "@jest/globals";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { CliOutput, isDirectCliInvocation, runCli } from "../src/cli";
+import { CliOutput, isDirectCliInvocation, runCli } from "../dist/cli.js";
 
 function captureOutput(): CliOutput & { logs: string[]; errors: string[] } {
   const logs: string[] = [];

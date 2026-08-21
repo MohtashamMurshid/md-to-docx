@@ -1,12 +1,12 @@
-import { describe, expect, it } from "@jest/globals";
+import { describe, expect, it } from "bun:test";
 import { inflateSync } from "node:zlib";
 import {
   convertMarkdownToArrayBuffer,
   convertMarkdownToBuffer,
   convertMarkdownToDocx,
   MarkdownConversionError,
-} from "../src/index";
-import type { Options } from "../src/types";
+} from "../dist/index.js";
+import type { Options } from "../dist/types.js";
 import { getDocumentXml, getZip, saveBlobForDebug } from "./helpers";
 
 // 1x1 transparent PNG used in image tests so the suite doesn't hit the network.

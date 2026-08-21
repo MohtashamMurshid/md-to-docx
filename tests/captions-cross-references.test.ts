@@ -1,8 +1,8 @@
-import { describe, expect, it } from "@jest/globals";
+import { describe, expect, it } from "bun:test";
 import {
   convertMarkdownToDocx,
   MarkdownConversionError,
-} from "../src/index";
+} from "../dist/index.js";
 import { getDocumentXml, getZip } from "./helpers";
 
 const ONE_PX_PNG =

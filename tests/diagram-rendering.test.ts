@@ -1,9 +1,9 @@
-import { describe, expect, it, jest } from "@jest/globals";
+import { describe, expect, it, jest } from "bun:test";
 import {
   convertMarkdownToDocx,
   MarkdownConversionError,
-} from "../src/index";
-import type { MermaidRenderInput, Options } from "../src/types";
+} from "../dist/index.js";
+import type { MermaidRenderInput, Options } from "../dist/types.js";
 import { getDocumentXml, getZip } from "./helpers";
 
 const MERMAID_MARKDOWN = `Before.

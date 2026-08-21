@@ -15,7 +15,7 @@ This branch integrates the version 3 feature set behind one release boundary. Do
 - `bun install --frozen-lockfile`
 - `bun run build`
 - `bun run lint`
-- `bun run test -- --runInBand`
+- `bun run test`
 - `bun run test:bun-runtime`
 - `bun run test:consumer`
 - Render and inspect `test-output/v3-all-use-cases.docx` in Microsoft Word

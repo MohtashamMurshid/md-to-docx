@@ -1,9 +1,9 @@
-import { afterEach, describe, expect, it, jest } from "@jest/globals";
+import { afterEach, describe, expect, it, jest } from "bun:test";
 import {
   convertMarkdownToDocx,
   MarkdownConversionError,
-} from "../src/index";
-import { canonicalLanguageName } from "../src/utils/codeHighlight";
+} from "../dist/index.js";
+import { canonicalLanguageName } from "../dist/utils/codeHighlight.js";
 import { getDocumentXml, getZip } from "./helpers";
 
 async function documentRelationshipsXml(blob: Blob): Promise<string> {

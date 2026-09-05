@@ -1,8 +1,57 @@
-import type JSZip from "jszip";
+import JSZip from "jszip";
+import { Document, Packer } from "docx";
+import type { IPropertiesOptions } from "docx";
 import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
 
 const R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 const REL = "http://schemas.openxmlformats.org/package/2006/relationships";
+const W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+
+/** Pack after registering lists that docx otherwise discovers too late in footnotes. */
+export async function packDocumentWithRepairs(
+  options: IPropertiesOptions,
+): Promise<Blob> {
+  const document = new Document(options);
+  const hasFootnotes = Object.keys(options.footnotes ?? {}).length > 0;
+  if (hasFootnotes)
+    for (const { reference } of options.numbering?.config ?? [])
+      document.Numbering.createConcreteNumberingInstance(reference, 0);
+  const blob = await Packer.toBlob(document);
+  if (!hasFootnotes) return blob;
+
+  const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+  let changed = await repairFootnoteImages(zip);
+  const footnotes = new DOMParser().parseFromString(
+    await zip.file("word/footnotes.xml")!.async("string"),
+    "application/xml",
+  );
+  const numberingIds = new Map(
+    document.Numbering.ConcreteNumbering.map(
+      ({ reference, instance, numId }) => [
+        `{${reference}-${instance}}`,
+        String(numId),
+      ],
+    ),
+  );
+  for (const reference of Array.from(
+    footnotes.getElementsByTagNameNS(W, "numId"),
+  )) {
+    const id = numberingIds.get(reference.getAttributeNS(W, "val")!);
+    if (id !== undefined) {
+      reference.setAttributeNS(W, "w:val", id);
+      changed = true;
+    }
+  }
+  if (!changed) return blob;
+  zip.file(
+    "word/footnotes.xml",
+    new XMLSerializer().serializeToString(footnotes),
+  );
+  return new Blob(
+    [await zip.generateAsync({ type: "uint8array", compression: "DEFLATE" })],
+    { type: blob.type },
+  );
+}
 
 /** docx leaves unresolved media tokens in footnotes; give those drawings real relationships. */
 export async function repairFootnoteImages(zip: JSZip): Promise<boolean> {

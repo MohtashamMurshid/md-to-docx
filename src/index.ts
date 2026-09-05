@@ -1,11 +1,8 @@
-import JSZip from "jszip";
-import { repairFootnoteImages } from "./packageRepairs.js";
+import { packDocumentWithRepairs } from "./packageRepairs.js";
 import { loadPatchPackage, mergePatchPackage } from "./patchPackage.js";
 import { expandRichTables } from "./richTables.js";
 import {
-  Document,
   Paragraph,
-  Packer,
   Table,
   AlignmentType,
   LevelFormat,
@@ -192,21 +189,7 @@ export async function convertMarkdownToDocx(
   try {
     const docxOptions = await parseToDocxOptions(markdown, options);
     await yieldToAbortSignal(options.signal);
-    const doc = new Document(docxOptions);
-    let blob = await Packer.toBlob(doc);
-    if (docxOptions.footnotes && Object.keys(docxOptions.footnotes).length) {
-      const zip = await JSZip.loadAsync(await blob.arrayBuffer());
-      if (await repairFootnoteImages(zip))
-        blob = new Blob(
-          [
-            await zip.generateAsync({
-              type: "uint8array",
-              compression: "DEFLATE",
-            }),
-          ],
-          { type: blob.type },
-        );
-    }
+    let blob = await packDocumentWithRepairs(docxOptions);
     if (options.metadata) {
       blob = (await applyDocumentMetadata(
         blob,
@@ -525,6 +508,7 @@ export async function parseToDocxOptions(
               currentElementCount: elementCount,
               sequenceIdOffset: maxSequenceId,
               numberingStarts,
+              headingAnchors,
               processedImageCounter,
               failedRemoteImageCounter,
               headingBookmarkCounter,
@@ -840,7 +824,7 @@ async function patchMarkdownInDocxWithOutput(
       tocInserted = replaced.tocInserted;
       return [new Paragraph({ text: markers[index] }), ...replaced.children];
     });
-    const donor = new Document({
+    const donor: IPropertiesOptions = {
       sections: [{ children: body.length ? body : [new Paragraph({})] }],
       footnotes,
       styles: {
@@ -861,9 +845,9 @@ async function patchMarkdownInDocxWithOutput(
           })),
         })),
       },
-    });
+    };
     const donorBytes = new Uint8Array(
-      await (await Packer.toBlob(donor)).arrayBuffer(),
+      await (await packDocumentWithRepairs(donor)).arrayBuffer(),
     );
     const merged = await mergePatchPackage(
       basePackage,

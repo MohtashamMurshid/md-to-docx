@@ -295,6 +295,15 @@ export async function mergePatchPackage(
   };
   const used = new Set<string>();
   let copyIndex = 0;
+  const numberingDocument = documents.get("word/numbering.xml")!;
+  const numberingDefinitions = new Map(
+    elements(numberingDocument, "num").map((element) => [
+      element.getAttributeNS(W, "numId")!,
+      element,
+    ]),
+  );
+  let nextNumbering =
+    Math.max(0, ...[...numberingDefinitions.keys()].map(Number)) + 1;
   const footnoteDocument = documents.get("word/footnotes.xml");
   let nextFootnote =
     Math.max(
@@ -307,8 +316,26 @@ export async function mergePatchPackage(
     const clones = originals.map((el) => el.cloneNode(true) as XmlElement);
     const localNames = new Map<string, string>();
     const footnoteIds = new Map<string, string>();
+    const numberingIds = new Map<string, string>();
+    // Each copy starts fresh lists, while paragraphs in the same list share an ID.
+    function remapNumbering(root: XmlElement): void {
+      for (const reference of elements(root, "numId")) {
+        const old = reference.getAttributeNS(W, "val")!;
+        if (!numberingIds.has(old)) {
+          const source = numberingDefinitions.get(old);
+          if (!source) throw new Error("Missing generated numbering definition");
+          const definition = source.cloneNode(true) as XmlElement;
+          const id = String(nextNumbering++);
+          definition.setAttributeNS(W, "w:numId", id);
+          numberingDocument.documentElement!.appendChild(definition);
+          numberingIds.set(old, id);
+        }
+        reference.setAttributeNS(W, "w:val", numberingIds.get(old)!);
+      }
+    }
     const copy = ++copyIndex;
     for (const clone of clones) {
+      remapNumbering(clone);
       for (const bookmark of elements(clone, "bookmarkStart")) {
         const old = bookmark.getAttributeNS(W, "name")!;
         const renamed = `${old.slice(0, 27)}_copy${copy}_${localNames.size}`;
@@ -323,6 +350,7 @@ export async function mergePatchPackage(
           );
           if (!source) throw new Error("Missing generated footnote");
           const note = source.cloneNode(true) as XmlElement;
+          remapNumbering(note);
           const id = String(nextFootnote++);
           note.setAttributeNS(W, "w:id", id);
           footnoteDocument!.documentElement!.appendChild(note);

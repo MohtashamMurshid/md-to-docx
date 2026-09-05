@@ -87,6 +87,46 @@ describe("Markdown fidelity", () => {
       expect(names.has(link.getAttributeNS(W, "anchor"))).toBe(true);
     expect(names.size).toBe(3);
   });
+  it("resolves header and footer links to body headings across sections", async () => {
+    const warnings: ConversionWarning[] = [];
+    const { zip, text } = await unpack(
+      await convertMarkdownToBuffer("", {
+        sections: [
+          { markdown: "# Body" },
+          { markdown: "# Body\n\n# 重复" },
+        ],
+        template: {
+          headers: { default: { markdown: "[Next](#body-1)" } },
+          footers: {
+            default: { markdown: "[Unicode](#%E9%87%8D%E5%A4%8D)" },
+          },
+        },
+        onWarning: (warning) => warnings.push(warning),
+      }),
+    );
+    const parser = new DOMParser();
+    const document = parser.parseFromString(text, "application/xml");
+    const bookmarks = Array.from(
+      document.getElementsByTagNameNS(W, "bookmarkStart"),
+      (node) => node.getAttributeNS(W, "name"),
+    );
+    const slots = Object.keys(zip.files).filter((name) =>
+      /^word\/(header|footer)\d+\.xml$/.test(name),
+    );
+    expect(slots).toHaveLength(4);
+    for (const part of slots) {
+      const slot = parser.parseFromString(
+        await zip.file(part)!.async("string"),
+        "application/xml",
+      );
+      const links = Array.from(slot.getElementsByTagNameNS(W, "hyperlink"));
+      expect(links).toHaveLength(1);
+      expect(links[0].getAttributeNS(W, "anchor")).toBe(
+        bookmarks[part.includes("header") ? 1 : 2],
+      );
+    }
+    expect(warnings).toHaveLength(0);
+  });
   it("emits native TOC fields, cached links, page references and leader tabs", async () => {
     const { zip, text } = await unpack(
       await convertMarkdownToBuffer("[TOC]\n\n# One\n\n## Two"),
@@ -506,6 +546,84 @@ describe("Patch package integration", () => {
 });
 
 describe("Repeated patches and package integrity", () => {
+  it("restarts each list in repeated patches, including nested and footnote lists", async () => {
+    const template = await convertMarkdownToBuffer(
+      "9. Existing\n\nExisting note[^existing].\n\n{{body}}\n\n{{body}}\n\n{{body}}\n\n[^existing]: 11. Existing footnote",
+    );
+    const { zip, text } = await unpack(
+      await patchMarkdownInDocxToBuffer(template, {
+        body: "5. First\n\n   3. Nested\n   4. Nested again\n\n6. Second\n\nSeparate.\n\n0. Zero\n\nNote[^n].\n\n[^n]: 7. Footnote item\n    8. Another item",
+      }),
+    );
+    const parser = new DOMParser();
+    const parse = (xml: string) =>
+      parser.parseFromString(xml, "application/xml");
+    const numbering = parse(
+      await zip.file("word/numbering.xml")!.async("string"),
+    );
+    const definitions = Array.from(
+      numbering.getElementsByTagNameNS(W, "num"),
+    );
+    const ids = definitions.map((node) => node.getAttributeNS(W, "numId"));
+    expect(new Set(ids).size).toBe(ids.length);
+    const byText = new Map<string, string[]>();
+    for (const document of [
+      parse(text),
+      parse(await zip.file("word/footnotes.xml")!.async("string")),
+    ]) {
+      for (const paragraph of Array.from(
+        document.getElementsByTagNameNS(W, "p"),
+      )) {
+        const id = paragraph
+          .getElementsByTagNameNS(W, "numId")[0]
+          ?.getAttributeNS(W, "val");
+        if (!id) continue;
+        const label = Array.from(
+          paragraph.getElementsByTagNameNS(W, "t"),
+          (node) => node.textContent,
+        ).join("");
+        byText.set(label, [...(byText.get(label) ?? []), id]);
+        expect(ids).toContain(id);
+      }
+    }
+    for (const [label, start] of [
+      ["First", 5],
+      ["Nested", 3],
+      ["Zero", 0],
+      ["Footnote item", 7],
+    ] as const) {
+      const listIds = byText.get(label)!;
+      expect(listIds).toHaveLength(3);
+      expect(new Set(listIds).size).toBe(3);
+      for (const id of listIds) {
+        const definition = definitions.find(
+          (node) => node.getAttributeNS(W, "numId") === id,
+        )!;
+        const abstractId = definition
+          .getElementsByTagNameNS(W, "abstractNumId")[0]
+          .getAttributeNS(W, "val");
+        const abstract = Array.from(
+          numbering.getElementsByTagNameNS(W, "abstractNum"),
+        ).find(
+          (node) => node.getAttributeNS(W, "abstractNumId") === abstractId,
+        )!;
+        expect(
+          abstract
+            .getElementsByTagNameNS(W, "start")[0]
+            .getAttributeNS(W, "val"),
+        ).toBe(String(start));
+      }
+    }
+    expect(byText.get("Second")).toEqual(byText.get("First"));
+    expect(byText.get("Nested again")).toEqual(byText.get("Nested"));
+    expect(byText.get("Another item")).toEqual(byText.get("Footnote item"));
+    expect(byText.get("Existing")).toHaveLength(1);
+    expect(byText.get("Existing footnote")).toHaveLength(1);
+    expect(byText.get("First")).not.toContain(byText.get("Existing")![0]);
+    expect(byText.get("Footnote item")).not.toContain(
+      byText.get("Existing footnote")![0],
+    );
+  });
   it("gives repeated copies unique footnotes and updates cached caption references", async () => {
     const reference = await Packer.toBuffer(
       new Document({

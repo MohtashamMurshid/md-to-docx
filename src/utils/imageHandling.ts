@@ -1,6 +1,8 @@
 import type { ImageHandlingOptions } from "../types.js";
 
 export interface ResolvedImageHandlingOptions {
+  resolve?: ImageHandlingOptions["resolve"];
+  baseDirectory?: string;
   remote: {
     enabled: boolean;
     allowedHosts?: string[];
@@ -33,6 +35,8 @@ export function resolveImageHandlingOptions(
   options?: ImageHandlingOptions
 ): ResolvedImageHandlingOptions {
   return {
+    resolve: options?.resolve,
+    baseDirectory: options?.baseDirectory,
     remote: {
       enabled: options?.remote?.enabled === true,
       allowedHosts: options?.remote?.allowedHosts?.map((host) =>

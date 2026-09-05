@@ -26,5 +26,35 @@ function stableBookmarkHash(value: string): string {
  */
 export function crossReferenceBookmarkId(identifier: string): string {
   const safeIdentifier = sanitizeForBookmarkId(identifier).slice(0, 24);
-  return `mdxref_${safeIdentifier}_${stableBookmarkHash(identifier)}`.slice(0, 40);
+  return `mdxref_${safeIdentifier}_${stableBookmarkHash(identifier)}`.slice(
+    0,
+    40,
+  );
+}
+
+/** GitHub-style heading fragments, including Unicode and duplicate suffixes. */
+export function headingSlug(text: string): string {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\p{L}\p{N}\p{M}_\s-]/gu, "")
+    .replace(/\s/g, "-");
+}
+
+export interface HeadingAnchorRegistry {
+  anchors: Map<string, string>;
+  counts: Map<string, number>;
+}
+
+export function registerHeading(
+  registry: HeadingAnchorRegistry,
+  text: string,
+  bookmark: string,
+): void {
+  const base = headingSlug(text);
+  let count = registry.counts.get(base) ?? 0;
+  let slug = count ? `${base}-${count}` : base;
+  while (registry.anchors.has(slug)) slug = `${base}-${++count}`;
+  registry.counts.set(base, count + 1);
+  registry.anchors.set(slug, bookmark);
 }

@@ -37,7 +37,15 @@ export interface DocxCrossReferenceNode {
   bookmarkId: string;
 }
 
+export interface DocxInlineImageNode {
+  type: "inlineImage";
+  url: string;
+  alt: string;
+  title?: string;
+}
+
 export type DocxInlineNode =
+  | DocxInlineImageNode
   | DocxTextNode
   | DocxMathInlineNode
   | DocxFootnoteReferenceNode
@@ -73,6 +81,7 @@ export interface DocxListNode {
   type: "list";
   ordered: boolean;
   children: DocxListItemNode[];
+  start?: number;
   sequenceId?: number; // For numbered lists, tracks sequence across document
 }
 
@@ -120,10 +129,20 @@ export interface DocxImageNode {
   caption?: DocxCaption;
 }
 
+export interface DocxTableCellNode {
+  type: "tableCell";
+  children: DocxBlockNode[];
+  columnSpan?: number;
+  rowSpan?: number;
+}
+
+export type DocxTableCell = DocxInlineNode[] | DocxTableCellNode;
+
 export interface DocxTableNode {
+  columnWidths?: number[];
   type: "table";
-  headers: DocxInlineNode[][];
-  rows: DocxInlineNode[][][];
+  headers: DocxTableCell[];
+  rows: DocxTableCell[][];
   align?: (string | null)[];
   caption?: DocxCaption;
 }

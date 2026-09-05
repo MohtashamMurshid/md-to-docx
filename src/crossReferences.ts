@@ -41,7 +41,7 @@ function captionKindForNode(node: RootContent): CaptionKind | undefined {
   if (isStandaloneImage(node)) {
     return "figure";
   }
-  return node.type === "table" ? "table" : undefined;
+  return node.type === "table" || (node as { type: string }).type === "richTable" ? "table" : undefined;
 }
 
 function textFromPhrasingContent(node: PhrasingContent): string {

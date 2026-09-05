@@ -5,6 +5,7 @@ import {
   TableCell,
   TextRun,
   ExternalHyperlink,
+  InternalHyperlink,
   FootnoteReferenceRun,
   PageBreak,
   AlignmentType,
@@ -23,6 +24,7 @@ import type {
   DocxInlineNode,
   DocxTextNode,
   DocxCaption,
+  DocxTableCell,
 } from "./docxModel.js";
 import { Style, Options } from "./types.js";
 import { processHeading } from "./renderers/headingRenderer.js";
@@ -45,7 +47,11 @@ import { parseTexMath, renderNativeMath } from "./renderers/mathRenderer.js";
 import { processInlineCode } from "./renderers/textRenderer.js";
 import { processHorizontalRule } from "./renderers/horizontalRuleRenderer.js";
 import { resolveFontFamily } from "./utils/styleUtils.js";
-import { sanitizeForBookmarkId } from "./utils/bookmarkUtils.js";
+import {
+  registerHeading,
+  type HeadingAnchorRegistry,
+  sanitizeForBookmarkId,
+} from "./utils/bookmarkUtils.js";
 import { throwIfAborted } from "./processingLimits.js";
 import { MarkdownConversionError } from "./errors.js";
 import type { PluginBlockResult, PluginInlineContent } from "./pluginTypes.js";
@@ -117,6 +123,8 @@ export async function modelToDocx(
   options: Options,
   renderOptions: {
     sequenceIdOffset?: number;
+    numberingStarts?: Map<number, number>;
+    headingAnchors?: HeadingAnchorRegistry;
     /** When set by `parseToDocxOptions`, ties `maxImages` to the whole document across sections. */
     processedImageCounter?: { count: number };
     /** Document-wide budget for failed remote image fetch attempts. */
@@ -173,6 +181,17 @@ export async function modelToDocx(
     count: 0,
   };
 
+  const headingAnchors = renderOptions.headingAnchors ?? {
+    anchors: new Map(),
+    counts: new Map(),
+  };
+  const inlineImages = new WeakMap<object, ParagraphChild>();
+  const pendingLinks: {
+    link: InternalHyperlink;
+    fragment: string;
+    source: string;
+  }[] = [];
+
   throwIfAborted(options.signal);
 
   function textRunFromNode(
@@ -217,6 +236,11 @@ export async function modelToDocx(
       });
     }
 
+    options.onWarning?.({
+      code: "UNSUPPORTED_MATH",
+      message: parsed.reason ?? "Unsupported math expression",
+      source: value,
+    });
     return textRunFromNode(unsupportedMathText(value, block));
   }
 
@@ -226,7 +250,9 @@ export async function modelToDocx(
   ): ParagraphChild[] {
     const out: ParagraphChild[] = [];
     for (const node of nodes) {
-      if (node.type === "crossReference") {
+      if (node.type === "inlineImage") {
+        out.push(inlineImages.get(node) ?? new TextRun(`[Image: ${node.alt}]`));
+      } else if (node.type === "crossReference") {
         out.push(
           new SimpleField(
             ` REF ${node.bookmarkId} \\h `,
@@ -253,6 +279,20 @@ export async function modelToDocx(
         }
       } else if (node.type === "mathInline") {
         out.push(renderMathNode(node.value, false));
+      } else if (node.link?.startsWith("#")) {
+        let fragment = node.link.slice(1);
+        try {
+          fragment = decodeURIComponent(fragment);
+        } catch {
+          /* Keep literal malformed escapes. */
+        }
+        // Resolve after all sections have registered their headings.
+        const link = new InternalHyperlink({
+          anchor: fragment,
+          children: [textRunFromNode(node, overrides)],
+        });
+        pendingLinks.push({ link, fragment, source: node.link });
+        out.push(link);
       } else if (node.link && !isSafeLinkUrl(node.link)) {
         out.push(textRunFromNode({ ...node, link: undefined }, overrides));
       } else if (node.link) {
@@ -295,11 +335,7 @@ export async function modelToDocx(
       ? AlignmentType[style.paragraphAlignment]
       : AlignmentType.LEFT;
     const quoteStyle = context.quoteLevel
-      ? blockquoteParagraphStyle(
-          style,
-          context.quoteLevel,
-          context.calloutType,
-        )
+      ? blockquoteParagraphStyle(style, context.quoteLevel, context.calloutType)
       : undefined;
     return new Paragraph({
       children: renderInlineNodes(nodes, overrides),
@@ -318,70 +354,174 @@ export async function modelToDocx(
     });
   }
 
-  function tableFromNode(
+  async function tableFromNode(
     node: Extract<DocxBlockNode, { type: "table" }>,
-  ): Table {
-    const layout =
-      style.tableLayout === "fixed"
-        ? TableLayoutType.FIXED
-        : TableLayoutType.AUTOFIT;
-    const getColumnAlignment = (
-      index: number,
-    ): (typeof AlignmentType)[keyof typeof AlignmentType] => {
-      const align = node.align?.[index];
-      if (align === "center") return AlignmentType.CENTER;
-      if (align === "right") return AlignmentType.RIGHT;
-      return AlignmentType.LEFT;
-    };
-
-    return new Table({
-      width: { size: tableWidthTwips, type: WidthType.DXA },
-      rows: [
-        new TableRow({
-          tableHeader: true,
-          children: node.headers.map(
-            (cell, index) =>
-              new TableCell({
-                children: [
-                  new Paragraph({
-                    alignment: getColumnAlignment(index),
-                    style: "Strong",
-                    children: renderInlineNodes(cell, { forceBold: true }),
-                    bidirectional: style.direction === "RTL",
-                  }),
-                ],
-                shading: {
-                  fill: documentType === "report" ? "DDDDDD" : "F2F2F2",
-                },
-              }),
-          ),
-        }),
-        ...node.rows.map(
-          (row) =>
-            new TableRow({
-              children: row.map(
-                (cell, index) =>
-                  new TableCell({
-                    children: [
-                      new Paragraph({
-                        alignment: getColumnAlignment(index),
-                        children: renderInlineNodes(cell),
-                        bidirectional: style.direction === "RTL",
-                      }),
-                    ],
-                  }),
-              ),
+  ): Promise<Table> {
+    const rows = node.headers.length ? [node.headers, ...node.rows] : node.rows;
+    const widths = node.columnWidths ?? style.tableColumnWidths;
+    const span = (cell: DocxTableCell): number =>
+      Array.isArray(cell) ? 1 : (cell.columnSpan ?? 1);
+    const columnCount = rows[0]?.reduce((n, cell) => n + span(cell), 0) ?? 0;
+    if (widths && widths.length !== columnCount)
+      throw new MarkdownConversionError(
+        "Table column widths must match the logical column count",
+      );
+    const tableRows: TableRow[] = [];
+    const occupied = new Map<number, { end: number; span: number }>();
+    for (const [rowIndex, row] of rows.entries()) {
+      const header = rowIndex === 0 && node.headers.length > 0;
+      const cells: TableCell[] = [];
+      let column = 0;
+      for (const cell of row) {
+        while (occupied.has(column) && occupied.get(column)!.end > rowIndex)
+          column += occupied.get(column)!.span;
+        const colSpan = span(cell);
+        const rowSpan = Array.isArray(cell) ? 1 : (cell.rowSpan ?? 1);
+        if (column + colSpan > columnCount || rowIndex + rowSpan > rows.length)
+          throw new MarkdownConversionError(
+            "Table cell span exceeds table bounds",
+          );
+        for (let c = column; c < column + colSpan; c++)
+          if (occupied.has(c) && occupied.get(c)!.end > rowIndex)
+            throw new MarkdownConversionError("Overlapping table cell spans");
+        const align = node.align?.[column];
+        const alignment =
+          align === "center"
+            ? AlignmentType.CENTER
+            : align === "right"
+              ? AlignmentType.RIGHT
+              : AlignmentType.LEFT;
+        const content: (Paragraph | Table)[] = [];
+        if (Array.isArray(cell)) {
+          await prepareInlineImages(cell);
+          content.push(
+            new Paragraph({
+              alignment,
+              children: renderInlineNodes(cell, { forceBold: header }),
+              bidirectional: style.direction === "RTL",
             }),
-        ),
-      ],
-      layout,
+          );
+        } else {
+          for (const child of cell.children)
+            content.push(...(await renderBlockNode(child)));
+        }
+        if (!content.length || content[content.length - 1] instanceof Table)
+          content.push(new Paragraph({}));
+        cells.push(
+          new TableCell({
+            children: content,
+            columnSpan: colSpan,
+            rowSpan,
+            ...(widths
+              ? {
+                  width: {
+                    size: widths
+                      .slice(column, column + colSpan)
+                      .reduce((a, b) => a + b, 0),
+                    type: WidthType.DXA,
+                  },
+                }
+              : {}),
+            ...(header
+              ? {
+                  shading: {
+                    fill:
+                      style.tableHeaderBackground ??
+                      (documentType === "report" ? "DDDDDD" : "F2F2F2"),
+                  },
+                }
+              : {}),
+          }),
+        );
+        if (rowSpan > 1)
+          occupied.set(column, { end: rowIndex + rowSpan, span: colSpan });
+        column += colSpan;
+      }
+      while (occupied.has(column) && occupied.get(column)!.end > rowIndex)
+        column += occupied.get(column)!.span;
+      if (column !== columnCount)
+        throw new MarkdownConversionError(
+          "Table rows must cover the same number of columns",
+        );
+      tableRows.push(
+        new TableRow({
+          tableHeader: header,
+          cantSplit: style.tableAllowRowSplit === false,
+          children: cells,
+        }),
+      );
+    }
+    return new Table({
+      rows: tableRows,
+      width: {
+        size: widths?.reduce((a, b) => a + b, 0) ?? tableWidthTwips,
+        type: WidthType.DXA,
+      },
+      columnWidths: widths,
+      layout:
+        style.tableLayout === "fixed" || widths
+          ? TableLayoutType.FIXED
+          : TableLayoutType.AUTOFIT,
       margins: {
         top: 100,
         bottom: 100,
         left: 100,
         right: 100,
+        ...style.tableCellMargins,
       },
     });
+  }
+
+  async function prepareInlineImages(nodes: DocxInlineNode[]): Promise<void> {
+    for (const node of nodes) {
+      if (node.type !== "inlineImage" || inlineImages.has(node)) continue;
+      validateImageText(node.alt, node.title, "Markdown image");
+      assertImageAltPolicy(node.alt, options.accessibility, "Markdown image");
+      if (processedImageCounter.count >= imageHandling.maxImages) {
+        inlineImages.set(
+          node,
+          new TextRun(`[Image limit reached: ${node.alt}]`),
+        );
+        options.onWarning?.({
+          code: "IMAGE_FALLBACK",
+          message: "Image limit reached",
+          source: node.url,
+        });
+        continue;
+      }
+      const remote = !/^data:/i.test(node.url);
+      if (remote && failedRemoteImageCounter.count >= imageHandling.maxImages) {
+        inlineImages.set(
+          node,
+          new TextRun(`[Image could not be displayed: ${node.alt}]`),
+        );
+        continue;
+      }
+      const result = await processImage(
+        node.alt,
+        node.url,
+        style,
+        imageHandling,
+        {},
+        options.signal,
+        true,
+        node.title,
+      );
+      inlineImages.set(
+        node,
+        result.run ??
+          new TextRun(`[Image could not be displayed: ${node.alt}]`),
+      );
+      if (result.embedded) processedImageCounter.count++;
+      else {
+        if (remote) failedRemoteImageCounter.count++;
+        options.onWarning?.({
+          code: "IMAGE_FALLBACK",
+          message: result.reason ?? "Image could not be embedded",
+          source: node.url,
+        });
+      }
+    }
   }
 
   function listParagraphFromInlineNodes(
@@ -393,11 +533,7 @@ export async function modelToDocx(
     taskChecked?: boolean,
   ): Paragraph {
     const quoteStyle = context.quoteLevel
-      ? blockquoteParagraphStyle(
-          style,
-          context.quoteLevel,
-          context.calloutType,
-        )
+      ? blockquoteParagraphStyle(style, context.quoteLevel, context.calloutType)
       : undefined;
     const base = {
       children: renderInlineNodes(
@@ -444,11 +580,7 @@ export async function modelToDocx(
     context: RenderContext = {},
   ): Paragraph {
     const quoteStyle = context.quoteLevel
-      ? blockquoteParagraphStyle(
-          style,
-          context.quoteLevel,
-          context.calloutType,
-        )
+      ? blockquoteParagraphStyle(style, context.quoteLevel, context.calloutType)
       : undefined;
 
     return new Paragraph({
@@ -481,8 +613,8 @@ export async function modelToDocx(
 
   function captionLabel(kind: DocxCaption["kind"]): string {
     return kind === "figure"
-      ? options.captions?.figureLabel ?? "Figure"
-      : options.captions?.tableLabel ?? "Table";
+      ? (options.captions?.figureLabel ?? "Figure")
+      : (options.captions?.tableLabel ?? "Table");
   }
 
   function captionParagraph(caption: DocxCaption): Paragraph {
@@ -512,10 +644,7 @@ export async function modelToDocx(
       style: "Caption",
       children: [
         bookmark,
-        textRunFromNode(
-          { type: "text", value: ": " },
-          { forceItalic, size },
-        ),
+        textRunFromNode({ type: "text", value: ": " }, { forceItalic, size }),
         ...renderInlineNodes(caption.children, { forceItalic, size }),
       ],
       alignment,
@@ -538,8 +667,8 @@ export async function modelToDocx(
 
     const placement =
       node.type === "image"
-        ? options.captions?.figurePlacement ?? "below"
-        : options.captions?.tablePlacement ?? "below";
+        ? (options.captions?.figurePlacement ?? "below")
+        : (options.captions?.tablePlacement ?? "below");
     const caption = captionParagraph(node.caption);
     return placement === "above"
       ? [caption, ...rendered]
@@ -553,6 +682,10 @@ export async function modelToDocx(
   ): Promise<(Paragraph | Table)[]> {
     throwIfAborted(options.signal);
 
+    if (node.type === "paragraph" || node.type === "heading")
+      await prepareInlineImages(node.children);
+    if ((node.type === "table" || node.type === "image") && node.caption)
+      await prepareInlineImages(node.caption.children);
     switch (node.type) {
       case "heading": {
         if (context.inFootnote) {
@@ -561,13 +694,14 @@ export async function modelToDocx(
 
         const headingText = textFromInlineNodes(node.children);
         headingBookmarkCounter.count++;
-        const bookmarkId = `_Toc_${sanitizeForBookmarkId(headingText)}_${headingBookmarkCounter.count}`;
+        const bookmarkId = `_Toc_${sanitizeForBookmarkId(headingText).slice(0, 33 - String(headingBookmarkCounter.count).length)}_${headingBookmarkCounter.count}`;
         const { paragraph } = processHeading(
           node.children,
           { level: node.level, bookmarkId },
           style,
           (nodes, size) => renderInlineNodes(nodes, { size }),
         );
+        registerHeading(headingAnchors, headingText, bookmarkId);
         headings.push({
           text: headingText,
           level: node.level,
@@ -634,7 +768,7 @@ export async function modelToDocx(
       }
 
       case "table": {
-        return withCaption(node, [tableFromNode(node)]);
+        return withCaption(node, [await tableFromNode(node)]);
       }
 
       case "comment": {
@@ -739,6 +873,7 @@ export async function modelToDocx(
       throwIfAborted(options.signal);
 
       if (child.type === "paragraph") {
+        await prepareInlineImages(child.children);
         out.push(
           paragraphFromInlineNodes(
             child.children,
@@ -766,6 +901,9 @@ export async function modelToDocx(
     const adjustedSequenceId = list.sequenceId
       ? list.sequenceId + sequenceIdOffset
       : undefined;
+
+    if (adjustedSequenceId)
+      renderOptions.numberingStarts?.set(adjustedSequenceId, list.start ?? 1);
 
     // Track max sequence ID
     if (adjustedSequenceId && adjustedSequenceId > maxSequenceId) {
@@ -815,6 +953,7 @@ export async function modelToDocx(
         );
         paragraphs.push(...nestedParagraphs);
       } else if (child.type === "paragraph") {
+        await prepareInlineImages(child.children);
         if (paragraphs.length === 0) {
           paragraphs.push(
             listParagraphFromInlineNodes(
@@ -1071,6 +1210,11 @@ export async function modelToDocx(
     const paragraphOptions = imageParagraphOptions(context, listMarker);
 
     if (processedImageCounter.count >= imageHandling.maxImages) {
+      options.onWarning?.({
+        code: "IMAGE_FALLBACK",
+        message: "Image budget reached",
+        source: node.url,
+      });
       return [imageCouldNotLoadParagraph(node.alt, paragraphOptions)];
     }
 
@@ -1080,11 +1224,16 @@ export async function modelToDocx(
     // full of broken/slow URLs cannot trigger unbounded sequential fetches.
     const isRemote = !/^data:/i.test(node.url);
     if (isRemote && failedRemoteImageCounter.count >= imageHandling.maxImages) {
+      options.onWarning?.({
+        code: "IMAGE_FALLBACK",
+        message: "Image budget reached",
+        source: node.url,
+      });
       return [imageCouldNotLoadParagraph(node.alt, paragraphOptions)];
     }
 
     try {
-      const { embedded, paragraphs } = await processImage(
+      const { embedded, paragraphs, reason } = await processImage(
         node.alt,
         node.url,
         style,
@@ -1097,14 +1246,25 @@ export async function modelToDocx(
       );
       if (embedded) {
         processedImageCounter.count++;
-      } else if (isRemote) {
-        failedRemoteImageCounter.count++;
+      } else {
+        if (isRemote) failedRemoteImageCounter.count++;
+        options.onWarning?.({
+          code: "IMAGE_FALLBACK",
+          message: reason ?? "Image could not be embedded",
+          source: node.url,
+          sectionIndex: renderOptions.pluginSection?.index,
+        });
       }
       return paragraphs;
     } catch (error) {
       if (error instanceof MarkdownConversionError) {
         throw error;
       }
+      options.onWarning?.({
+        code: "IMAGE_FALLBACK",
+        message: "Image budget reached",
+        source: node.url,
+      });
       return [imageCouldNotLoadParagraph(node.alt, paragraphOptions)];
     }
   }
@@ -1135,7 +1295,12 @@ export async function modelToDocx(
     );
     if (embedded) {
       processedImageCounter.count++;
-    }
+    } else
+      options.onWarning?.({
+        code: "DIAGRAM_FALLBACK",
+        message: "Chart could not be embedded",
+        source: node.value,
+      });
     return paragraphs;
   }
 
@@ -1167,6 +1332,12 @@ export async function modelToDocx(
     listMarker?: ListMarkerContext,
   ): Paragraph[] {
     const failureMode = options.mermaidRendering?.failureMode ?? "codeBlock";
+    if (failureMode !== "throw")
+      options.onWarning?.({
+        code: "DIAGRAM_FALLBACK",
+        message: "Mermaid rendering failed or is unavailable",
+        source: node.value,
+      });
 
     if (failureMode === "throw") {
       throw new MarkdownConversionError(
@@ -1303,12 +1474,10 @@ export async function modelToDocx(
       if (typeof value === "string") {
         return { type: "text", value };
       }
-      if (
-        !value ||
-        value.type !== "text" ||
-        typeof value.value !== "string"
-      ) {
-        throw new Error("Plugin inline content must be text or a text descriptor");
+      if (!value || value.type !== "text" || typeof value.value !== "string") {
+        throw new Error(
+          "Plugin inline content must be text or a text descriptor",
+        );
       }
       return { ...value, type: "text" };
     });
@@ -1321,7 +1490,11 @@ export async function modelToDocx(
   }
 
   function pluginResultElementCount(result: PluginBlockResult): number {
-    if (!result || typeof result !== "object" || typeof result.type !== "string") {
+    if (
+      !result ||
+      typeof result !== "object" ||
+      typeof result.type !== "string"
+    ) {
       throw new Error("Plugin returned an invalid block result");
     }
     switch (result.type) {
@@ -1423,13 +1596,13 @@ export async function modelToDocx(
                   ),
             ]
           : context.inFootnote && child.type === "table"
-          ? tableFootnoteFallbackParagraphs(child)
-          : await renderBlockNodeWithListMarker(
-              child,
-              listLevel,
-              context,
-              marker,
-            );
+            ? tableFootnoteFallbackParagraphs(child)
+            : await renderBlockNodeWithListMarker(
+                child,
+                listLevel,
+                context,
+                marker,
+              );
       rendered.push(...childOutput);
       if (childOutput.length > 0) {
         marker = undefined;
@@ -1445,7 +1618,11 @@ export async function modelToDocx(
     context: RenderContext,
     listMarker?: ListMarkerContext,
   ): Promise<(Paragraph | Table)[]> {
-    if (!result || typeof result !== "object" || typeof result.type !== "string") {
+    if (
+      !result ||
+      typeof result !== "object" ||
+      typeof result.type !== "string"
+    ) {
       throw new Error("Plugin returned an invalid block result");
     }
 
@@ -1545,7 +1722,9 @@ export async function modelToDocx(
         return tableFootnoteFallbackParagraphs(semanticNode);
       }
     } else {
-      throw new Error(`Unsupported plugin result type: ${(result as { type: string }).type}`);
+      throw new Error(
+        `Unsupported plugin result type: ${(result as { type: string }).type}`,
+      );
     }
 
     const rendered = await renderBlockNodeWithListMarker(
@@ -1691,6 +1870,13 @@ export async function modelToDocx(
       ) {
         throw error;
       }
+      if (node.handler.failureMode !== "throw")
+        options.onWarning?.({
+          code: "PLUGIN_FALLBACK",
+          message:
+            error instanceof Error ? error.message : "Plugin rendering failed",
+          source: node.handler.pluginName,
+        });
       if (node.handler.failureMode === "skip") {
         restoreCoreState();
         return [];
@@ -1729,7 +1915,13 @@ export async function modelToDocx(
       paragraphFromInlineNodes([
         {
           type: "text",
-          value: row.map((cell) => textFromInlineNodes(cell)).join(" | "),
+          value: row
+            .map((cell) =>
+              Array.isArray(cell)
+                ? textFromInlineNodes(cell)
+                : "[Rich table cell]",
+            )
+            .join(" | "),
         },
       ]),
     );
@@ -1780,6 +1972,32 @@ export async function modelToDocx(
     return footnotes;
   }
 
+  // Links may point forward or into a later section. Resolve when docx packs,
+  // after every heading has been rendered, using its public XML hook.
+  function finalizeLinks(): void {
+    for (const { link, fragment, source } of pendingLinks) {
+      const original = link.prepForXml.bind(link);
+      link.prepForXml = (context) => {
+        const anchor = headingAnchors.anchors.get(fragment);
+        if (!anchor)
+          options.onWarning?.({
+            code: "UNRESOLVED_LINK",
+            message: `No heading matches ${source}`,
+            source,
+          });
+        const xml = original(context);
+        if (xml && anchor) {
+          const children = xml["w:hyperlink"] as {
+            _attr?: Record<string, unknown>;
+          }[];
+          for (const child of children)
+            if (child._attr) child._attr["w:anchor"] = anchor;
+        }
+        return xml;
+      };
+    }
+  }
+
   // Process all top-level nodes
   let previousRenderedAsCode = false;
   for (const node of model.children) {
@@ -1806,10 +2024,12 @@ export async function modelToDocx(
     previousRenderedAsCode = currentRenderedAsCode;
   }
 
+  const footnotes = await renderFootnotes();
+  finalizeLinks();
   return {
     children,
     headings,
     maxSequenceId,
-    footnotes: await renderFootnotes(),
+    footnotes,
   };
 }

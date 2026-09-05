@@ -72,19 +72,22 @@ const validCalloutTypes: CalloutType[] = [
 function validateHexColorOption(
   value: string | undefined,
   name: string,
-  context: string
+  context: string,
 ): void {
   if (value !== undefined && !/^[0-9A-Fa-f]{6}$/.test(value)) {
-    throw new MarkdownConversionError(`${name} must be a 6-character hex color`, {
-      context,
-      value,
-    });
+    throw new MarkdownConversionError(
+      `${name} must be a 6-character hex color`,
+      {
+        context,
+        value,
+      },
+    );
   }
 }
 
 function validateStyleInput(
   style: Partial<Style> | undefined,
-  styleContext: string
+  styleContext: string,
 ): void {
   if (!style) {
     return;
@@ -94,7 +97,7 @@ function validateStyleInput(
   if (titleSize !== undefined && (titleSize < 8 || titleSize > 72)) {
     throw new MarkdownConversionError(
       "Invalid title size: Must be between 8 and 72 points",
-      { styleContext, titleSize }
+      { styleContext, titleSize },
     );
   }
   if (
@@ -103,7 +106,7 @@ function validateStyleInput(
   ) {
     throw new MarkdownConversionError(
       "Invalid heading spacing: Must be between 0 and 720 twips",
-      { styleContext, headingSpacing }
+      { styleContext, headingSpacing },
     );
   }
   if (
@@ -112,13 +115,13 @@ function validateStyleInput(
   ) {
     throw new MarkdownConversionError(
       "Invalid paragraph spacing: Must be between 0 and 720 twips",
-      { styleContext, paragraphSpacing }
+      { styleContext, paragraphSpacing },
     );
   }
   if (lineSpacing !== undefined && (lineSpacing < 1 || lineSpacing > 3)) {
     throw new MarkdownConversionError(
       "Invalid line spacing: Must be between 1 and 3",
-      { styleContext, lineSpacing }
+      { styleContext, lineSpacing },
     );
   }
 
@@ -129,7 +132,7 @@ function validateStyleInput(
   ) {
     throw new MarkdownConversionError(
       "Invalid fontFamily: Must be a non-empty string",
-      { styleContext, fontFamily: style.fontFamily }
+      { styleContext, fontFamily: style.fontFamily },
     );
   }
 
@@ -147,11 +150,37 @@ function validateStyleInput(
     }
   }
 
-  validateHexColorOption(style.inlineCodeColor, "inlineCodeColor", styleContext);
+  if (
+    style.tableColumnWidths !== undefined &&
+    (!Array.isArray(style.tableColumnWidths) ||
+      !style.tableColumnWidths.length ||
+      style.tableColumnWidths.some(
+        (n) => !Number.isInteger(n) || n < 1 || n > 31680,
+      ))
+  )
+    throw new MarkdownConversionError("Invalid tableColumnWidths");
+  if (
+    style.tableAllowRowSplit !== undefined &&
+    typeof style.tableAllowRowSplit !== "boolean"
+  )
+    throw new MarkdownConversionError("Invalid tableAllowRowSplit");
+  validateHexColorOption(
+    style.tableHeaderBackground,
+    "tableHeaderBackground",
+    styleContext,
+  );
+  for (const value of Object.values(style.tableCellMargins ?? {}))
+    if (!Number.isInteger(value) || value < 0 || value > 31680)
+      throw new MarkdownConversionError("Invalid tableCellMargins");
+  validateHexColorOption(
+    style.inlineCodeColor,
+    "inlineCodeColor",
+    styleContext,
+  );
   validateHexColorOption(
     style.inlineCodeBackground,
     "inlineCodeBackground",
-    styleContext
+    styleContext,
   );
 
   if (style.calloutStyles !== undefined) {
@@ -160,19 +189,22 @@ function validateStyleInput(
       style.calloutStyles === null ||
       Array.isArray(style.calloutStyles)
     ) {
-      throw new MarkdownConversionError("Invalid calloutStyles: Must be an object", {
-        styleContext,
-        calloutStyles: style.calloutStyles,
-      });
+      throw new MarkdownConversionError(
+        "Invalid calloutStyles: Must be an object",
+        {
+          styleContext,
+          calloutStyles: style.calloutStyles,
+        },
+      );
     }
 
     for (const [calloutType, calloutStyle] of Object.entries(
-      style.calloutStyles
+      style.calloutStyles,
     )) {
       if (!validCalloutTypes.includes(calloutType as CalloutType)) {
         throw new MarkdownConversionError(
           `Invalid calloutStyles key: ${calloutType}`,
-          { styleContext, calloutType }
+          { styleContext, calloutType },
         );
       }
       if (
@@ -182,24 +214,24 @@ function validateStyleInput(
       ) {
         throw new MarkdownConversionError(
           `Invalid calloutStyles.${calloutType}: Must be an object`,
-          { styleContext, calloutStyle }
+          { styleContext, calloutStyle },
         );
       }
 
       validateHexColorOption(
         calloutStyle.borderColor,
         `calloutStyles.${calloutType}.borderColor`,
-        styleContext
+        styleContext,
       );
       validateHexColorOption(
         calloutStyle.backgroundColor,
         `calloutStyles.${calloutType}.backgroundColor`,
-        styleContext
+        styleContext,
       );
       validateHexColorOption(
         calloutStyle.titleColor,
         `calloutStyles.${calloutType}.titleColor`,
-        styleContext
+        styleContext,
       );
     }
   }
@@ -210,6 +242,15 @@ function validateTocOptionsInput(toc: TocOptions | undefined): void {
     return;
   }
 
+  if (toc.mode !== undefined && !["native", "links"].includes(toc.mode))
+    throw new MarkdownConversionError("Invalid toc.mode");
+  for (const key of [
+    "pageNumbers",
+    "dotLeaders",
+    "updateFieldsOnOpen",
+  ] as const)
+    if (toc[key] !== undefined && typeof toc[key] !== "boolean")
+      throw new MarkdownConversionError(`Invalid toc.${key}`);
   if (toc.title !== undefined && typeof toc.title !== "string") {
     throw new MarkdownConversionError("Invalid TOC title: Must be a string", {
       title: toc.title,
@@ -226,7 +267,7 @@ function validateTocOptionsInput(toc: TocOptions | undefined): void {
     ) {
       throw new MarkdownConversionError(
         `Invalid TOC ${name}: Must be an integer between 1 and 6`,
-        { [name]: value }
+        { [name]: value },
       );
     }
   }
@@ -238,13 +279,13 @@ function validateTocOptionsInput(toc: TocOptions | undefined): void {
   ) {
     throw new MarkdownConversionError(
       "Invalid TOC depth range: minDepth cannot be greater than maxDepth",
-      { minDepth: toc.minDepth, maxDepth: toc.maxDepth }
+      { minDepth: toc.minDepth, maxDepth: toc.maxDepth },
     );
   }
 }
 
 function validateMathRenderingInput(
-  mathRendering: Options["mathRendering"]
+  mathRendering: Options["mathRendering"],
 ): void {
   if (!mathRendering) {
     return;
@@ -255,7 +296,7 @@ function validateMathRenderingInput(
     typeof mathRendering.enabled !== "boolean"
   ) {
     throw new MarkdownConversionError(
-      "Invalid mathRendering.enabled: Must be a boolean"
+      "Invalid mathRendering.enabled: Must be a boolean",
     );
   }
 
@@ -266,12 +307,14 @@ function validateMathRenderingInput(
   ) {
     throw new MarkdownConversionError(
       'Invalid mathRendering.unsupported: Must be "text" or "throw"',
-      { unsupported: mathRendering.unsupported }
+      { unsupported: mathRendering.unsupported },
     );
   }
 }
 
-function validateCaptionOptionsInput(captions: CaptionOptions | undefined): void {
+function validateCaptionOptionsInput(
+  captions: CaptionOptions | undefined,
+): void {
   if (!captions) {
     return;
   }
@@ -324,7 +367,9 @@ function validateCaptionOptionsInput(captions: CaptionOptions | undefined): void
   }
   if (
     captions.size !== undefined &&
-    (!Number.isFinite(captions.size) || captions.size < 8 || captions.size > 144)
+    (!Number.isFinite(captions.size) ||
+      captions.size < 8 ||
+      captions.size > 144)
   ) {
     throw new MarkdownConversionError(
       "Invalid captions.size: Must be between 8 and 144 half-points",
@@ -343,7 +388,7 @@ function validateCaptionOptionsInput(captions: CaptionOptions | undefined): void
 
 function validatePageNumberingInput(
   pageNumbering: SectionConfig["pageNumbering"] | undefined,
-  context: string
+  context: string,
 ): void {
   if (!pageNumbering) {
     return;
@@ -355,7 +400,7 @@ function validatePageNumberingInput(
   ) {
     throw new MarkdownConversionError(
       "Invalid page number start: Must be an integer >= 1",
-      { context, pageNumberStart: pageNumbering.start }
+      { context, pageNumberStart: pageNumbering.start },
     );
   }
 
@@ -365,7 +410,7 @@ function validatePageNumberingInput(
   ) {
     throw new MarkdownConversionError(
       "Invalid page number display: Must be one of none, current, currentAndTotal, currentAndSectionTotal",
-      { context, pageNumberDisplay: pageNumbering.display }
+      { context, pageNumberDisplay: pageNumbering.display },
     );
   }
 
@@ -375,7 +420,7 @@ function validatePageNumberingInput(
   ) {
     throw new MarkdownConversionError(
       "Invalid page number alignment: Must be one of LEFT, CENTER, RIGHT, JUSTIFIED",
-      { context, pageNumberAlignment: pageNumbering.alignment }
+      { context, pageNumberAlignment: pageNumbering.alignment },
     );
   }
 
@@ -385,7 +430,7 @@ function validatePageNumberingInput(
   ) {
     throw new MarkdownConversionError(
       "Invalid page number formatType: Must be one of decimal, upperRoman, lowerRoman, upperLetter, lowerLetter",
-      { context, pageNumberFormatType: pageNumbering.formatType }
+      { context, pageNumberFormatType: pageNumbering.formatType },
     );
   }
 
@@ -395,14 +440,14 @@ function validatePageNumberingInput(
   ) {
     throw new MarkdownConversionError(
       "Invalid page number separator: Must be one of hyphen, period, colon, emDash, endash",
-      { context, pageNumberSeparator: pageNumbering.separator }
+      { context, pageNumberSeparator: pageNumbering.separator },
     );
   }
 }
 
 function validateHeaderFooterSlotInput(
   slot: HeaderFooterSlot | undefined,
-  context: string
+  context: string,
 ): void {
   if (slot === undefined || slot === null) {
     return;
@@ -411,14 +456,19 @@ function validateHeaderFooterSlotInput(
   if (typeof slot !== "object") {
     throw new MarkdownConversionError(
       "Invalid header/footer slot: Must be an object or null",
-      { context, slot }
+      { context, slot },
     );
   }
+
+  if (slot.markdown !== undefined && typeof slot.markdown !== "string")
+    throw new MarkdownConversionError(
+      "Invalid header/footer markdown: Must be a string",
+    );
 
   if (slot.text !== undefined && typeof slot.text !== "string") {
     throw new MarkdownConversionError(
       "Invalid header/footer text: Must be a string",
-      { context, text: slot.text }
+      { context, text: slot.text },
     );
   }
 
@@ -428,7 +478,7 @@ function validateHeaderFooterSlotInput(
   ) {
     throw new MarkdownConversionError(
       "Invalid header/footer alignment: Must be one of LEFT, CENTER, RIGHT, JUSTIFIED",
-      { context, alignment: slot.alignment }
+      { context, alignment: slot.alignment },
     );
   }
 
@@ -438,14 +488,14 @@ function validateHeaderFooterSlotInput(
   ) {
     throw new MarkdownConversionError(
       "Invalid header/footer page number display: Must be one of none, current, currentAndTotal, currentAndSectionTotal",
-      { context, pageNumberDisplay: slot.pageNumberDisplay }
+      { context, pageNumberDisplay: slot.pageNumberDisplay },
     );
   }
 }
 
 function validateHeaderFooterGroupInput(
   group: HeaderFooterGroup | undefined,
-  context: string
+  context: string,
 ): void {
   if (!group) {
     return;
@@ -458,7 +508,7 @@ function validateHeaderFooterGroupInput(
 
 function validateSectionConfigInput(
   config: SectionConfig | undefined,
-  context: string
+  context: string,
 ): void {
   if (!config) {
     return;
@@ -469,20 +519,17 @@ function validateSectionConfigInput(
   validateHeaderFooterGroupInput(config.headers, `${context}.headers`);
   validateHeaderFooterGroupInput(config.footers, `${context}.footers`);
 
-  if (
-    config.titlePage !== undefined &&
-    typeof config.titlePage !== "boolean"
-  ) {
+  if (config.titlePage !== undefined && typeof config.titlePage !== "boolean") {
     throw new MarkdownConversionError(
       "Invalid titlePage: Must be a boolean value",
-      { context, titlePage: config.titlePage }
+      { context, titlePage: config.titlePage },
     );
   }
 
   if (config.type !== undefined && !validSectionTypes.includes(config.type)) {
     throw new MarkdownConversionError(
       "Invalid section type: Must be one of NEXT_PAGE, NEXT_COLUMN, CONTINUOUS, EVEN_PAGE, ODD_PAGE",
-      { context, sectionType: config.type }
+      { context, sectionType: config.type },
     );
   }
 
@@ -496,7 +543,7 @@ function validateSectionConfigInput(
       if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
         throw new MarkdownConversionError(
           `Invalid page margin '${name}': Must be a finite number >= 0`,
-          { context, margin: name, value }
+          { context, margin: name, value },
         );
       }
     });
@@ -512,7 +559,7 @@ function validateSectionConfigInput(
     ) {
       throw new MarkdownConversionError(
         "Invalid page width: Must be a finite number > 0",
-        { context, width: pageSize.width }
+        { context, width: pageSize.width },
       );
     }
 
@@ -524,7 +571,7 @@ function validateSectionConfigInput(
     ) {
       throw new MarkdownConversionError(
         "Invalid page height: Must be a finite number > 0",
-        { context, height: pageSize.height }
+        { context, height: pageSize.height },
       );
     }
 
@@ -534,7 +581,7 @@ function validateSectionConfigInput(
     ) {
       throw new MarkdownConversionError(
         "Invalid page orientation: Must be PORTRAIT or LANDSCAPE",
-        { context, orientation: pageSize.orientation }
+        { context, orientation: pageSize.orientation },
       );
     }
   }
@@ -542,7 +589,7 @@ function validateSectionConfigInput(
 
 function validatePositiveIntegerOption(
   value: number | undefined,
-  name: string
+  name: string,
 ): void {
   if (
     value !== undefined &&
@@ -556,7 +603,7 @@ function validatePositiveIntegerOption(
 
 function validateNonNegativeIntegerOption(
   value: number | undefined,
-  name: string
+  name: string,
 ): void {
   if (
     value !== undefined &&
@@ -566,18 +613,33 @@ function validateNonNegativeIntegerOption(
       `${name} must be a non-negative integer`,
       {
         value,
-      }
+      },
     );
   }
 }
 
 function validateImageHandlingInput(
-  imageHandling: Options["imageHandling"]
+  imageHandling: Options["imageHandling"],
 ): void {
   if (!imageHandling) {
     return;
   }
 
+  if (
+    imageHandling.resolve !== undefined &&
+    typeof imageHandling.resolve !== "function"
+  )
+    throw new MarkdownConversionError(
+      "imageHandling.resolve must be a function",
+    );
+  if (
+    imageHandling.baseDirectory !== undefined &&
+    (typeof imageHandling.baseDirectory !== "string" ||
+      !imageHandling.baseDirectory.trim())
+  )
+    throw new MarkdownConversionError(
+      "imageHandling.baseDirectory must be a non-empty string",
+    );
   validatePositiveIntegerOption(imageHandling.maxImages, "maxImages");
   validatePositiveIntegerOption(imageHandling.maxImageBytes, "maxImageBytes");
   validatePositiveIntegerOption(imageHandling.fetchTimeoutMs, "fetchTimeoutMs");
@@ -588,17 +650,17 @@ function validateImageHandlingInput(
     imageHandling.remote?.allowedHosts !== undefined &&
     (!Array.isArray(imageHandling.remote.allowedHosts) ||
       imageHandling.remote.allowedHosts.some(
-        (host) => typeof host !== "string" || host.trim().length === 0
+        (host) => typeof host !== "string" || host.trim().length === 0,
       ))
   ) {
     throw new MarkdownConversionError(
-      "Invalid imageHandling.remote.allowedHosts: must be non-empty strings"
+      "Invalid imageHandling.remote.allowedHosts: must be non-empty strings",
     );
   }
 }
 
 function validateChartRenderingInput(
-  chartRendering: Options["chartRendering"]
+  chartRendering: Options["chartRendering"],
 ): void {
   if (!chartRendering) {
     return;
@@ -608,11 +670,11 @@ function validateChartRenderingInput(
   validatePositiveIntegerOption(chartRendering.height, "chartRendering.height");
   validatePositiveIntegerOption(
     chartRendering.maxWidth,
-    "chartRendering.maxWidth"
+    "chartRendering.maxWidth",
   );
   validatePositiveIntegerOption(
     chartRendering.maxHeight,
-    "chartRendering.maxHeight"
+    "chartRendering.maxHeight",
   );
 
   if (
@@ -621,7 +683,7 @@ function validateChartRenderingInput(
     chartRendering.invalidDefinitionBehavior !== "throw"
   ) {
     throw new MarkdownConversionError(
-      "Invalid chartRendering.invalidDefinitionBehavior: must be placeholder or throw"
+      "Invalid chartRendering.invalidDefinitionBehavior: must be placeholder or throw",
     );
   }
 
@@ -630,13 +692,13 @@ function validateChartRenderingInput(
     typeof chartRendering.renderer !== "function"
   ) {
     throw new MarkdownConversionError(
-      "Invalid chartRendering.renderer: must be a function"
+      "Invalid chartRendering.renderer: must be a function",
     );
   }
 }
 
 function validateMermaidRenderingInput(
-  mermaidRendering: Options["mermaidRendering"]
+  mermaidRendering: Options["mermaidRendering"],
 ): void {
   if (!mermaidRendering) {
     return;
@@ -647,18 +709,18 @@ function validateMermaidRenderingInput(
     typeof mermaidRendering.render !== "function"
   ) {
     throw new MarkdownConversionError(
-      "Invalid mermaidRendering.render: must be a function"
+      "Invalid mermaidRendering.render: must be a function",
     );
   }
 
   if (
     mermaidRendering.failureMode !== undefined &&
     !["codeBlock", "placeholder", "throw"].includes(
-      mermaidRendering.failureMode
+      mermaidRendering.failureMode,
     )
   ) {
     throw new MarkdownConversionError(
-      "Invalid mermaidRendering.failureMode: must be codeBlock, placeholder, or throw"
+      "Invalid mermaidRendering.failureMode: must be codeBlock, placeholder, or throw",
     );
   }
 }
@@ -685,7 +747,7 @@ function validateTextReplacementInput(options: Options): void {
   if (mode !== undefined && !validTextReplacementModes.includes(mode)) {
     throw new MarkdownConversionError(
       "Invalid textReplacementMode: Must be trusted or untrusted",
-      { textReplacementMode: options.textReplacementMode }
+      { textReplacementMode: options.textReplacementMode },
     );
   }
 
@@ -695,11 +757,11 @@ function validateTextReplacementInput(options: Options): void {
 
   if (
     options.textReplacements.some(
-      (replacement) => typeof replacement.replace === "function"
+      (replacement) => typeof replacement.replace === "function",
     )
   ) {
     throw new MarkdownConversionError(
-      'Function textReplacements are not allowed when textReplacementMode is "untrusted"'
+      'Function textReplacements are not allowed when textReplacementMode is "untrusted"',
     );
   }
 }
@@ -711,16 +773,21 @@ function validateTextReplacementInput(options: Options): void {
 export function validateInput(markdown: string, options: Options): void {
   if (typeof markdown !== "string") {
     throw new MarkdownConversionError(
-      "Invalid markdown input: Markdown must be a string"
+      "Invalid markdown input: Markdown must be a string",
     );
   }
 
   if (!options.sections && markdown.trim().length === 0) {
     throw new MarkdownConversionError(
-      "Invalid markdown input: Markdown must be a non-empty string"
+      "Invalid markdown input: Markdown must be a non-empty string",
     );
   }
 
+  if (
+    options.onWarning !== undefined &&
+    typeof options.onWarning !== "function"
+  )
+    throw new MarkdownConversionError("onWarning must be a function");
   validateStyleInput(normalizeStyleInput(options.style), "options.style");
   validateDocumentMetadata(options.metadata);
   validateAccessibilityOptions(options.accessibility);
@@ -742,7 +809,7 @@ export function validateInput(markdown: string, options: Options): void {
   if (options.sections) {
     if (!Array.isArray(options.sections) || options.sections.length === 0) {
       throw new MarkdownConversionError(
-        "Invalid sections input: options.sections must contain at least one section"
+        "Invalid sections input: options.sections must contain at least one section",
       );
     }
 
@@ -750,12 +817,17 @@ export function validateInput(markdown: string, options: Options): void {
       if (!section || typeof section.markdown !== "string") {
         throw new MarkdownConversionError(
           "Invalid section markdown: each section must provide a markdown string",
-          { sectionIndex: index }
+          { sectionIndex: index },
         );
       }
 
-      const normalizedSection = normalizeSectionConfig(section) as DocumentSection;
-      validateSectionConfigInput(normalizedSection, `options.sections[${index}]`);
+      const normalizedSection = normalizeSectionConfig(
+        section,
+      ) as DocumentSection;
+      validateSectionConfigInput(
+        normalizedSection,
+        `options.sections[${index}]`,
+      );
     });
   }
 }

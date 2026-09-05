@@ -18,6 +18,11 @@
       "browser": "./dist/utils/secureImageFetch.browser.js",
       "node": "./dist/utils/secureImageFetch.node.js",
       "default": "./dist/utils/secureImageFetch.browser.js"
+    },
+    "#image-assets": {
+      "browser": "./dist/utils/imageAssets.browser.js",
+      "node": "./dist/utils/imageAssets.node.js",
+      "default": "./dist/utils/imageAssets.browser.js"
     }
   },
   "bin": {
@@ -90,8 +95,12 @@
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "remark-parse": "^11.0.0",
+    "sharp": "^0.34.5",
     "undici": "^6.27.0",
     "unified": "^11.0.5",
     "unist-util-visit": "^5.0.0"
+  },
+  "engines": {
+    "node": "^18.17.0 || ^20.3.0 || >=21.0.0"
   }
 }

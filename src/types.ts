@@ -71,16 +71,21 @@ export interface Style {
   codeBlockAlignment?: "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
   // Table options
   tableLayout?: "autofit" | "fixed";
+  /** Column widths in twips. Must match the table's logical column count. */
+  tableColumnWidths?: number[];
+  tableAllowRowSplit?: boolean;
+  tableHeaderBackground?: string;
+  tableCellMargins?: {
+    top?: number;
+    bottom?: number;
+    left?: number;
+    right?: number;
+  };
 }
 
 export type AlignmentOption = "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
 
-export type CalloutType =
-  | "note"
-  | "tip"
-  | "important"
-  | "warning"
-  | "caution";
+export type CalloutType = "note" | "tip" | "important" | "warning" | "caution";
 
 export interface CalloutStyle {
   /**
@@ -118,6 +123,8 @@ export type SectionPageNumberSeparator =
   | "endash";
 
 export interface HeaderFooterContent {
+  /** Markdown blocks rendered before text/page fields, including images and tables. */
+  markdown?: string;
   /**
    * Optional plain text rendered before page number fields.
    */
@@ -212,12 +219,7 @@ export interface SectionConfig {
   /**
    * Word section break behavior.
    */
-  type?:
-    | "NEXT_PAGE"
-    | "NEXT_COLUMN"
-    | "CONTINUOUS"
-    | "EVEN_PAGE"
-    | "ODD_PAGE";
+  type?: "NEXT_PAGE" | "NEXT_COLUMN" | "CONTINUOUS" | "EVEN_PAGE" | "ODD_PAGE";
 }
 
 export type SectionTemplate = SectionConfig;
@@ -230,6 +232,8 @@ export interface DocumentSection extends SectionConfig {
 }
 
 export interface Options {
+  /** Called for recoverable conversion losses. Never logs by default. */
+  onWarning?: (warning: ConversionWarning) => void;
   documentType?: "document" | "report";
   style?: Partial<Style>;
   /** Typed Word package metadata. Omitted metadata keeps legacy output. */
@@ -477,6 +481,9 @@ export type MarkdownDocxPatch =
     };
 
 export interface PatchMarkdownOptions {
+  onWarning?: (warning: ConversionWarning) => void;
+  captions?: CaptionOptions;
+  toc?: TocOptions;
   documentType?: "document" | "report";
   style?: Partial<Style>;
   /**
@@ -536,8 +543,8 @@ export interface PatchMarkdownOptions {
    */
   signal?: AbortSignal;
   /**
-   * Preserve the run styles around placeholder text when the underlying docx
-   * patcher can apply them. Defaults to true.
+   * Compatibility flag. Template named styles are preserved and explicit
+   * Markdown formatting is applied to generated blocks.
    */
   keepOriginalStyles?: boolean;
   /**
@@ -559,7 +566,25 @@ export interface PatchMarkdownOptions {
   tableWidthTwips?: number;
 }
 
+export interface ConversionWarning {
+  code:
+    | "IMAGE_FALLBACK"
+    | "UNSUPPORTED_MATH"
+    | "UNRESOLVED_LINK"
+    | "DIAGRAM_FALLBACK"
+    | "PLUGIN_FALLBACK"
+    | "UNSUPPORTED_CONTENT";
+  message: string;
+  source?: string;
+  sectionIndex?: number;
+}
+
 export interface TocOptions {
+  /** Native Word field with cached clickable entries. Set links for legacy output. */
+  mode?: "native" | "links";
+  pageNumbers?: boolean;
+  dotLeaders?: boolean;
+  updateFieldsOnOpen?: boolean;
   /**
    * Title paragraph inserted before generated TOC entries. Defaults to
    * "Table of Contents". Set to "" to omit the title.
@@ -597,7 +622,19 @@ export interface DataUrlImageHandlingOptions {
   enabled?: boolean;
 }
 
+export interface ImageAsset {
+  data: Uint8Array | ArrayBuffer;
+  contentType?: string;
+}
+
 export interface ImageHandlingOptions {
+  /** Trusted resolver for local, browser, authenticated, or virtual assets. */
+  resolve?: (
+    source: string,
+    context: { signal?: AbortSignal; maxBytes: number },
+  ) => ImageAsset | null | undefined | Promise<ImageAsset | null | undefined>;
+  /** Node only. Local paths must remain inside this directory after symlink resolution. */
+  baseDirectory?: string;
   remote?: RemoteImageHandlingOptions;
   dataUrls?: DataUrlImageHandlingOptions;
   /**
@@ -736,8 +773,12 @@ export interface MermaidRenderingOptions {
    * bundle Mermaid, Graphviz, browser automation, or a subprocess runner.
    */
   render?: (
-    input: MermaidRenderInput
-  ) => Promise<MermaidRenderResult | null | undefined> | MermaidRenderResult | null | undefined;
+    input: MermaidRenderInput,
+  ) =>
+    | Promise<MermaidRenderResult | null | undefined>
+    | MermaidRenderResult
+    | null
+    | undefined;
   /**
    * Behavior when rendering is enabled but unavailable or failed. Defaults to
    * "codeBlock" so document content is preserved.
@@ -792,7 +833,7 @@ export interface ChartRendererInput {
 }
 
 export type ChartRenderer = (
-  input: ChartRendererInput
+  input: ChartRendererInput,
 ) => string | Uint8Array | Promise<string | Uint8Array>;
 
 export interface ChartRenderingOptions {

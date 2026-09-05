@@ -4,6 +4,7 @@ export default {
   setupFilesAfterEnv: ["<rootDir>/tests/jest.polyfills.mjs"],
   extensionsToTreatAsEsm: [".ts"],
   moduleNameMapper: {
+    "^#image-assets$": "<rootDir>/src/utils/imageAssets.node.ts",
     "^#secure-image-fetch$":
       "<rootDir>/src/utils/secureImageFetch.node.ts",
     "^(\\.{1,2}/.*)\\.js$": "$1",

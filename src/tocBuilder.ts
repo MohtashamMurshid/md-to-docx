@@ -4,6 +4,12 @@ import {
   TextRun,
   AlignmentType,
   InternalHyperlink,
+  XmlComponent,
+  XmlAttributeComponent,
+  SimpleField,
+  Tab,
+  TabStopType,
+  LeaderType,
 } from "docx";
 import { Style, TocOptions } from "./types.js";
 import { resolveFontFamily } from "./utils/styleUtils.js";
@@ -22,7 +28,7 @@ export type TocHeadingEntry = {
  */
 function resolveTocEntryStyle(
   level: number,
-  style: Style
+  style: Style,
 ): { fontSize: number; bold: boolean; italic: boolean } {
   const levelFontSize = style[`tocHeading${level}FontSize` as keyof Style] as
     | number
@@ -48,16 +54,57 @@ function resolveTocEntryStyle(
   };
 }
 
+class FieldAttributes extends XmlAttributeComponent<{
+  type?: string;
+  dirty?: string;
+  space?: string;
+}> {
+  protected readonly xmlKeys = {
+    type: "w:fldCharType",
+    dirty: "w:dirty",
+    space: "xml:space",
+  };
+}
+
+class FieldElement extends XmlComponent {
+  attributes(value: FieldAttributes): void {
+    this.root.push(value);
+  }
+}
+
+function fieldRun(
+  type: "begin" | "separate" | "end",
+  instruction?: string,
+): TextRun {
+  const run = new TextRun({});
+  const field = new FieldElement("w:fldChar");
+  field.attributes(
+    new FieldAttributes({
+      type,
+      ...(type === "begin" ? { dirty: "true" } : {}),
+    }),
+  );
+  run.addChildElement(field);
+  if (instruction) {
+    const text = new FieldElement("w:instrText");
+    text.attributes(new FieldAttributes({ space: "preserve" }));
+    text.addChildElement(instruction);
+    run.addChildElement(text);
+  }
+  return run;
+}
+
 export function buildTocContent(
   headings: TocHeadingEntry[],
   style: Style,
-  tocOptions: TocOptions = {}
+  tocOptions: TocOptions = {},
+  contentWidthTwips = 9000,
 ): Paragraph[] {
   const tocContent: Paragraph[] = [];
   const minDepth = tocOptions.minDepth ?? 1;
   const maxDepth = tocOptions.maxDepth ?? 6;
   const filteredHeadings = headings.filter(
-    (heading) => heading.level >= minDepth && heading.level <= maxDepth
+    (heading) => heading.level >= minDepth && heading.level <= maxDepth,
   );
 
   if (filteredHeadings.length === 0) {
@@ -69,20 +116,43 @@ export function buildTocContent(
     tocContent.push(
       new Paragraph({
         text: tocTitle,
-        heading: "Heading1",
+        style: "TOCHeading",
         alignment: AlignmentType.CENTER,
         spacing: { after: 240 },
         bidirectional: style.direction === "RTL",
-      })
+      }),
     );
   }
 
-  filteredHeadings.forEach((heading) => {
-    const { fontSize, bold, italic } = resolveTocEntryStyle(heading.level, style);
+  const native = tocOptions.mode !== "links";
+  filteredHeadings.forEach((heading, index) => {
+    const { fontSize, bold, italic } = resolveTocEntryStyle(
+      heading.level,
+      style,
+    );
 
     tocContent.push(
       new Paragraph({
+        tabStops: [
+          {
+            type: TabStopType.RIGHT,
+            position: contentWidthTwips,
+            leader:
+              tocOptions.dotLeaders === false
+                ? LeaderType.NONE
+                : LeaderType.DOT,
+          },
+        ],
         children: [
+          ...(native && index === 0
+            ? [
+                fieldRun(
+                  "begin",
+                  ` TOC \\o "${minDepth}-${maxDepth}" \\h \\z${tocOptions.pageNumbers === false ? " \\n" : ""} `,
+                ),
+                fieldRun("separate"),
+              ]
+            : []),
           new InternalHyperlink({
             anchor: heading.bookmarkId,
             children: [
@@ -97,11 +167,20 @@ export function buildTocContent(
               }),
             ],
           }),
+          ...(native && tocOptions.pageNumbers !== false
+            ? [
+                new TextRun({ children: [new Tab()] }),
+                new SimpleField(` PAGEREF ${heading.bookmarkId} \\h `, "?"),
+              ]
+            : []),
+          ...(native && index === filteredHeadings.length - 1
+            ? [fieldRun("end")]
+            : []),
         ],
         indent: { left: (heading.level - minDepth) * 400 },
         spacing: { after: 120 },
         bidirectional: style.direction === "RTL",
-      })
+      }),
     );
   });
 
@@ -112,7 +191,7 @@ export function replaceTocPlaceholders(
   children: (Paragraph | Table)[],
   tocContent: Paragraph[],
   tocInserted: boolean,
-  tocPlaceholders: WeakSet<object>
+  tocPlaceholders: WeakSet<object>,
 ): { children: (Paragraph | Table)[]; tocInserted: boolean } {
   const nextChildren: (Paragraph | Table)[] = [];
   let inserted = tocInserted;

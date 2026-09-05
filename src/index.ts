@@ -1,15 +1,13 @@
+import { packDocumentWithRepairs } from "./packageRepairs.js";
+import { loadPatchPackage, mergePatchPackage } from "./patchPackage.js";
+import { expandRichTables } from "./richTables.js";
 import {
-  Document,
-  FileChild,
   Paragraph,
-  Packer,
-  PatchType,
   Table,
   AlignmentType,
   LevelFormat,
   IPropertiesOptions,
   ISectionOptions,
-  patchDocument,
 } from "docx";
 import {
   MarkdownDocxPatch,
@@ -19,11 +17,16 @@ import {
   ReferenceDocxInput,
   ReferenceDocxGenerationOptions,
   SectionConfig,
+  HeaderFooterSlot,
   Style,
 } from "./types.js";
 import type { DocxBlockNode, DocxDocumentModel } from "./docxModel.js";
 import type { Root } from "mdast";
-import { parseMarkdownToAst, applyTextReplacements } from "./markdownAst.js";
+import {
+  parseMarkdownToAst,
+  applyTextReplacements,
+  resolveMarkdownReferences,
+} from "./markdownAst.js";
 import { mdastToDocxModel } from "./mdastToDocxModel.js";
 import { modelToDocx } from "./modelToDocx.js";
 import { MarkdownConversionError } from "./errors.js";
@@ -48,10 +51,7 @@ import {
   throwIfAborted,
   yieldToAbortSignal,
 } from "./processingLimits.js";
-import {
-  buildCrossReferenceRegistry,
-  containsCaptionOrCrossReferenceSyntax,
-} from "./crossReferences.js";
+import { buildCrossReferenceRegistry } from "./crossReferences.js";
 import type { CrossReferenceRegistry } from "./crossReferences.js";
 import {
   applyReferenceDocxPresentation,
@@ -89,6 +89,8 @@ type RenderedMarkdownContent = {
 };
 
 export { MarkdownConversionError };
+export type { RichTableCell, RichTableDefinition } from "./richTables.js";
+export type { ConversionWarning, ImageAsset } from "./types.js";
 export type { MarkdownConversionErrorContext } from "./errors.js";
 
 export {
@@ -132,6 +134,7 @@ export {
   ReferenceDocxStyleSelector,
   RemoteImageHandlingOptions,
   SectionConfig,
+  HeaderFooterSlot,
   SectionTemplate,
   Style,
   TableData,
@@ -181,13 +184,12 @@ export {
  */
 export async function convertMarkdownToDocx(
   markdown: string,
-  options: Options = defaultOptions
+  options: Options = defaultOptions,
 ): Promise<Blob> {
   try {
     const docxOptions = await parseToDocxOptions(markdown, options);
     await yieldToAbortSignal(options.signal);
-    const doc = new Document(docxOptions);
-    let blob = await Packer.toBlob(doc);
+    let blob = await packDocumentWithRepairs(docxOptions);
     if (options.metadata) {
       blob = (await applyDocumentMetadata(
         blob,
@@ -207,14 +209,14 @@ export async function convertMarkdownToDocx(
       `Failed to convert markdown to docx: ${
         error instanceof Error ? error.message : "Unknown error"
       }`,
-      { originalError: error }
+      { originalError: error },
     );
   }
 }
 
 export async function convertMarkdownToArrayBuffer(
   markdown: string,
-  options: Options = defaultOptions
+  options: Options = defaultOptions,
 ): Promise<ArrayBuffer> {
   const blob = await convertMarkdownToDocx(markdown, options);
   return blob.arrayBuffer();
@@ -222,7 +224,7 @@ export async function convertMarkdownToArrayBuffer(
 
 export async function convertMarkdownToBuffer(
   markdown: string,
-  options: Options = defaultOptions
+  options: Options = defaultOptions,
 ): Promise<Buffer> {
   return Buffer.from(await convertMarkdownToArrayBuffer(markdown, options));
 }
@@ -288,7 +290,10 @@ async function convertMarkdownWithReferenceDocxBytes(
       options.reference,
       options.signal,
     );
-    const conversionOptions = buildReferenceConversionOptions(options, reference);
+    const conversionOptions = buildReferenceConversionOptions(
+      options,
+      reference,
+    );
     const generated = await convertMarkdownToArrayBuffer(
       markdown,
       conversionOptions,
@@ -323,39 +328,34 @@ async function convertMarkdownWithReferenceDocxBytes(
 export async function patchMarkdownInDocx(
   referenceDocx: ReferenceDocxInput,
   patches: Record<string, MarkdownDocxPatch>,
-  options: PatchMarkdownOptions = {}
+  options: PatchMarkdownOptions = {},
 ): Promise<Blob> {
-  return patchMarkdownInDocxWithOutput(
-    referenceDocx,
-    patches,
-    "blob",
-    options
-  );
+  return patchMarkdownInDocxWithOutput(referenceDocx, patches, "blob", options);
 }
 
 export async function patchMarkdownInDocxToArrayBuffer(
   referenceDocx: ReferenceDocxInput,
   patches: Record<string, MarkdownDocxPatch>,
-  options: PatchMarkdownOptions = {}
+  options: PatchMarkdownOptions = {},
 ): Promise<ArrayBuffer> {
   return patchMarkdownInDocxWithOutput(
     referenceDocx,
     patches,
     "arraybuffer",
-    options
+    options,
   );
 }
 
 export async function patchMarkdownInDocxToBuffer(
   referenceDocx: ReferenceDocxInput,
   patches: Record<string, MarkdownDocxPatch>,
-  options: PatchMarkdownOptions = {}
+  options: PatchMarkdownOptions = {},
 ): Promise<Buffer> {
   return patchMarkdownInDocxWithOutput(
     referenceDocx,
     patches,
     "nodebuffer",
-    options
+    options,
   );
 }
 
@@ -368,7 +368,7 @@ export async function patchMarkdownInDocxToBuffer(
  */
 export async function parseToDocxOptions(
   markdown: string,
-  options: Options = defaultOptions
+  options: Options = defaultOptions,
 ): Promise<IPropertiesOptions> {
   try {
     validateInput(markdown, options);
@@ -392,9 +392,15 @@ export async function parseToDocxOptions(
       children: (Paragraph | Table)[];
       style: Style;
       config: SectionConfig;
+      rich?: Map<HeaderFooterSlot, (Paragraph | Table)[]>;
     }[] = [];
     const footnotes: Record<string, { children: Paragraph[] }> = {};
     const headings: TocHeadingEntry[] = [];
+    const numberingStarts = new Map<number, number>();
+    const headingAnchors = {
+      anchors: new Map<string, string>(),
+      counts: new Map<string, number>(),
+    };
     let maxSequenceId = 0;
     let maxFootnoteId = 0;
     const processedImageCounter = { count: 0 };
@@ -435,6 +441,8 @@ export async function parseToDocxOptions(
         {
           currentElementCount: elementCount,
           sequenceIdOffset: maxSequenceId,
+          numberingStarts,
+          headingAnchors,
           processedImageCounter,
           failedRemoteImageCounter,
           headingBookmarkCounter,
@@ -450,7 +458,7 @@ export async function parseToDocxOptions(
             kind: "section",
             contentWidthTwips: getSectionContentWidthTwips(section.config),
           },
-        }
+        },
       );
       elementCount = rendered.elementCount;
 
@@ -471,21 +479,89 @@ export async function parseToDocxOptions(
       });
     }
 
+    // Render rich slots through the same pipeline and resource counters as body content.
+    let totalInputLength = resolvedSections.reduce(
+      (n, section) => n + section.markdown.length,
+      0,
+    );
+    for (const [index, section] of renderedSections.entries()) {
+      section.rich = new Map();
+      for (const group of [section.config.headers, section.config.footers]) {
+        for (const slot of Object.values(group ?? {})) {
+          if (!slot?.markdown) continue;
+          totalInputLength += slot.markdown.length;
+          if (
+            options.maxInputLength &&
+            totalInputLength > options.maxInputLength
+          )
+            throw new MarkdownConversionError(
+              "Markdown input exceeds maxInputLength",
+            );
+          const rendered = await renderMarkdownContent(
+            slot.markdown,
+            {
+              ...section.style,
+              ...(slot.alignment ? { paragraphAlignment: slot.alignment } : {}),
+            },
+            options,
+            {
+              currentElementCount: elementCount,
+              sequenceIdOffset: maxSequenceId,
+              numberingStarts,
+              headingAnchors,
+              processedImageCounter,
+              failedRemoteImageCounter,
+              headingBookmarkCounter,
+              tableWidthTwips: getSectionContentWidthTwips(section.config),
+              pluginRuntime,
+              pluginSection: {
+                index,
+                count: renderedSections.length,
+                kind: "section",
+                contentWidthTwips: getSectionContentWidthTwips(section.config),
+              },
+              validateModel: (model) => {
+                if (model.footnotes?.length)
+                  throw new MarkdownConversionError(
+                    "Word headers and footers cannot contain footnotes",
+                  );
+              },
+            },
+          );
+          elementCount = rendered.elementCount;
+          maxSequenceId = Math.max(
+            maxSequenceId,
+            rendered.content.maxSequenceId,
+          );
+          section.rich.set(slot, rendered.content.children);
+        }
+      }
+    }
+
     throwIfAborted(options.signal);
-    const tocContent = buildTocContent(headings, style, options.toc);
     let tocInserted = false;
     const docSections: ISectionOptions[] = renderedSections.map((section) => {
       throwIfAborted(options.signal);
+      const tocContent = buildTocContent(
+        headings,
+        section.style,
+        options.toc,
+        getSectionContentWidthTwips(section.config),
+      );
       const replacedTocChildren = replaceTocPlaceholders(
         section.children,
         tocContent,
         tocInserted,
-        tocPlaceholders
+        tocPlaceholders,
       );
       tocInserted = replacedTocChildren.tocInserted;
 
-      const headers = buildHeaders(section.config.headers, section.style);
-      const footers = buildFooters(section.config, section.style);
+      const headers = buildHeaders(
+        section.config.headers,
+        section.style,
+        section.rich,
+      );
+      const footers = buildFooters(section.config, section.style, section.rich);
 
       return {
         properties: buildSectionProperties(section.config),
@@ -501,19 +577,18 @@ export async function parseToDocxOptions(
       throwIfAborted(options.signal);
       numberingConfigs.push({
         reference: `numbered-list-${i}`,
-        levels: [
-          {
-            level: 0,
-            format: LevelFormat.DECIMAL,
-            text: "%1.",
-            alignment: AlignmentType.LEFT,
-            style: {
-              paragraph: {
-                indent: { left: 720, hanging: 260 },
-              },
+        levels: Array.from({ length: 9 }, (_, level) => ({
+          level,
+          start: numberingStarts.get(i) ?? 1,
+          format: LevelFormat.DECIMAL,
+          text: `%${level + 1}.`,
+          alignment: AlignmentType.LEFT,
+          style: {
+            paragraph: {
+              indent: { left: 720 * (level + 1), hanging: 260 },
             },
           },
-        ],
+        })),
       });
     }
 
@@ -527,9 +602,12 @@ export async function parseToDocxOptions(
       styles: {
         default: buildDefaultStyles(style),
       },
-      ...(crossReferences &&
-      crossReferences.definitions.size > 0 &&
-      options.captions?.updateFieldsOnOpen !== false
+      ...((crossReferences &&
+        crossReferences.definitions.size > 0 &&
+        options.captions?.updateFieldsOnOpen !== false) ||
+      (tocInserted &&
+        options.toc?.mode !== "links" &&
+        options.toc?.updateFieldsOnOpen !== false)
         ? { features: { updateFields: true } }
         : {}),
       ...(normalizedMetadata
@@ -539,9 +617,9 @@ export async function parseToDocxOptions(
             description: normalizedMetadata.description,
             creator: normalizedMetadata.creator,
             keywords: normalizedMetadata.keywords,
-            customProperties: Object.entries(normalizedMetadata.custom ?? {}).map(
-              ([name, value]) => ({ name, value }),
-            ),
+            customProperties: Object.entries(
+              normalizedMetadata.custom ?? {},
+            ).map(([name, value]) => ({ name, value })),
           }
         : {}),
     };
@@ -553,7 +631,7 @@ export async function parseToDocxOptions(
       `Failed to convert markdown to docx: ${
         error instanceof Error ? error.message : "Unknown error"
       }`,
-      { originalError: error }
+      { originalError: error },
     );
   }
 }
@@ -562,34 +640,42 @@ async function patchMarkdownInDocxWithOutput(
   referenceDocx: ReferenceDocxInput,
   patches: Record<string, MarkdownDocxPatch>,
   outputType: "blob",
-  options?: PatchMarkdownOptions
+  options?: PatchMarkdownOptions,
 ): Promise<Blob>;
 async function patchMarkdownInDocxWithOutput(
   referenceDocx: ReferenceDocxInput,
   patches: Record<string, MarkdownDocxPatch>,
   outputType: "arraybuffer",
-  options?: PatchMarkdownOptions
+  options?: PatchMarkdownOptions,
 ): Promise<ArrayBuffer>;
 async function patchMarkdownInDocxWithOutput(
   referenceDocx: ReferenceDocxInput,
   patches: Record<string, MarkdownDocxPatch>,
   outputType: "nodebuffer",
-  options?: PatchMarkdownOptions
+  options?: PatchMarkdownOptions,
 ): Promise<Buffer>;
 async function patchMarkdownInDocxWithOutput(
   referenceDocx: ReferenceDocxInput,
   patches: Record<string, MarkdownDocxPatch>,
   outputType: "blob" | "arraybuffer" | "nodebuffer",
-  options: PatchMarkdownOptions = {}
+  options: PatchMarkdownOptions = {},
 ): Promise<Blob | ArrayBuffer | Buffer> {
   try {
     validatePatchInputs(patches, options);
     throwIfAborted(options.signal);
 
-    const docxPatches: Record<
-      string,
-      { type: typeof PatchType.DOCUMENT; children: readonly FileChild[] }
-    > = {};
+    const basePackage = await loadPatchPackage(referenceDocx, options.signal);
+    const patchContents: (Paragraph | Table)[][] = [];
+    const footnotes: Record<string, { children: Paragraph[] }> = {};
+    const headings: TocHeadingEntry[] = [];
+    const tocPlaceholders = new WeakSet<object>();
+    const headingAnchors = {
+      anchors: new Map<string, string>(),
+      counts: new Map<string, number>(),
+    };
+    const numberingStarts = new Map<number, number>();
+    let maxFootnoteId = 0;
+    let maxSequenceId = 0;
     const processedImageCounter = { count: 0 };
     const failedRemoteImageCounter = { count: 0 };
     const headingBookmarkCounter = { count: 0 };
@@ -606,6 +692,40 @@ async function patchMarkdownInDocxWithOutput(
       sectionCount: patchEntries.length,
     });
 
+    const preparedAsts: Root[] = [];
+    for (const [index, [placeholder, patch]] of patchEntries.entries()) {
+      const normalized = normalizeMarkdownPatch(patch);
+      validateInput(normalized.markdown, {
+        ...options,
+        style: { ...options.style, ...normalized.style },
+      });
+      enforceInputLength(normalized.markdown, options);
+      preparedAsts.push(
+        await prepareMarkdownAst(
+          normalized.markdown,
+          {
+            ...defaultStyle,
+            ...normalizeStyleInput(options.style),
+            ...normalizeStyleInput(normalized.style),
+          },
+          options,
+          {
+            pluginRuntime,
+            pluginSection: {
+              index,
+              count: patchEntries.length,
+              kind: "patch",
+              placeholder,
+              contentWidthTwips: options.tableWidthTwips ?? 9746,
+            },
+          },
+        ),
+      );
+    }
+    const crossReferences = buildCrossReferenceRegistry(
+      preparedAsts,
+      options.captions,
+    );
     for (const [patchIndex, [placeholder, patch]] of patchEntries.entries()) {
       throwIfAborted(options.signal);
       await yieldToAbortSignal(options.signal);
@@ -621,6 +741,7 @@ async function patchMarkdownInDocxWithOutput(
         ...normalizedStyle,
       };
       const renderOptions: Options = {
+        ...options,
         documentType: options.documentType || defaultOptions.documentType,
         style,
         textReplacements: options.textReplacements,
@@ -648,6 +769,13 @@ async function patchMarkdownInDocxWithOutput(
         renderOptions,
         {
           currentElementCount: elementCount,
+          preparedAst: preparedAsts[patchIndex],
+          crossReferences,
+          sequenceIdOffset: maxSequenceId,
+          numberingStarts,
+          headingAnchors,
+          tocPlaceholders,
+          footnoteIdOffset: maxFootnoteId,
           processedImageCounter,
           failedRemoteImageCounter,
           headingBookmarkCounter,
@@ -662,34 +790,89 @@ async function patchMarkdownInDocxWithOutput(
           },
           validateModel: (model) =>
             assertPatchCompatibleModel(model, placeholder),
-          validateAst: (ast) => assertPatchCompatibleAst(ast, placeholder),
-        }
+        },
       );
       elementCount = rendered.elementCount;
 
-      docxPatches[placeholder] = {
-        type: PatchType.DOCUMENT,
-        children: rendered.content.children as FileChild[],
-      };
+      patchContents.push(rendered.content.children);
+      headings.push(...rendered.content.headings);
+      maxSequenceId = Math.max(maxSequenceId, rendered.content.maxSequenceId);
+      for (const [id, footnote] of Object.entries(rendered.content.footnotes)) {
+        footnotes[id] = footnote;
+        maxFootnoteId = Math.max(maxFootnoteId, Number(id));
+      }
     }
 
-    let patched = await patchDocument({
-      outputType,
-      data: referenceDocx,
-      patches: docxPatches,
-      keepOriginalStyles: options.keepOriginalStyles ?? true,
-      placeholderDelimiters: options.placeholderDelimiters,
-      recursive: options.recursive ?? true,
+    const toc = buildTocContent(
+      headings,
+      { ...defaultStyle, ...options.style },
+      options.toc,
+      options.tableWidthTwips,
+    );
+    let tocInserted = false;
+    const markers = patchEntries.map(
+      (_, index) =>
+        `MDPATCH_BOUNDARY_${index}_${Math.random().toString(36).slice(2)}`,
+    );
+    const body = patchContents.flatMap((children, index) => {
+      const replaced = replaceTocPlaceholders(
+        children,
+        toc,
+        tocInserted,
+        tocPlaceholders,
+      );
+      tocInserted = replaced.tocInserted;
+      return [new Paragraph({ text: markers[index] }), ...replaced.children];
     });
+    const donor: IPropertiesOptions = {
+      sections: [{ children: body.length ? body : [new Paragraph({})] }],
+      footnotes,
+      styles: {
+        default: buildDefaultStyles({ ...defaultStyle, ...options.style }),
+      },
+      numbering: {
+        config: Array.from(numberingStarts, ([id, start]) => ({
+          reference: `numbered-list-${id}`,
+          levels: Array.from({ length: 9 }, (_, level) => ({
+            level,
+            start,
+            format: LevelFormat.DECIMAL,
+            text: `%${level + 1}.`,
+            alignment: AlignmentType.LEFT,
+            style: {
+              paragraph: { indent: { left: 720 * (level + 1), hanging: 260 } },
+            },
+          })),
+        })),
+      },
+    };
+    const donorBytes = new Uint8Array(
+      await (await packDocumentWithRepairs(donor)).arrayBuffer(),
+    );
+    const merged = await mergePatchPackage(
+      basePackage,
+      donorBytes,
+      markers,
+      patchEntries.map(([name]) => name),
+      options,
+    );
+    let patched: Blob | ArrayBuffer | Buffer =
+      outputType === "blob"
+        ? new Blob([new Uint8Array(merged)], {
+            type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          })
+        : outputType === "nodebuffer"
+          ? Buffer.from(merged)
+          : new Uint8Array(merged).buffer;
 
     if (options.metadata) {
-      patched = await applyDocumentMetadata(
+      patched = (await applyDocumentMetadata(
         patched,
         options.metadata,
         "patch",
         outputType,
         options.signal,
-      ) as typeof patched;
+      )) as typeof patched;
     }
 
     await yieldToAbortSignal(options.signal);
@@ -702,27 +885,27 @@ async function patchMarkdownInDocxWithOutput(
       `Failed to patch docx with markdown: ${
         error instanceof Error ? error.message : "Unknown error"
       }`,
-      { originalError: error }
+      { originalError: error },
     );
   }
 }
 
 function validatePatchInputs(
   patches: Record<string, MarkdownDocxPatch>,
-  options: PatchMarkdownOptions
+  options: PatchMarkdownOptions,
 ): void {
   validateDocumentMetadata(options.metadata);
   validateAccessibilityOptions(options.accessibility);
   if (!patches || typeof patches !== "object" || Array.isArray(patches)) {
     throw new MarkdownConversionError(
-      "Invalid patches: Must be an object keyed by placeholder name"
+      "Invalid patches: Must be an object keyed by placeholder name",
     );
   }
 
   const entries = Object.entries(patches);
   if (entries.length === 0) {
     throw new MarkdownConversionError(
-      "Invalid patches: At least one placeholder patch is required"
+      "Invalid patches: At least one placeholder patch is required",
     );
   }
 
@@ -730,7 +913,7 @@ function validatePatchInputs(
     if (placeholder.trim().length === 0) {
       throw new MarkdownConversionError(
         "Invalid patch placeholder: Must be a non-empty string",
-        { placeholder }
+        { placeholder },
       );
     }
 
@@ -746,7 +929,7 @@ function validatePatchInputs(
       delimiters.end.trim().length === 0)
   ) {
     throw new MarkdownConversionError(
-      "Invalid placeholderDelimiters: start and end must be non-empty strings"
+      "Invalid placeholderDelimiters: start and end must be non-empty strings",
     );
   }
 
@@ -758,7 +941,7 @@ function validatePatchInputs(
   ) {
     throw new MarkdownConversionError(
       "Invalid tableWidthTwips: Must be a positive integer",
-      { tableWidthTwips: options.tableWidthTwips }
+      { tableWidthTwips: options.tableWidthTwips },
     );
   }
 }
@@ -773,13 +956,13 @@ function normalizeMarkdownPatch(patch: MarkdownDocxPatch): {
 
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
     throw new MarkdownConversionError(
-      "Invalid patch: Must be a markdown string or patch object"
+      "Invalid patch: Must be a markdown string or patch object",
     );
   }
 
   if (typeof patch.markdown !== "string") {
     throw new MarkdownConversionError(
-      "Invalid patch markdown: Must be a string"
+      "Invalid patch markdown: Must be a string",
     );
   }
 
@@ -793,6 +976,8 @@ async function renderMarkdownContent(
   renderOptions: {
     currentElementCount?: number;
     sequenceIdOffset?: number;
+    numberingStarts?: Map<number, number>;
+    headingAnchors?: import("./utils/bookmarkUtils.js").HeadingAnchorRegistry;
     processedImageCounter?: { count: number };
     failedRemoteImageCounter?: { count: number };
     headingBookmarkCounter?: { count: number };
@@ -805,7 +990,7 @@ async function renderMarkdownContent(
     validateAst?: (ast: Root) => void;
     crossReferences?: CrossReferenceRegistry;
     preparedAst?: Root;
-  } = {}
+  } = {},
 ): Promise<{ content: RenderedMarkdownContent; elementCount: number }> {
   const ast =
     renderOptions.preparedAst ??
@@ -818,7 +1003,7 @@ async function renderMarkdownContent(
     ast,
     options.maxElements,
     renderOptions.currentElementCount ?? 0,
-    options.signal
+    options.signal,
   );
   const pluginElementCounter = { count: elementCount };
 
@@ -834,6 +1019,8 @@ async function renderMarkdownContent(
 
   const content = await modelToDocx(model, style, options, {
     sequenceIdOffset: renderOptions.sequenceIdOffset,
+    numberingStarts: renderOptions.numberingStarts,
+    headingAnchors: renderOptions.headingAnchors,
     processedImageCounter: renderOptions.processedImageCounter,
     failedRemoteImageCounter: renderOptions.failedRemoteImageCounter,
     headingBookmarkCounter: renderOptions.headingBookmarkCounter,
@@ -863,6 +1050,11 @@ async function prepareMarkdownAst(
     markdown,
     options.mathRendering?.enabled !== false,
   );
+  await expandRichTables(
+    ast,
+    options.mathRendering?.enabled !== false,
+    options.signal,
+  );
   await yieldToAbortSignal(options.signal);
   if (options.textReplacements && options.textReplacements.length > 0) {
     applyTextReplacements(
@@ -879,29 +1071,14 @@ async function prepareMarkdownAst(
       options.signal,
     );
   }
+  resolveMarkdownReferences(ast);
   return ast;
-}
-
-function assertPatchCompatibleAst(ast: Root, placeholder: string): void {
-  if (containsCaptionOrCrossReferenceSyntax(ast)) {
-    throw new MarkdownConversionError(
-      "Patch markdown does not support captions or cross-references yet",
-      { placeholder },
-    );
-  }
 }
 
 function assertPatchCompatibleModel(
   model: DocxDocumentModel,
-  placeholder: string
+  placeholder: string,
 ): void {
-  if (model.footnotes && model.footnotes.length > 0) {
-    throw new MarkdownConversionError(
-      "Patch markdown does not support footnotes yet",
-      { placeholder },
-    );
-  }
-
   const stack: DocxBlockNode[] = [...model.children];
 
   while (stack.length > 0) {
@@ -910,24 +1087,10 @@ function assertPatchCompatibleModel(
       continue;
     }
 
-    if (node.type === "list" && node.ordered) {
-      throw new MarkdownConversionError(
-        "Patch markdown does not support ordered lists yet",
-        { placeholder }
-      );
-    }
-
-    if (node.type === "tocPlaceholder") {
-      throw new MarkdownConversionError(
-        "Patch markdown does not support generated tables of contents yet",
-        { placeholder }
-      );
-    }
-
     if (node.type === "comment") {
       throw new MarkdownConversionError(
         "Patch markdown does not support Word comments yet",
-        { placeholder }
+        { placeholder },
       );
     }
 
@@ -958,7 +1121,7 @@ function assertPatchCompatibleModel(
  */
 export async function downloadDocx(
   blob: Blob,
-  filename: string = "document.docx"
+  filename: string = "document.docx",
 ): Promise<void> {
   if (typeof window === "undefined") {
     throw new Error("This function can only be used in browser environments");
@@ -977,7 +1140,7 @@ export async function downloadDocx(
     throw new Error(
       `Failed to save file: ${
         error instanceof Error ? error.message : "Unknown error"
-      }`
+      }`,
     );
   }
 }

@@ -1,5 +1,6 @@
 import {
   Paragraph,
+  Table,
   TextRun,
   AlignmentType,
   PageOrientation,
@@ -27,7 +28,11 @@ import { runLanguage } from "./accessibility.js";
 
 type ResolvedPageNumbering = NonNullable<SectionConfig["pageNumbering"]>;
 type HeaderFooterChannel = "default" | "first" | "even";
-const HEADER_FOOTER_CHANNELS: HeaderFooterChannel[] = ["default", "first", "even"];
+const HEADER_FOOTER_CHANNELS: HeaderFooterChannel[] = [
+  "default",
+  "first",
+  "even",
+];
 
 const defaultSectionMargins = {
   top: 1440,
@@ -72,7 +77,7 @@ export interface ResolvedSectionInput {
 }
 
 export function normalizeStyleInput(
-  style?: Partial<Style>
+  style?: Partial<Style>,
 ): Partial<Style> | undefined {
   if (!style) {
     return style;
@@ -90,7 +95,7 @@ export function normalizeStyleInput(
 }
 
 export function normalizeSectionConfig<T extends SectionConfig>(
-  section?: T
+  section?: T,
 ): T | undefined {
   if (!section) {
     return section;
@@ -104,7 +109,7 @@ export function normalizeSectionConfig<T extends SectionConfig>(
 
 function mergeHeaderFooterSlot(
   templateSlot: HeaderFooterSlot | undefined,
-  sectionSlot: HeaderFooterSlot | undefined
+  sectionSlot: HeaderFooterSlot | undefined,
 ): HeaderFooterSlot | undefined {
   if (sectionSlot === null) {
     return null;
@@ -123,14 +128,17 @@ function mergeHeaderFooterSlot(
 
 function mergeHeaderFooterGroup(
   templateGroup?: HeaderFooterGroup,
-  sectionGroup?: HeaderFooterGroup
+  sectionGroup?: HeaderFooterGroup,
 ): HeaderFooterGroup | undefined {
   if (!templateGroup && !sectionGroup) {
     return undefined;
   }
 
   const mergedGroup: HeaderFooterGroup = {
-    default: mergeHeaderFooterSlot(templateGroup?.default, sectionGroup?.default),
+    default: mergeHeaderFooterSlot(
+      templateGroup?.default,
+      sectionGroup?.default,
+    ),
     first: mergeHeaderFooterSlot(templateGroup?.first, sectionGroup?.first),
     even: mergeHeaderFooterSlot(templateGroup?.even, sectionGroup?.even),
   };
@@ -148,7 +156,7 @@ function mergeHeaderFooterGroup(
 
 function mergeSectionConfig(
   template?: SectionTemplate,
-  section?: SectionConfig
+  section?: SectionConfig,
 ): SectionConfig {
   const mergedStyle = {
     ...(template?.style || {}),
@@ -174,8 +182,14 @@ function mergeSectionConfig(
     ...(template?.pageNumbering || {}),
     ...(section?.pageNumbering || {}),
   };
-  const mergedHeaders = mergeHeaderFooterGroup(template?.headers, section?.headers);
-  const mergedFooters = mergeHeaderFooterGroup(template?.footers, section?.footers);
+  const mergedHeaders = mergeHeaderFooterGroup(
+    template?.headers,
+    section?.headers,
+  );
+  const mergedFooters = mergeHeaderFooterGroup(
+    template?.footers,
+    section?.footers,
+  );
 
   return {
     ...(template || {}),
@@ -193,7 +207,7 @@ function mergeSectionConfig(
 export function resolveSections(
   markdown: string,
   options: Options,
-  baseStyle: Style
+  baseStyle: Style,
 ): ResolvedSectionInput[] {
   const normalizedTemplate = normalizeSectionConfig(options.template);
   const sections: DocumentSection[] =
@@ -202,10 +216,12 @@ export function resolveSections(
       : [{ markdown }];
 
   return sections.map((section) => {
-    const normalizedSection = normalizeSectionConfig(section) as DocumentSection;
+    const normalizedSection = normalizeSectionConfig(
+      section,
+    ) as DocumentSection;
     const mergedSectionConfig = mergeSectionConfig(
       normalizedTemplate,
-      normalizedSection
+      normalizedSection,
     );
     const sectionStyle: Style = {
       ...baseStyle,
@@ -223,14 +239,14 @@ export function resolveSections(
 
 function resolveAlignment(
   alignment: AlignmentOption | undefined,
-  fallback: AlignmentOption = "LEFT"
+  fallback: AlignmentOption = "LEFT",
 ): (typeof AlignmentType)[keyof typeof AlignmentType] {
   const resolved = alignment || fallback;
   return AlignmentType[resolved];
 }
 
 function resolveSectionType(
-  sectionType: SectionConfig["type"] | undefined
+  sectionType: SectionConfig["type"] | undefined,
 ): (typeof SectionType)[keyof typeof SectionType] | undefined {
   switch (sectionType) {
     case "NEXT_PAGE":
@@ -249,7 +265,7 @@ function resolveSectionType(
 }
 
 function resolvePageOrientation(
-  orientation: "PORTRAIT" | "LANDSCAPE" | undefined
+  orientation: "PORTRAIT" | "LANDSCAPE" | undefined,
 ): (typeof PageOrientation)[keyof typeof PageOrientation] {
   return orientation === "LANDSCAPE"
     ? PageOrientation.LANDSCAPE
@@ -257,7 +273,7 @@ function resolvePageOrientation(
 }
 
 function resolvePageNumberFormat(
-  formatType: ResolvedPageNumbering["formatType"] | undefined
+  formatType: ResolvedPageNumbering["formatType"] | undefined,
 ): (typeof NumberFormat)[keyof typeof NumberFormat] | undefined {
   switch (formatType) {
     case "decimal":
@@ -276,7 +292,7 @@ function resolvePageNumberFormat(
 }
 
 function resolvePageNumberSeparator(
-  separator: ResolvedPageNumbering["separator"] | undefined
+  separator: ResolvedPageNumbering["separator"] | undefined,
 ): (typeof PageNumberSeparator)[keyof typeof PageNumberSeparator] | undefined {
   switch (separator) {
     case "hyphen":
@@ -295,7 +311,7 @@ function resolvePageNumberSeparator(
 }
 
 function buildPageNumberChildren(
-  display: SectionPageNumberDisplay
+  display: SectionPageNumberDisplay,
 ): (string | (typeof PageNumber)[keyof typeof PageNumber])[] {
   switch (display) {
     case "current":
@@ -314,7 +330,7 @@ function createHeaderFooterParagraph(
   slot: NonNullable<HeaderFooterSlot>,
   style: Style,
   fallbackDisplay: SectionPageNumberDisplay,
-  fallbackAlignment: AlignmentOption
+  fallbackAlignment: AlignmentOption,
 ): Paragraph {
   const display = slot.pageNumberDisplay ?? fallbackDisplay;
   const alignment = resolveAlignment(slot.alignment, fallbackAlignment);
@@ -352,14 +368,22 @@ function createHeaderFooterParagraph(
 
 function createHeaderFromSlot(
   slot: HeaderFooterSlot | undefined,
-  style: Style
+  style: Style,
+  rich: (Paragraph | Table)[] = [],
 ): Header | undefined {
   if (slot === undefined || slot === null) {
     return undefined;
   }
 
   return new Header({
-    children: [createHeaderFooterParagraph(slot, style, "none", "LEFT")],
+    children: [
+      ...rich,
+      ...(!rich.length ||
+      slot.text ||
+      (slot.pageNumberDisplay && slot.pageNumberDisplay !== "none")
+        ? [createHeaderFooterParagraph(slot, style, "none", "LEFT")]
+        : []),
+    ],
   });
 }
 
@@ -367,7 +391,8 @@ function createFooterFromSlot(
   slot: HeaderFooterSlot | undefined,
   style: Style,
   defaultDisplay: SectionPageNumberDisplay,
-  defaultAlignment: AlignmentOption
+  defaultAlignment: AlignmentOption,
+  rich: (Paragraph | Table)[] = [],
 ): Footer | undefined {
   if (slot === undefined || slot === null) {
     return undefined;
@@ -375,14 +400,27 @@ function createFooterFromSlot(
 
   return new Footer({
     children: [
-      createHeaderFooterParagraph(slot, style, defaultDisplay, defaultAlignment),
+      ...rich,
+      ...(!rich.length ||
+      slot.text ||
+      (slot.pageNumberDisplay ?? defaultDisplay) !== "none"
+        ? [
+            createHeaderFooterParagraph(
+              slot,
+              style,
+              defaultDisplay,
+              defaultAlignment,
+            ),
+          ]
+        : []),
     ],
   });
 }
 
 export function buildHeaders(
   group: HeaderFooterGroup | undefined,
-  style: Style
+  style: Style,
+  rich = new Map<HeaderFooterSlot, (Paragraph | Table)[]>(),
 ): ISectionOptions["headers"] | undefined {
   if (!group) {
     return undefined;
@@ -390,7 +428,11 @@ export function buildHeaders(
 
   const headers: { default?: Header; first?: Header; even?: Header } = {};
   for (const channel of HEADER_FOOTER_CHANNELS) {
-    const header = createHeaderFromSlot(group[channel], style);
+    const header = createHeaderFromSlot(
+      group[channel],
+      style,
+      rich.get(group[channel] ?? null),
+    );
     if (header) {
       headers[channel] = header;
     }
@@ -401,7 +443,8 @@ export function buildHeaders(
 
 export function buildFooters(
   sectionConfig: SectionConfig,
-  style: Style
+  style: Style,
+  rich = new Map<HeaderFooterSlot, (Paragraph | Table)[]>(),
 ): ISectionOptions["footers"] | undefined {
   const defaultDisplay = sectionConfig.pageNumbering?.display || "current";
   const defaultAlignment = sectionConfig.pageNumbering?.alignment || "CENTER";
@@ -418,7 +461,7 @@ export function buildFooters(
       },
       style,
       defaultDisplay,
-      defaultAlignment
+      defaultAlignment,
     );
     return autoFooter ? { default: autoFooter } : undefined;
   }
@@ -429,7 +472,8 @@ export function buildFooters(
       group[channel],
       style,
       defaultDisplay,
-      defaultAlignment
+      defaultAlignment,
+      rich.get(group[channel] ?? null),
     );
     if (footer) {
       footers[channel] = footer;
@@ -440,7 +484,7 @@ export function buildFooters(
 }
 
 export function buildSectionProperties(
-  sectionConfig: SectionConfig
+  sectionConfig: SectionConfig,
 ): NonNullable<ISectionOptions["properties"]> {
   const pageSize = {
     ...(sectionConfig.page?.size?.width !== undefined
@@ -453,10 +497,10 @@ export function buildSectionProperties(
   };
 
   const resolvedFormatType = resolvePageNumberFormat(
-    sectionConfig.pageNumbering?.formatType
+    sectionConfig.pageNumbering?.formatType,
   );
   const resolvedSeparator = resolvePageNumberSeparator(
-    sectionConfig.pageNumbering?.separator
+    sectionConfig.pageNumbering?.separator,
   );
   const pageNumberOptions = {
     ...(sectionConfig.pageNumbering?.start !== undefined

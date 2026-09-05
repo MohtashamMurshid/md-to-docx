@@ -139,8 +139,9 @@ try {
     throw new Error("Next.js did not emit any client JavaScript chunks");
   }
 
-  const forbiddenSubstrings = ["node:dns/promises", "node:net"];
+  const forbiddenSubstrings = ["node:dns/promises", "node:net", "node:fs/promises"];
   const forbiddenPatterns = [
+    { label: "bundled native image codec", pattern: /["\'][^"\']*node_modules\/(?:sharp|@img\/sharp)[^"\']*["\']/ },
     {
       label: "undici package specifier",
       pattern: /["']undici(?:\/[^"']*)?["']/,
@@ -178,7 +179,7 @@ try {
   }
 
   console.log(
-    `Verified ${clientFiles.length} Next.js/Turbopack client chunks without Node image-fetch dependencies`
+    `Verified ${clientFiles.length} Next.js/Turbopack client chunks without Node image-fetch or image-codec dependencies`
   );
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true });

@@ -1,3 +1,5 @@
+import { readLocalAsset } from "#image-assets";
+import { normalizeImage } from "../utils/normalizeImage.js";
 import { Paragraph, TextRun, AlignmentType, ImageRun } from "docx";
 import type { IParagraphOptions, ParagraphChild } from "docx";
 import { ImageHandlingOptions, Style } from "../types.js";
@@ -171,6 +173,8 @@ function detectImageType(
 }
 
 export interface ProcessImageResult {
+  run?: ImageRun;
+  reason?: string;
   /** True when an image run was embedded in the document output. */
   embedded: boolean;
   paragraphs: Paragraph[];
@@ -245,14 +249,7 @@ export function processImageData(
   const finalHeight =
     outHeight || (outWidth ? Math.round(outWidth * 0.75) : 200);
 
-  return {
-    embedded: true,
-    paragraphs: [
-      new Paragraph({
-        ...(input.paragraphOptions || {}),
-        children: [
-          ...(input.prefixChildren ?? []),
-          new ImageRun({
+  const run = new ImageRun({
             data: imageData,
             transformation: {
               width: outWidth,
@@ -268,7 +265,16 @@ export function processImageData(
                   ),
                 }
               : {}),
-          }),
+          });
+  return {
+    embedded: true,
+    run,
+    paragraphs: [
+      new Paragraph({
+        ...(input.paragraphOptions || {}),
+        children: [
+          ...(input.prefixChildren ?? []),
+          run,
         ],
         alignment:
           input.paragraphOptions?.alignment ?? AlignmentType.CENTER,
@@ -325,7 +331,13 @@ export async function processImage(
     let contentType = "";
     let urlForTypeDetection = imageUrl;
 
-    if (/^data:/i.test(urlWithoutFragment)) {
+    const resolved = await resolvedImageHandling.resolve?.(urlWithoutFragment, { signal, maxBytes: resolvedImageHandling.maxImageBytes });
+    if (resolved) {
+      data = resolved.data instanceof Uint8Array ? resolved.data : new Uint8Array(resolved.data);
+      contentType = resolved.contentType ?? "";
+    } else if (resolvedImageHandling.baseDirectory && !/^[a-z][a-z\d+.-]*:/i.test(urlWithoutFragment)) {
+      data = await readLocalAsset(urlWithoutFragment, resolvedImageHandling.baseDirectory, resolvedImageHandling.maxImageBytes, signal);
+    } else if (/^data:/i.test(urlWithoutFragment)) {
       throwIfAborted(signal);
       if (!resolvedImageHandling.dataUrls.enabled) {
         throw new Error("Data URL images are disabled");
@@ -385,6 +397,7 @@ export async function processImage(
       urlForTypeDetection = remoteImage.finalUrl;
     }
 
+    data = await normalizeImage(data, resolvedImageHandling.maxImageBytes, signal);
     return processImageData(
       {
         altText,
@@ -409,6 +422,7 @@ export async function processImage(
 
     return {
       embedded: false,
+      reason: error instanceof Error ? error.message : String(error),
       paragraphs: [
         new Paragraph({
           ...paragraphOptions,

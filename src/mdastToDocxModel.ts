@@ -1,3 +1,5 @@
+import { resolveMarkdownReferences } from "./markdownAst.js";
+import type { RichTableAst } from "./richTables.js";
 import type {
   Root,
   Node,
@@ -54,7 +56,7 @@ const GITHUB_CALLOUT_MARKER =
  */
 function classifyHtmlNode(value: string): DocxBlockNode | null {
   const commentMatch = value.match(
-    /^\s*<!--\s*COMMENT:\s*([\s\S]*?)\s*(?:-->\s*|$)/
+    /^\s*<!--\s*COMMENT:\s*([\s\S]*?)\s*(?:-->\s*|$)/,
   );
   if (commentMatch) {
     return { type: "comment", value: commentMatch[1].trim() };
@@ -110,6 +112,7 @@ export function mdastToDocxModel(
   crossReferences?: CrossReferenceRegistry,
   pluginRuntime?: PluginRuntime,
 ): DocxDocumentModel {
+  resolveMarkdownReferences(root);
   bindCrossReferenceCaptions(crossReferences, root);
   const children: DocxBlockNode[] = [];
   const footnoteDefinitions = new Map<string, FootnoteDefinition>();
@@ -118,15 +121,17 @@ export function mdastToDocxModel(
   let numberedListSequenceId = 0;
   const listSequenceMap = new Map<List, number>();
 
-  for (const child of root.children) {
-    if (child.type === "footnoteDefinition") {
-      const definition = child as FootnoteDefinition;
-      footnoteDefinitions.set(
-        normalizeFootnoteIdentifier(definition.identifier),
-        definition,
-      );
+  function collectFootnotes(node: Node): void {
+    if (node.type === "footnoteDefinition") {
+      const definition = node as FootnoteDefinition;
+      const identifier = normalizeFootnoteIdentifier(definition.identifier);
+      if (!footnoteDefinitions.has(identifier))
+        footnoteDefinitions.set(identifier, definition);
     }
+    if ("children" in node)
+      for (const child of node.children as Node[]) collectFootnotes(child);
   }
+  collectFootnotes(root);
 
   function normalizeFootnoteIdentifier(identifier: string): string {
     return identifier.trim().toLowerCase();
@@ -169,6 +174,26 @@ export function mdastToDocxModel(
         return processBlockquote(node as Blockquote, options);
       case "image":
         return processImage(node as Image);
+      case "richTable": {
+        const table = node as RichTableAst;
+        const rows = table.children.map((row) =>
+          row.children.map((cell) => ({
+            type: "tableCell" as const,
+            columnSpan: cell.columnSpan,
+            rowSpan: cell.rowSpan,
+            children: cell.children.flatMap((child) => {
+              const result = processNode(child, options);
+              return result ? (Array.isArray(result) ? result : [result]) : [];
+            }),
+          })),
+        );
+        return {
+          type: "table",
+          headers: table.header ? rows.shift()! : [],
+          rows,
+          columnWidths: table.columnWidths,
+        };
+      }
       case "table":
         return processTable(node as Table, options);
       case "html":
@@ -260,41 +285,6 @@ export function mdastToDocxModel(
       };
     }
 
-    if (paragraph.children.some((child) => (child as any).type === "image")) {
-      const blocks: DocxBlockNode[] = [];
-      let inlineBuffer: typeof paragraph.children = [];
-
-      const flushInlineBuffer = (): void => {
-        if (inlineBuffer.length === 0) {
-          return;
-        }
-
-        blocks.push({
-          type: "paragraph",
-          children: processInlineNodes(inlineBuffer, options),
-        });
-        inlineBuffer = [];
-      };
-
-      for (const child of paragraph.children) {
-        if ((child as any).type === "image") {
-          flushInlineBuffer();
-          const image = child as Image;
-          blocks.push({
-            type: "image",
-            alt: image.alt || "",
-            title: image.title || undefined,
-            url: image.url || "",
-          });
-        } else {
-          inlineBuffer.push(child);
-        }
-      }
-
-      flushInlineBuffer();
-      return blocks;
-    }
-
     // Regular paragraph with inline content
     const children = processInlineNodes(paragraph.children, options);
     return {
@@ -359,14 +349,14 @@ export function mdastToDocxModel(
       listItems.push({
         type: "listItem",
         children: itemChildren,
-        checked:
-          typeof item.checked === "boolean" ? item.checked : undefined,
+        checked: typeof item.checked === "boolean" ? item.checked : undefined,
       });
     }
 
     return {
       type: "list",
       ordered: list.ordered || false,
+      start: list.start ?? 1,
       children: listItems,
       sequenceId: list.ordered ? listSequenceMap.get(list) : undefined,
     };
@@ -490,9 +480,12 @@ export function mdastToDocxModel(
         const row = table.children[i] as TableRow;
         const rowData: DocxInlineNode[][] = [];
         for (const cell of row.children) {
-          rowData.push(extractRichTextFromTableCell(cell as TableCell, options));
+          rowData.push(
+            extractRichTextFromTableCell(cell as TableCell, options),
+          );
         }
-        rows.push(rowData);
+        while (rowData.length < headers.length) rowData.push([]);
+        rows.push(rowData.slice(0, headers.length));
       }
     }
 
@@ -595,7 +588,9 @@ export function mdastToDocxModel(
             options,
           );
           for (const child of strongChildren) {
-            result.push(child.type === "text" ? { ...child, bold: true } : child);
+            result.push(
+              child.type === "text" ? { ...child, bold: true } : child,
+            );
           }
           break;
         }
@@ -611,6 +606,14 @@ export function mdastToDocxModel(
           }
           break;
         }
+        case "image":
+          result.push({
+            type: "inlineImage",
+            url: node.url,
+            alt: node.alt ?? "",
+            title: node.title ?? undefined,
+          });
+          break;
         case "inlineCode":
           result.push({
             type: "text",
@@ -630,10 +633,15 @@ export function mdastToDocxModel(
             previous.value += (node as Link).url;
             break;
           }
-          const linkChildren = processInlineNodes((node as Link).children, options);
+          const linkChildren = processInlineNodes(
+            (node as Link).children,
+            options,
+          );
           for (const child of linkChildren) {
             result.push(
-              child.type === "text" ? { ...child, link: (node as Link).url } : child,
+              child.type === "text"
+                ? { ...child, link: (node as Link).url }
+                : child,
             );
           }
           break;

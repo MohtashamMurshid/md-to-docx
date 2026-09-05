@@ -3,32 +3,28 @@ import fs from "node:fs";
 import path from "node:path";
 import JSZip from "jszip";
 import { Document, Packer, Paragraph } from "docx";
-import {
-  MarkdownConversionError,
-  patchMarkdownInDocx,
-  patchMarkdownInDocxToBuffer,
-} from "../src/index";
+import { patchMarkdownInDocx, patchMarkdownInDocxToBuffer } from "../src/index";
 
 const fixturePath = path.join(
   process.cwd(),
   "tests",
   "fixtures",
-  "reference-template.docx"
+  "reference-template.docx",
 );
 
 async function createTemplateWithPlaceholders(
-  placeholders: string[]
+  placeholders: string[],
 ): Promise<Buffer> {
   return Packer.toBuffer(
     new Document({
       sections: [
         {
           children: placeholders.map(
-            (placeholder) => new Paragraph(`{{${placeholder}}}`)
+            (placeholder) => new Paragraph(`{{${placeholder}}}`),
           ),
         },
       ],
-    })
+    }),
   );
 }
 
@@ -92,11 +88,15 @@ Hello **team**.
     const documentXml = await zip.file("word/document.xml")?.async("string");
     const bookmarkNames = Array.from(
       documentXml?.matchAll(/<w:bookmarkStart[^>]+w:name="([^"]+)"/g) || [],
-      (match) => match[1]
+      (match) => match[1],
     );
 
-    expect(bookmarkNames).toContain("_Toc_Repeat_1");
-    expect(bookmarkNames).toContain("_Toc_Repeat_2");
+    expect(bookmarkNames.some((name) => name.includes("_Toc_Repeat_1"))).toBe(
+      true,
+    );
+    expect(bookmarkNames.some((name) => name.includes("_Toc_Repeat_2"))).toBe(
+      true,
+    );
     expect(new Set(bookmarkNames).size).toBe(bookmarkNames.length);
   });
 
@@ -109,7 +109,7 @@ Hello **team**.
 | --- | --- |
 | Score | 42 |`,
       },
-      { tableWidthTwips: 4321 }
+      { tableWidthTwips: 4321 },
     );
     const zip = await JSZip.loadAsync(output);
     const documentXml = await zip.file("word/document.xml")?.async("string");
@@ -127,40 +127,34 @@ Hello **team**.
           first: "First paragraph.",
           second: "Second paragraph.",
         },
-        { maxElements: 1 }
-      )
+        { maxElements: 1 },
+      ),
     ).rejects.toThrow("Markdown element count exceeds maxElements");
   });
 
-  it("fails clearly for markdown that requires unsupported package merges", async () => {
-    const template = fs.readFileSync(fixturePath);
-
-    await expect(
-      patchMarkdownInDocxToBuffer(template, {
-        body: "1. first\n2. second",
-      })
-    ).rejects.toThrow(MarkdownConversionError);
-
-    await expect(
-      patchMarkdownInDocxToBuffer(template, {
-        body: "1. first\n2. second",
-      })
-    ).rejects.toThrow("ordered lists");
+  it("merges numbering for ordered lists", async () => {
+    const output = await patchMarkdownInDocxToBuffer(
+      fs.readFileSync(fixturePath),
+      { body: "5. first\n6. second" },
+    );
+    const zip = await JSZip.loadAsync(output);
+    const document = await zip.file("word/document.xml")!.async("string");
+    const numbering = await zip.file("word/numbering.xml")!.async("string");
+    expect(document).toContain("<w:numPr>");
+    expect(numbering).toContain('w:start w:val="5"');
   });
 
-  it("fails clearly when patch markdown uses captions or cross-references", async () => {
-    const template = fs.readFileSync(fixturePath);
-
-    await expect(
-      patchMarkdownInDocxToBuffer(template, {
-        body: `| A |
-| --- |
-| B |
-
-: Patched table {#tbl:patched}`,
-      }),
-    ).rejects.toThrow(
-      "Patch markdown does not support captions or cross-references yet",
+  it("merges caption fields and bookmarks", async () => {
+    const output = await patchMarkdownInDocxToBuffer(
+      fs.readFileSync(fixturePath),
+      {
+        body: "See [@tbl:patched].\n\n| A |\n| --- |\n| B |\n\n: Patched table {#tbl:patched}",
+      },
     );
+    const zip = await JSZip.loadAsync(output);
+    const document = await zip.file("word/document.xml")!.async("string");
+    expect(document).toContain(" SEQ MdToDocxTable");
+    expect(document).toContain(" REF mdp");
+    expect(document).not.toContain("[@tbl:patched]");
   });
 });

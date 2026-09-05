@@ -61,7 +61,7 @@ A TypeScript-first library and CLI that turns Markdown into production-ready Wor
 - **Accessible document semantics** — real Word drawing descriptions, strict missing-alt gates, proofing language, semantic headings/table headers, and typed package metadata.
 - **Optional syntax highlighting** — opt-in, powered by `[lowlight](https://github.com/wooorm/lowlight)`; ships a GitHub-light theme and lets you override any token color.
 - **Native Word math** — Markdown `$...$` and `$$...$$` equations render as editable Word math for a documented TeX subset.
-- **Works everywhere** — Node.js (18+) and modern browsers; the package ships ESM with type declarations.
+- **Works everywhere** — Node.js (18.17+) and modern browsers; the package ships ESM with type declarations.
 - **Small public surface, stable API** — only the root entrypoint is exported via `package.json#exports`.
 
 ## Installation
@@ -132,7 +132,21 @@ The `--options` JSON file accepts the same shape as the programmatic `Options` a
 }
 ```
 
-Reference-DOCX style generation and placeholder patching require binary DOCX input, so they are programmatic APIs rather than CLI flags. The CLI continues to use ordinary `convertMarkdownToBuffer`; a JSON `reference` field is not loaded as a file path.
+The CLI also supports pipes, batch jobs, watch mode, and both reference workflows:
+
+```bash
+cat report.md | md-to-docx - report.docx
+md-to-docx report.md - > report.docx
+md-to-docx --batch ./markdown ./word
+md-to-docx report.md report.docx --watch
+md-to-docx report.md report.docx --reference corporate.docx
+md-to-docx corporate.docx report.docx --patches patches.json
+md-to-docx report.md report.docx --base-dir ./assets
+```
+
+`patches.json` maps placeholder names to Markdown strings or `{ "markdown": "...", "style": { ... } }` objects. Batch conversion finds `.md` files recursively and preserves relative directories. Watch mode monitors input directories, local assets, options, and reference files; Ctrl+C stops it. Batch failures return a nonzero exit code after processing the remaining files. Output files are replaced atomically. Status and warning messages never enter binary stdout.
+
+Local image paths resolve relative to each Markdown file, or `--base-dir` when provided. Paths and symlinks must stay within that base directory. Pipes use the current working directory. The CLI does not load executable plugins from JSON.
 
 For a multi-section document, use `template` + `sections` (the CLI ignores the positional markdown argument when `sections` is provided):
 
@@ -169,7 +183,7 @@ downloadDocx(blob, "hello.docx");
 
 Browser conversion supports Markdown without remote images, embedded `data:`
 image URLs, and image bytes returned by trusted renderer plugins/callbacks.
-HTTP(S) Markdown images render as visible fallback text in browser builds, even
+Without a trusted `imageHandling.resolve` callback, HTTP(S) Markdown images render as visible fallback text in browser builds, even
 if `imageHandling.remote.enabled` is set. Browsers do not expose the DNS and
 connection controls needed to apply the package's server-side SSRF protections.
 Convert on a trusted Node.js endpoint when remote images must be fetched.
@@ -292,7 +306,7 @@ Syntax and edge cases:
 - A caption ID is case-sensitive, must use the matching `fig:` or `tbl:` prefix, cannot contain whitespace or braces, and is limited to 128 characters. Other punctuation is accepted and converted to a deterministic Word-safe bookmark.
 - The caption must be the next Markdown block. Without the blank line, Markdown treats the lines as one paragraph/table; without a valid adjacent caption, existing images and tables render unchanged.
 - By default, malformed captions, later duplicate IDs, and unresolved references remain visible as literal text. Set `captions.failureMode: "throw"` to reject them instead. The first duplicate definition wins in preserve mode.
-- Put `[@fig:id]` in inline code when it should remain literal. Caption/reference syntax is rejected with a clear validation error by the reference-DOCX patch APIs because patch order and existing bookmark collisions cannot be resolved safely yet.
+- Put `[@fig:id]` in inline code when it should remain literal. Captions and references also work in placeholder patches, including references across placeholders. Patch merging remaps bookmark IDs and refreshes cached caption numbers in document order.
 
 Labels, placement, and presentation can be adjusted without changing Markdown:
 
@@ -492,10 +506,10 @@ await patchMarkdownInDocxToBuffer(template, patches, {
 });
 ```
 
-Supported in this first mode:
+Supported in placeholder patches:
 
 - Node-first `.docx` patching from an existing DOCX buffer.
-- Document-level placeholder replacement with generated paragraphs, headings, tables, blockquotes, code blocks, links, images, bullet lists, and page breaks.
+- Document-level placeholder replacement with generated paragraphs, headings, tables, blockquotes, code blocks, links, images, ordered and bullet lists, footnotes, captions, cross-references, native TOCs, and page breaks.
 - Preserving existing package parts that are not replaced by the placeholder patch.
 - Configurable markdown table width through `tableWidthTwips` when the reference template uses non-default margins or page geometry.
 
@@ -504,8 +518,103 @@ Current limitations:
 - This API patches an existing body; use `convertMarkdownWithReferenceDocx*` for a brand-new document that adopts reference styles.
 - This does not append to the end of a document unless the template contains a placeholder at that location.
 - Markdown table width is not inferred from the reference DOCX. Set `tableWidthTwips` to match the placeholder section's content width when the template differs from the default A4 portrait width.
-- Ordered lists, generated `[TOC]`, Word comments, and caption/cross-reference syntax are rejected in patch markdown because they require package-level ordering or merges that are not supported safely yet.
-- Browser use may work when you provide DOCX bytes, but this workflow is designed and tested for Node.
+- New Word comments remain unsupported in patch Markdown. Existing template comments are preserved.
+- Browser use accepts in-memory DOCX bytes; Node remains the primary tested environment.
+
+A placeholder replaces its containing paragraph, including when its text spans multiple Word runs. Repeated placeholders are all replaced by default; `recursive: false` replaces only the first occurrence of each name. Inserted text is never reinterpreted as another placeholder. Repeated copies receive distinct bookmark and footnote IDs. The merger preserves existing named styles and applies explicit Markdown formatting. `keepOriginalStyles` remains accepted for API compatibility; it does not override explicit patch formatting.
+
+Patching validates the reference ZIP with the same default size, entry, XML, and relationship checks as reference-style generation. Images and hyperlinks inside generated footnotes receive their own relationships.
+
+### Local, inline, SVG, and WebP images
+
+Markdown images can appear within text and table cells. Standalone images remain separate paragraphs. Reference-style images such as `![Logo][logo]` resolve through their Markdown definitions.
+
+```typescript
+await convertMarkdownToBuffer(markdown, {
+  imageHandling: { baseDirectory: "/absolute/path/to/assets" },
+});
+
+// A trusted resolver can supply browser, virtual, or authenticated assets.
+await convertMarkdownToDocx(markdown, {
+  imageHandling: {
+    resolve: async (source, { signal, maxBytes }) => {
+      const data = await myAssetStore.read(source, { signal, maxBytes });
+      return data ? { data } : null;
+    },
+  },
+});
+```
+
+`resolve` runs first. Returning `null` or `undefined` uses the ordinary local/data/remote path. Resolvers are trusted application code and are responsible for any network access they perform. Core still enforces image byte limits, successful-image budgets, format validation, alt-text policy, and cancellation checks. `baseDirectory` is Node-only and opt-in through the library; local paths cannot escape it through `..` or symlinks.
+
+SVG and WebP inputs are converted to PNG for Word compatibility. Node uses a lazy-loaded Sharp decoder; browsers use their image decoder and canvas. SVGs must be self-contained, with no scripts, external references, stylesheets, animation, or foreign objects. Converted output also obeys `maxImageBytes`; rasterization is limited to 16 million pixels. Existing PNG, JPEG, and GIF images retain their embedding path.
+
+### Rich tables and header/footer content
+
+GFM tables support inline images and configurable widths, header color, cell padding, and row splitting:
+
+```typescript
+await convertMarkdownToBuffer(markdown, {
+  style: {
+    tableColumnWidths: [2400, 6000], // twips; one width per logical column
+    tableAllowRowSplit: false,
+    tableHeaderBackground: "E8EDF2",
+    tableCellMargins: { top: 120, bottom: 120, left: 160, right: 160 },
+  },
+});
+```
+
+Use a `table` JSON fence when cells need merged spans or block Markdown:
+
+````markdown
+```table
+{
+  "columnWidths": [2400, 6000],
+  "headers": ["Area", "Details"],
+  "rows": [
+    [{ "markdown": "**Delivery**", "rowSpan": 2 }, "1. Draft\n2. Review"],
+    ["![Diagram](diagram.svg)"],
+    [{ "markdown": "Spans both columns", "columnSpan": 2 }]
+  ]
+}
+```
+````
+
+Cells are Markdown strings or `{ markdown, columnSpan?, rowSpan? }` objects. Omit positions covered by a previous row's span. Each row must cover the same logical width. Widths are in twips; a fence's widths override `style.tableColumnWidths`. Invalid JSON, out-of-bounds spans, and mismatched widths throw `MarkdownConversionError`. Cell content participates in document-wide image, element, and numbering budgets. Rich tables can nest up to eight levels.
+
+Header/footer slots accept `markdown` before their optional plain `text` and page fields:
+
+```typescript
+await convertMarkdownToBuffer(markdown, {
+  imageHandling: { baseDirectory: "/absolute/path/to/assets" },
+  template: {
+    headers: { default: { markdown: "**Company**\n\n![Logo](logo.svg)" } },
+    footers: { default: { markdown: "*Confidential*", pageNumberDisplay: "currentAndTotal" } },
+  },
+});
+```
+
+Header/footer Markdown supports formatting, logos, tables, and lists and shares the document's processing limits. Word does not permit footnotes in headers or footers; these produce an explicit error.
+
+### Native table of contents and conversion warnings
+
+`[TOC]` creates a native Word TOC field with cached clickable heading entries, page-reference fields, and dot leaders. Word supplies actual page numbers when it updates fields; cached page values show `?` until then. After editing headings in Word, update the entire TOC to rebuild it.
+
+```typescript
+await convertMarkdownToBuffer(markdown, {
+  toc: { mode: "native", pageNumbers: true, dotLeaders: true, updateFieldsOnOpen: true },
+  onWarning: warning => {
+    // { code, message, source?, sectionIndex? }
+    conversionWarnings.push(warning);
+  },
+});
+```
+
+Set `toc.mode: "links"` for the previous static linked list, or disable `pageNumbers`/`dotLeaders` independently. `updateFieldsOnOpen: false` leaves refreshing to Word's Update Field command. TOC depth, title, and per-level styles remain configurable.
+
+`onWarning` reports image failures/budget fallbacks, unsupported math, unresolved heading links, diagram failures, and plugin fallbacks. The library does not log by default. Callback exceptions propagate as conversion failures. Strict options such as `mathRendering.unsupported: "throw"` continue to throw instead of producing a warning.
+
+Reference-style links, ordered-list starting numbers including zero, and `#heading` links work in both ordinary and patch conversions. Heading fragments use lowercase text with punctuation removed and spaces replaced by hyphens; duplicates receive `-1`, `-2`, and later suffixes. Unicode fragments and links to later sections are supported.
 
 ### Syntax-highlighted code blocks
 
@@ -1009,6 +1118,7 @@ Browser-only async helper that triggers a file download. Throws in non-browser e
 
 ```typescript
 interface Options {
+  onWarning?: (warning: ConversionWarning) => void;
   documentType?: "document" | "report";
   style?: Style;
   metadata?: DocumentMetadata;
@@ -1119,6 +1229,9 @@ type MarkdownDocxPatch =
     };
 
 interface PatchMarkdownOptions {
+  onWarning?: (warning: ConversionWarning) => void;
+  captions?: CaptionOptions;
+  toc?: TocOptions;
   documentType?: "document" | "report";
   style?: Partial<Style>;
   metadata?: DocumentMetadata;
@@ -1230,7 +1343,7 @@ interface AccessibilityOptions {
 | --------------- | ----------------------------- | -------------------------------------------------------------------------------------------- |
 | `markdown`      | `string`                      | Section-local markdown (required on entries in `sections`).                                  |
 | `style`         | `Style`                       | Section-local style overrides.                                                               |
-| `headers`       | `{ default?, first?, even? }` | Header slots. Each can be `null` to disable, or `{ text?, alignment?, pageNumberDisplay? }`. |
+| `headers`       | `{ default?, first?, even? }` | Header slots. Each can be `null` to disable, or `{ markdown?, text?, alignment?, pageNumberDisplay? }`. |
 | `footers`       | Same as `headers`             | Footer slots.                                                                                |
 | `pageNumbering` | See below                     | Section-local numbering and reset behavior.                                                  |
 | `page`          | `{ margin?, size? }`          | Section page geometry (margins, size, `orientation: "PORTRAIT"                               |
@@ -1338,7 +1451,7 @@ All conversion failures throw `MarkdownConversionError` (exported from the root)
 
 ## Requirements
 
-- **Node.js** ≥ 18 (ESM-only package)
+- **Node.js** 18.17+, 20.3+, or 21+ (ESM-only package; matches Sharp’s runtime requirements)
 - **Browsers:** any evergreen browser that supports ES2020 + Blobs; remote
   Markdown images require server-side conversion
 

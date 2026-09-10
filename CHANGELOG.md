@@ -1,3 +1,9 @@
+## [4.0.1](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.0.0...v4.0.1) (2026-09-10)
+
+### Bug Fixes
+
+* patch Dependabot alerts for browserslist, undici, and postcss ([#91](https://github.com/MohtashamMurshid/md-to-docx/issues/91)) ([f9d059c](https://github.com/MohtashamMurshid/md-to-docx/commit/f9d059ce4a7f22fa1857d41f174d94aa2add1418))
+
 ## [4.0.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v3.0.1...v4.0.0) (2026-09-05)
 
 ### ⚠ BREAKING CHANGES

@@ -319,10 +319,26 @@ export interface Options {
    * captions and cross-references.
    */
   captions?: CaptionOptions;
+  /**
+   * Where Markdown footnotes go in the Word document. Omitted, they stay
+   * native footnotes at the bottom of each page.
+   */
+  footnotes?: FootnoteOptions;
   /** Trusted programmatic renderer plugins. Functions cannot be loaded from CLI JSON. */
   plugins?: readonly AnyMarkdownDocxPlugin[];
   /** Deterministic conflict handling for overlapping plugin handlers. */
   pluginOptions?: PluginOptions;
+}
+
+export type FootnotePlacement = "footnotes" | "endnotes";
+
+export interface FootnoteOptions {
+  /**
+   * "footnotes" (the default) writes Word footnotes at the bottom of each
+   * page. "endnotes" writes Word endnotes, collected at the end of the
+   * document and numbered 1, 2, 3. Patch mode supports only "footnotes".
+   */
+  placement?: FootnotePlacement;
 }
 
 export type CaptionPlacement = "above" | "below";

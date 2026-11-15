@@ -2,6 +2,7 @@ import {
   AlignmentOption,
   CaptionOptions,
   DocumentSection,
+  FootnoteOptions,
   HeaderFooterContent,
   HeaderFooterGroup,
   HeaderFooterSlot,
@@ -196,6 +197,58 @@ function validateCaptionOptionsInput(
   if (captions) {
     checkFields(captions, CAPTION_RULES);
   }
+}
+
+/**
+ * Checks an optional options object: present, it must be an object, and then
+ * pass `rules`. `name` is the option's key in `Options`.
+ */
+function checkOptionObject<T>(
+  value: T | undefined,
+  name: string,
+  rules: readonly AnyFieldRule<T>[],
+): void {
+  if (value === undefined) return;
+  const input: unknown = value;
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    throw new MarkdownConversionError(`Invalid ${name}: Must be an object`, {
+      [name]: input,
+    });
+  }
+  checkFields(value, rules);
+}
+
+const FOOTNOTE_RULES: readonly AnyFieldRule<FootnoteOptions>[] = [
+  {
+    key: "placement",
+    message: "Invalid footnotes.placement: Must be footnotes or endnotes",
+    invalid: isNotOneOf(["footnotes", "endnotes"]),
+    context: valueContext("placement"),
+  },
+];
+
+/** Options that change only new documents, and would break or be lost in a patch. */
+const PATCH_UNSUPPORTED_OPTIONS: readonly {
+  readonly active: (options: Options) => boolean;
+  readonly message: string;
+}[] = [
+  {
+    active: (options) => options.footnotes?.placement === "endnotes",
+    message:
+      'Patch mode does not support footnotes.placement "endnotes": endnotes cannot be merged into a template. Omit the option to keep footnotes.',
+  },
+];
+
+/**
+ * Rejects conversion-only options in patch mode. CLI JSON and plain-JS
+ * callers can pass them even though `PatchMarkdownOptions` does not declare
+ * them.
+ */
+export function validatePatchModeOptions(options: Options): void {
+  const unsupported = PATCH_UNSUPPORTED_OPTIONS.find(({ active }) =>
+    active(options),
+  );
+  if (unsupported) throw new MarkdownConversionError(unsupported.message);
 }
 
 /** Page numbering checks; contexts name the field `pageNumber<Field>`. */
@@ -658,6 +711,7 @@ export function validateInput(markdown: string, options: Options): void {
   validateTocOptionsInput(options.toc);
   validateMathRenderingInput(options.mathRendering);
   validateCaptionOptionsInput(options.captions);
+  checkOptionObject(options.footnotes, "footnotes", FOOTNOTE_RULES);
   validateImageHandlingInput(options.imageHandling);
   validateChartRenderingInput(options.chartRendering);
   validateMermaidRenderingInput(options.mermaidRendering);

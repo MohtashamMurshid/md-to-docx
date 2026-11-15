@@ -573,6 +573,46 @@ describe("Rendering: footnotes", () => {
     );
   });
 
+  it("renders footnotes as decimal endnotes, keeping NOTEREF repeats, links, images and lists", async () => {
+    const zip = await getZip(
+      await convertMarkdownToDocx(
+        `First[^alpha], second[^beta], first again[^alpha].\n\n[^beta]: Beta body.\n[^alpha]: Alpha [link](https://example.com/en) ![p](${ONE_PX_PNG})\n\n    1. Listed`,
+        { footnotes: { placement: "endnotes" } },
+      ),
+    );
+    const part = async (name: string) =>
+      (await zip.file(name)?.async("string")) ?? "";
+    const documentXml = await part("word/document.xml");
+    const endnotesXml = await part("word/endnotes.xml");
+    const endnoteRels = await part("word/_rels/endnotes.xml.rels");
+
+    expect(documentXml).not.toContain("<w:footnoteReference");
+    expect(
+      Array.from(
+        documentXml.matchAll(/<w:endnoteReference w:id="(\d+)"\/>/g),
+        (match) => match[1],
+      ),
+    ).toEqual(["1", "2"]);
+    expect(documentXml).toContain('w:name="mdfootnote_1"');
+    expect(documentXml).toContain(
+      'w:instr=" NOTEREF mdfootnote_1 \\h \\f "',
+    );
+    expect(documentXml).toContain(
+      '<w:endnotePr><w:numFmt w:val="decimal"/></w:endnotePr>',
+    );
+    expect(await part("word/footnotes.xml")).not.toContain("Alpha");
+    expect(endnotesXml.indexOf("Alpha ")).toBeLessThan(
+      endnotesXml.indexOf("Beta body."),
+    );
+    expect(endnoteRels).toContain("https://example.com/en");
+    const embed = /r:embed="([^"]+)"/.exec(endnotesXml)?.[1];
+    const target = new RegExp(`Id="${String(embed)}"[^>]*Target="([^"]+)"`).exec(
+      endnoteRels,
+    )?.[1];
+    expect(zip.file(`word/${String(target)}`)).not.toBeNull();
+    expect(endnotesXml).toMatch(/<w:numId w:val="\d+"\/>/);
+  });
+
   it("keeps unresolved footnote references as literal text", async () => {
     const xml = await render("Missing note[^missing] stays visible.");
 
@@ -1387,6 +1427,25 @@ describe("Rendering: error cases", () => {
         style: { fontFamily: "   " },
       }),
     ).rejects.toThrow("Invalid fontFamily");
+  });
+
+  it.each([
+    {
+      label: "an unknown footnote placement",
+      options: { footnotes: { placement: "sidenotes" } },
+      expected: "Invalid footnotes.placement: Must be footnotes or endnotes",
+    },
+    {
+      label: "footnotes that are not an object",
+      options: { footnotes: "endnotes" },
+      expected: "Invalid footnotes: Must be an object",
+    },
+  ])("rejects $label", async ({ options, expected }) => {
+    // Plain-JS and JSON callers can pass any shape.
+    const untyped: object = options;
+    await expect(convertMarkdownToDocx("Hello", untyped)).rejects.toThrow(
+      expected,
+    );
   });
 
   it("throws MarkdownConversionError for non-string markdown input", async () => {

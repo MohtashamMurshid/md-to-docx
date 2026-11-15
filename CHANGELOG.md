@@ -1,3 +1,9 @@
+## [4.0.2](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.0.1...v4.0.2) (2026-11-15)
+
+### Bug Fixes
+
+* **deps:** refresh in-range dependencies ([#93](https://github.com/MohtashamMurshid/md-to-docx/issues/93)) ([a8109dc](https://github.com/MohtashamMurshid/md-to-docx/commit/a8109dc875a1c2fabc3572f18f7862e67b890492))
+
 ## [4.0.1](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.0.0...v4.0.1) (2026-09-10)
 
 ### Bug Fixes

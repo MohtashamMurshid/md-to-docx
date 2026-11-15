@@ -239,7 +239,7 @@ export async function convertMarkdownWithReferenceDocx(
   referenceDocx: ReferenceDocxBytes,
   options: ReferenceDocxGenerationOptions = {},
 ): Promise<Blob> {
-  const bytes = await convertMarkdownWithReferenceDocxBytes(
+  const bytes = await convertMarkdownWithReferenceDocxToArrayBuffer(
     markdown,
     referenceDocx,
     options,

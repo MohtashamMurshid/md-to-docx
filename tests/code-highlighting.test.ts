@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@jest/globals";
-import { convertMarkdownToDocx } from "../src/index";
-import type { Options } from "../src/types";
-import { getDocumentXml, saveBlobForDebug } from "./helpers";
+import { convertMarkdownToDocx } from "../src/index.js";
+import type { Options } from "../src/types.js";
+import { getDocumentXml, saveBlobForDebug } from "./helpers.js";
 
 async function render(markdown: string, options?: Options): Promise<string> {
   const blob = await convertMarkdownToDocx(markdown, options);

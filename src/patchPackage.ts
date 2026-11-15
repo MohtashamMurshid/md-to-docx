@@ -35,6 +35,18 @@ const maxId = (text: string, pattern: RegExp): number => {
   return maximum;
 };
 
+/** Highest bookmark ID in the template, read by namespace so any prefix counts. */
+function maxBookmarkId(documents: Iterable<XmlDocument>): number {
+  let maximum = 0;
+  for (const document of documents)
+    for (const local of ["bookmarkStart", "bookmarkEnd"])
+      for (const bookmark of elements(document, local)) {
+        const id = Number(bookmark.getAttributeNS(W, "id"));
+        if (Number.isFinite(id)) maximum = Math.max(maximum, id);
+      }
+  return maximum;
+}
+
 export async function loadPatchPackage(
   input: ReferenceDocxInput,
   signal?: AbortSignal,
@@ -98,6 +110,9 @@ export async function mergePatchPackage(
       maxId(baseText, /<w:numId\b[^>]*w:val="(\d+)"/g) +
       1,
     abstractNumId: maxId(baseText, /w:abstractNumId="(\d+)"/g) + 1,
+    // Donor bookmarks start at 1 too; lift them above the template's so the
+    // final pairing pass never matches a donor end to a template start.
+    bookmark: maxBookmarkId(documents.values()) + 1,
     footnote: maxId(baseText, /<w:footnote\b[^>]*w:id="(\d+)"/g) + 1,
     comment: maxId(baseText, /<w:comment\b[^>]*w:id="(\d+)"/g) + 1,
   };
@@ -116,6 +131,12 @@ export async function mergePatchPackage(
     for (const element of Array.from(document.getElementsByTagName("*"))) {
       const local = element.localName;
       if (element.namespaceURI === W) {
+        if (local === "bookmarkStart" || local === "bookmarkEnd")
+          element.setAttributeNS(
+            W,
+            "w:id",
+            String(Number(element.getAttributeNS(W, "id")) + offsets.bookmark),
+          );
         for (const attr of ["numId", "abstractNumId"] as const) {
           if (element.hasAttributeNS(W, attr))
             element.setAttributeNS(

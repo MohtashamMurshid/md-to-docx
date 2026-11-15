@@ -2,9 +2,9 @@ import { describe, expect, it, jest } from "@jest/globals";
 import {
   convertMarkdownToDocx,
   MarkdownConversionError,
-} from "../src/index";
-import type { MermaidRenderInput, Options } from "../src/types";
-import { getDocumentXml, getZip } from "./helpers";
+} from "../src/index.js";
+import type { MermaidRenderInput, Options } from "../src/types.js";
+import { getDocumentXml, getZip } from "./helpers.js";
 
 const MERMAID_MARKDOWN = `Before.
 

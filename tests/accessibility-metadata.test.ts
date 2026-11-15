@@ -8,9 +8,9 @@ import {
   patchMarkdownInDocx,
   patchMarkdownInDocxToArrayBuffer,
   patchMarkdownInDocxToBuffer,
-} from "../src/index";
-import { applyDocumentMetadata } from "../src/metadata";
-import { getDocumentXml, getZip } from "./helpers";
+} from "../src/index.js";
+import { applyDocumentMetadata } from "../src/metadata.js";
+import { getDocumentXml, getZip } from "./helpers.js";
 
 const ONE_PX_PNG =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAGgwJ/vk9yBgAAAABJRU5ErkJggg==";

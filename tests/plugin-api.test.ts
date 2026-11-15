@@ -4,14 +4,15 @@ import {
   convertMarkdownToDocx,
   MarkdownConversionError,
   patchMarkdownInDocxToBuffer,
-} from "../src/index";
+} from "../src/index.js";
 import type {
   MarkdownDocxPlugin,
   PluginRenderContext,
   PluginRenderResult,
-} from "../src/index";
-import { getDocumentXml, getZip } from "./helpers";
+} from "../src/index.js";
+import { getDocumentXml, getZip } from "./helpers.js";
 import { Document, Packer, Paragraph } from "docx";
+import JSZip from "jszip";
 
 const ONE_PX_PNG_BYTES = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAGgwJ/vk9yBgAAAABJRU5ErkJggg==",
@@ -569,7 +570,7 @@ Footnote reference[^plugin].
         ],
       },
     );
-    const zip = await getZip(new Blob([output]));
+    const zip = await JSZip.loadAsync(output);
     const xml = await zip.file("word/document.xml")?.async("string");
     expect(xml).toContain("body: patched by plugin");
   });

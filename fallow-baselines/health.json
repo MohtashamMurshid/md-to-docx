@@ -42,28 +42,6 @@
         "count": 1
       }
     },
-    "src/patchPackage.ts": {
-      "complexity_critical": {
-        "count": 1
-      },
-      "complexity_moderate": {
-        "count": 1
-      },
-      "crap_critical": {
-        "count": 1
-      },
-      "crap_moderate": {
-        "count": 1
-      }
-    },
-    "src/referenceDocx.ts": {
-      "complexity_high": {
-        "count": 1
-      },
-      "complexity_moderate": {
-        "count": 3
-      }
-    },
     "src/renderers/imageRenderer.ts": {
       "complexity_critical": {
         "count": 3
@@ -173,44 +151,6 @@
         "count": 1
       }
     },
-    "src/patchPackage.ts\u0000loadPatchPackage": {
-      "crap_moderate": {
-        "count": 1
-      }
-    },
-    "src/patchPackage.ts\u0000mergePatchPackage": {
-      "complexity_critical": {
-        "count": 1
-      },
-      "crap_critical": {
-        "count": 1
-      }
-    },
-    "src/patchPackage.ts\u0000repeatedFragments": {
-      "complexity_moderate": {
-        "count": 1
-      }
-    },
-    "src/referenceDocx.ts\u0000<arrow>": {
-      "complexity_moderate": {
-        "count": 1
-      }
-    },
-    "src/referenceDocx.ts\u0000adoptSectionPresentation": {
-      "complexity_moderate": {
-        "count": 1
-      }
-    },
-    "src/referenceDocx.ts\u0000importReferencePartGraph": {
-      "complexity_moderate": {
-        "count": 1
-      }
-    },
-    "src/referenceDocx.ts\u0000resolveStyleMap": {
-      "complexity_high": {
-        "count": 1
-      }
-    },
     "src/renderers/imageRenderer.ts\u0000detectImageType": {
       "complexity_critical": {
         "count": 1
@@ -278,9 +218,7 @@
     "src/modelToDocx.ts:complexity",
     "src/mdastToDocxModel.ts:complexity",
     "src/richTables.ts:complexity",
-    "src/patchPackage.ts:complexity",
     "tests/image-security.test.ts:hidden coupling",
-    "tests/rendering.test.ts:hidden coupling",
-    "src/referenceDocx.ts:complexity"
+    "tests/rendering.test.ts:hidden coupling"
   ]
 }

@@ -65,8 +65,6 @@ export default [
     files: [
       "src/mdastToDocxModel.ts",
       "src/modelToDocx.ts",
-      "src/patchPackage.ts",
-      "src/referenceDocx.ts",
       "src/renderers/chartRenderer.ts",
       "src/renderers/imageRenderer.ts",
       "src/richTables.ts",

@@ -102,6 +102,55 @@ Hello **team**.
     expect(new Set(bookmarkNames).size).toBe(bookmarkNames.length);
   });
 
+  it("applies TOC leaders, TOC styles and pre-filled page numbers in patches", async () => {
+    const template = fs.readFileSync(fixturePath);
+    const patch = async (
+      toc: NonNullable<Parameters<typeof patchMarkdownInDocxToBuffer>[2]>["toc"],
+    ): Promise<{ documentXml: string; settingsXml: string }> => {
+      const zip = await JSZip.loadAsync(
+        await patchMarkdownInDocxToBuffer(
+          template,
+          { body: "[TOC]\n\n# One\n\n\\pagebreak\n\n## Two" },
+          { ...(toc ? { toc } : {}) },
+        ),
+      );
+      return {
+        documentXml: await zip.file("word/document.xml")!.async("string"),
+        settingsXml: (await zip.file("word/settings.xml")?.async("string")) ?? "",
+      };
+    };
+    const pageNumbers = (xml: string): (string | undefined)[] =>
+      Array.from(
+        xml.matchAll(/w:instr=" PAGEREF [^"]+"><w:r><w:t[^>]*>([^<]*)</g),
+        (match) => match[1],
+      );
+
+    const byDefault = await patch(undefined);
+    expect(pageNumbers(byDefault.documentXml)).toEqual(["?", "?"]);
+    expect(byDefault.settingsXml).toContain("updateFields");
+
+    const prefilled = await patch({
+      prefillPageNumbers: true,
+      tabLeader: "underscore",
+    });
+    const [first, second] = pageNumbers(prefilled.documentXml).map(Number);
+    expect(second).toBe(first! + 1);
+    expect(prefilled.settingsXml).not.toContain("updateFields");
+    expect(prefilled.documentXml).not.toContain('w:dirty="true"');
+    expect(
+      Array.from(
+        prefilled.documentXml.matchAll(/w:leader="([^"]+)"/g),
+        (match) => match[1],
+      ),
+    ).toEqual(["underscore", "underscore"]);
+    expect(
+      Array.from(
+        prefilled.documentXml.matchAll(/<w:pStyle w:val="(TOC\d)"\/>/g),
+        (match) => match[1],
+      ),
+    ).toEqual(["TOC1", "TOC2"]);
+  });
+
   it("uses the configured patch table width for inserted markdown tables", async () => {
     const template = fs.readFileSync(fixturePath);
     const output = await patchMarkdownInDocxToBuffer(

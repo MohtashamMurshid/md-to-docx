@@ -205,6 +205,26 @@ const answer = 42;
     expect(footerPath && (await xml(zip, footerPath))).toContain("Template Footer");
   });
 
+  it("keeps TOC entry levels and pre-filled page numbers through a reference", async () => {
+    const output = await convertMarkdownWithReferenceDocxToBuffer(
+      "[TOC]\n\n# One\n\n\\pagebreak\n\n## Two",
+      await createReferenceFixture(),
+      { toc: { prefillPageNumbers: true } },
+    );
+    const zip = await JSZip.loadAsync(output);
+    const documentXml = await xml(zip, "word/document.xml");
+    const entries = Array.from(
+      documentXml.matchAll(/<w:p>(?:(?!<\/w:p>).)*?PAGEREF(?:(?!<\/w:p>).)*<\/w:p>/g),
+      (match) => match[0],
+    );
+
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toContain('<w:pStyle w:val="TOC1"/>');
+    expect(entries[1]).toContain('<w:pStyle w:val="TOC2"/>');
+    expect(entries[1]).toContain('<w:ind w:left="400"/>');
+    expect(entries.map((entry) => /<w:t[^>]*>(\d+)<\/w:t><\/w:r><\/w:fldSimple>/.exec(entry)?.[1])).toEqual(["1", "2"]);
+  });
+
   it("remaps reference numbering above generated ordered and bullet list IDs", async () => {
     const output = await convertMarkdownWithReferenceDocxToBuffer(
       "1. Ordered\n2. Still ordered\n\n- Bullet",

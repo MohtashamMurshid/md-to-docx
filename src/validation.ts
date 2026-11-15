@@ -11,6 +11,7 @@ import {
   SectionPageNumbering,
   SectionPageSize,
   TocOptions,
+  TocTabLeader,
 } from "./types.js";
 import { MarkdownConversionError } from "./errors.js";
 import { validateAccessibilityOptions } from "./accessibility.js";
@@ -68,6 +69,13 @@ const validSectionTypes = [
 ] as const;
 const validPageOrientations = ["PORTRAIT", "LANDSCAPE"] as const;
 const validTextReplacementModes = ["trusted", "untrusted"] as const;
+const validTocTabLeaders: readonly TocTabLeader[] = [
+  "dot",
+  "hyphen",
+  "underscore",
+  "middleDot",
+  "none",
+];
 
 function booleanRule<T, K extends keyof T>(
   key: K,
@@ -93,6 +101,12 @@ const TOC_RULES: readonly AnyFieldRule<TocOptions>[] = [
   },
   booleanRule("pageNumbers", "Invalid toc.pageNumbers"),
   booleanRule("dotLeaders", "Invalid toc.dotLeaders"),
+  {
+    key: "tabLeader",
+    message: "Invalid toc.tabLeader",
+    invalid: isNotOneOf(validTocTabLeaders),
+  },
+  booleanRule("prefillPageNumbers", "Invalid toc.prefillPageNumbers"),
   booleanRule("updateFieldsOnOpen", "Invalid toc.updateFieldsOnOpen"),
   {
     key: "title",

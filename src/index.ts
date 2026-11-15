@@ -26,7 +26,14 @@ import {
   resolveSections,
   ResolvedSectionInput,
 } from "./sectionBuilder.js";
-import { buildTocContent, replaceTocPlaceholders } from "./tocBuilder.js";
+import {
+  buildTocContent,
+  loadTocPageNumberEstimator,
+  prefillPackagePageNumbers,
+  prefillsTocPageNumbers,
+  replaceTocPlaceholders,
+  tocUpdatesFieldsOnOpen,
+} from "./tocBuilder.js";
 import { buildDefaultStyles } from "./documentStyles.js";
 import {
   enforceInputLength,
@@ -258,6 +265,7 @@ export {
   TextReplacementFunctionResult,
   TextReplacementMode,
   TocOptions,
+  TocTabLeader,
 } from "./types.js";
 
 export {
@@ -544,8 +552,19 @@ async function buildDocxOptions(
     ...(shouldUpdateFieldsOnOpen(crossReferences, tocInserted, options)
       ? { features: { updateFields: true } }
       : {}),
+    ...(await tocPageNumberOptions(tocInserted, options)),
     ...metadataProperties(normalizedMetadata),
   };
+}
+
+/** docx's layout pass writes a native TOC's page numbers when asked to. */
+async function tocPageNumberOptions(
+  tocInserted: boolean,
+  options: Options,
+): Promise<Pick<IPropertiesOptions, "pageNumbers">> {
+  return tocInserted && prefillsTocPageNumbers(options.toc)
+    ? { pageNumbers: await loadTocPageNumberEstimator() }
+    : {};
 }
 
 /** Caption references and a native TOC need Word to refresh fields on open. */
@@ -557,11 +576,7 @@ function shouldUpdateFieldsOnOpen(
   const captionFields =
     crossReferences.definitions.size > 0 &&
     options.captions?.updateFieldsOnOpen !== false;
-  const tocFields =
-    tocInserted &&
-    options.toc?.mode !== "links" &&
-    options.toc?.updateFieldsOnOpen !== false;
-  return captionFields || tocFields;
+  return captionFields || (tocInserted && tocUpdatesFieldsOnOpen(options.toc));
 }
 
 async function prepareSectionAsts(
@@ -820,7 +835,10 @@ async function patchDocx(
     { markers, names: patchEntries.map(([name]) => name) },
     options,
   );
-  let patched = patchOutput(merged, outputType);
+  let patched = patchOutput(
+    await withPrefilledPageNumbers(merged, options),
+    outputType,
+  );
 
   if (options.metadata) {
     patched = await applyDocumentMetadataWithOptions(
@@ -832,6 +850,16 @@ async function patchDocx(
 
   await yieldToAbortSignal(options.signal);
   return patched;
+}
+
+/** Pre-filled TOC page numbers need a layout pass over the merged package. */
+async function withPrefilledPageNumbers(
+  merged: Uint8Array,
+  options: PatchMarkdownOptions,
+): Promise<Uint8Array> {
+  if (!prefillsTocPageNumbers(options.toc)) return merged;
+  throwIfAborted(options.signal);
+  return prefillPackagePageNumbers(merged);
 }
 
 function patchOutput(

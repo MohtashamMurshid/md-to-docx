@@ -579,11 +579,31 @@ export interface ConversionWarning {
   sectionIndex?: number | undefined;
 }
 
+/** What fills the space between a TOC entry and its page number. */
+export type TocTabLeader = "dot" | "hyphen" | "underscore" | "middleDot" | "none";
+
 export interface TocOptions {
   /** Native Word field with cached clickable entries. Set links for legacy output. */
   mode?: "native" | "links";
   pageNumbers?: boolean;
+  /** Shorthand for `tabLeader: "dot"` or `"none"`. `tabLeader` wins when both are set. */
   dotLeaders?: boolean;
+  /**
+   * Leader between each entry and its page number. Defaults to `"dot"`, or
+   * `"none"` when `dotLeaders` is false.
+   */
+  tabLeader?: TocTabLeader;
+  /**
+   * Native mode only: write page numbers estimated by docx's layout pass
+   * (`docx/layout`) into the TOC, so Word shows them without updating fields
+   * on open. The numbers are estimates and can differ from Word's layout.
+   * Defaults to false. When true, `updateFieldsOnOpen` defaults to false.
+   */
+  prefillPageNumbers?: boolean;
+  /**
+   * Ask Word to refresh the TOC when the document opens. Defaults to true, or
+   * to false when `prefillPageNumbers` is true.
+   */
   updateFieldsOnOpen?: boolean;
   /**
    * Title paragraph inserted before generated TOC entries. Defaults to

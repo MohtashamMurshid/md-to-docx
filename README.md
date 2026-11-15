@@ -598,11 +598,11 @@ Header/footer Markdown supports formatting, logos, tables, and lists and shares 
 
 ### Native table of contents and conversion warnings
 
-`[TOC]` creates a native Word TOC field with cached clickable heading entries, page-reference fields, and dot leaders. Word supplies actual page numbers when it updates fields; cached page values show `?` until then. After editing headings in Word, update the entire TOC to rebuild it.
+`[TOC]` creates a native Word TOC field with cached clickable heading entries, page-reference fields, and dot leaders. Each entry uses Word's built-in `TOC 1`–`TOC 9` paragraph style for its heading level, the style Word gives the entries it writes, so the cached entries and a rebuilt TOC share one style in Word and LibreOffice. Word supplies actual page numbers when it updates fields; cached page values show `?` until then. After editing headings in Word, update the entire TOC to rebuild it.
 
 ```typescript
 await convertMarkdownToBuffer(markdown, {
-  toc: { mode: "native", pageNumbers: true, dotLeaders: true, updateFieldsOnOpen: true },
+  toc: { mode: "native", pageNumbers: true, tabLeader: "dot", updateFieldsOnOpen: true },
   onWarning: warning => {
     // { code, message, source?, sectionIndex? }
     conversionWarnings.push(warning);
@@ -610,7 +610,21 @@ await convertMarkdownToBuffer(markdown, {
 });
 ```
 
-Set `toc.mode: "links"` for the previous static linked list, or disable `pageNumbers`/`dotLeaders` independently. `updateFieldsOnOpen: false` leaves refreshing to Word's Update Field command. TOC depth, title, and per-level styles remain configurable.
+Set `toc.mode: "links"` for the previous static linked list, or disable `pageNumbers` independently. `tabLeader` picks what fills the space before each page number: `"dot"` (the default), `"hyphen"`, `"underscore"`, `"middleDot"` or `"none"`. The older `dotLeaders: false` still means `"none"`; `tabLeader` wins when both are set. `updateFieldsOnOpen: false` leaves refreshing to Word's Update Field command. TOC depth, title, and per-level styles remain configurable.
+
+#### Pre-filled page numbers
+
+By default Word shows `?` for each TOC page number and asks to update the document's fields when it opens. Set `toc.prefillPageNumbers: true` to write page numbers into the TOC instead:
+
+```typescript
+await convertMarkdownToBuffer(markdown, {
+  toc: { prefillPageNumbers: true },
+});
+```
+
+The numbers come from docx's layout pass (`docx/layout`), which lays the pages out as Word would. It only estimates. Fonts, images, equations or content it can't measure exactly can put a heading on a different page from the one Word shows, and where it can't place a heading at all, that entry keeps `?`. Use it when a document opened without updating fields, or opened in a viewer that never updates them, should still show plausible numbers. When exact numbers matter, update the TOC in Word (right-click it, then **Update Field**).
+
+With `prefillPageNumbers` the TOC field is written clean and `updateFieldsOnOpen` defaults to `false`, so Word opens the document without asking. Set `updateFieldsOnOpen: true` as well to have Word replace the estimates on open. Captions and cross-references keep their own `captions.updateFieldsOnOpen` setting, so a document with captions still asks unless you turn that off too. The option works in ordinary, reference-DOCX and patch conversions. Reference-DOCX styles are applied after the layout pass, so the estimate uses the library's own styles. A patch runs the layout pass over the merged template. The layout pass is imported only when you set the option, so browser bundlers split it into a separate chunk, and it adds nothing to the initial bundle. It has no effect in `links` mode or with `pageNumbers: false`.
 
 `onWarning` reports image failures/budget fallbacks, unsupported math, unresolved heading links, diagram failures, and plugin fallbacks. The library does not log by default. Callback exceptions propagate as conversion failures. Strict options such as `mathRendering.unsupported: "throw"` continue to throw instead of producing a warning.
 
@@ -946,7 +960,7 @@ await convertMarkdownToDocx(markdown, {
 
 ### Table of Contents styling
 
-Drop `[TOC]` on its own line in your markdown to render a clickable, auto-populated table of contents. Every TOC level is individually styleable:
+Drop `[TOC]` on its own line in your markdown to render a clickable, auto-populated table of contents. Every TOC level is individually styleable. These settings format the cached entries directly, on top of the `TOC 1`–`TOC 9` paragraph styles. When Word rebuilds the TOC it formats the entries from those styles instead, so a reference DOCX that defines them controls the rebuilt look:
 
 ```typescript
 await convertMarkdownToDocx(markdown, {
@@ -954,6 +968,7 @@ await convertMarkdownToDocx(markdown, {
     title: "Contents",
     minDepth: 1,
     maxDepth: 3,
+    tabLeader: "middleDot",
   },
   style: {
     tocFontSize: 22,
@@ -1334,11 +1349,17 @@ interface AccessibilityOptions {
 
 #### `TocOptions`
 
-| Field      | Type     | Description                                  |
-| ---------- | -------- | -------------------------------------------- |
-| `title`    | `string` | TOC title. Defaults to `Table of Contents`.  |
-| `minDepth` | `number` | Minimum included heading level, from 1 to 6. |
-| `maxDepth` | `number` | Maximum included heading level, from 1 to 6. |
+| Field                | Type                                                         | Description                                                                                                         |
+| -------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `mode`               | `"native" \| "links"`                                        | Native Word TOC field (default) or a static list of links.                                                          |
+| `title`              | `string`                                                     | TOC title. Defaults to `Table of Contents`. `""` omits it.                                                          |
+| `minDepth`           | `number`                                                     | Minimum included heading level, from 1 to 6.                                                                        |
+| `maxDepth`           | `number`                                                     | Maximum included heading level, from 1 to 6.                                                                        |
+| `pageNumbers`        | `boolean`                                                    | Native mode: show page numbers. Defaults to `true`.                                                                 |
+| `tabLeader`          | `"dot" \| "hyphen" \| "underscore" \| "middleDot" \| "none"` | Leader before each page number. Defaults to `"dot"`, or `"none"` when `dotLeaders` is `false`.                      |
+| `dotLeaders`         | `boolean`                                                    | Shorthand for `tabLeader: "dot"` or `"none"`. `tabLeader` wins when both are set.                                   |
+| `prefillPageNumbers` | `boolean`                                                    | Native mode: write page numbers estimated by docx's layout pass. Defaults to `false`. See [Pre-filled page numbers](#pre-filled-page-numbers). |
+| `updateFieldsOnOpen` | `boolean`                                                    | Ask Word to refresh the TOC on open. Defaults to `true`, or `false` with `prefillPageNumbers`.                      |
 
 
 #### `DocumentSection` (for `template` and each entry in `sections`)

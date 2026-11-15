@@ -105,16 +105,20 @@ async function preparePinnedAgent(
 ): Promise<Agent> {
   enforceRemoteHttpsPolicy(url, options);
 
-  const literalFamily = isIP(url.hostname);
+  // `URL` keeps the brackets around an IPv6 literal (`[::1]`), which `isIP`
+  // and the connector do not accept.
+  const host = url.hostname.replace(/^\[|\]$/g, "");
+  const literalFamily = isIP(host);
   const port = Number(url.port) || 443;
-  const tlsServerName = url.hostname;
 
   if (literalFamily !== 0) {
-    if (isBlockedIpAddress(url.hostname)) {
+    if (isBlockedIpAddress(host)) {
       throw new Error("Remote image host resolves to a blocked network address");
     }
-    return buildPinnedHttpsAgent(tlsServerName, url.hostname, port);
+    return buildPinnedHttpsAgent(host, host, port);
   }
+
+  const tlsServerName = url.hostname;
 
   const addresses = await resolveVerifiedAddresses(url.hostname, dnsTimeoutMs);
   const [pick] = addresses;

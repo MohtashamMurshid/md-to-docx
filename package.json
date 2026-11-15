@@ -33,7 +33,7 @@
     "lint": "eslint src tests",
     "typecheck": "tsc -p tsconfig.test.json --noEmit",
     "guardrails": "node scripts/guardrails.mjs",
-    "fallow": "fallow --fail-on-issues --health-baseline fallow-baselines/health.json --baseline-mode identity --coverage coverage/coverage-final.json",
+    "fallow": "fallow --fail-on-issues --coverage coverage/coverage-final.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:browser-bundle": "npm run build && node tests/browser-bundle.mjs",

@@ -1,4 +1,4 @@
-import { describe, expect, it, afterEach } from "@jest/globals";
+import { describe, expect, it, afterEach } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";

@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: ["18", "20"]
+        node-version: ["20", "22", "24"]
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -42,6 +42,31 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+  # Node 18 is past end-of-life but `engines` still allows it, so it gets only
+  # the packed-consumer smoke test; unit tests run on 20+ (docs/DECISIONS.md).
+  consumer-node18:
+    name: package consumer (Node 18)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "18"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build package
+        run: npm run build
+
+      - name: Verify package consumer imports
+        run: npm run test:consumer
 
   # Repository-wide checks run once, on a current Node: fallow needs Node 22+.
   # `npm run ci` runs the same steps locally (docs/DECISIONS.md).
@@ -82,7 +107,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: ["18", "20"]
+        node-version: ["20", "22"]
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1

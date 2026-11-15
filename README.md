@@ -1481,7 +1481,7 @@ cd md-to-docx
 npm install
 
 npm run build   # compile TypeScript to dist/
-npm test        # run the test suite
+npm test        # run the Vitest suite
 npm run ci      # everything CI runs: guardrails, lint, typecheck, build, tests, fallow, packaging checks
 ```
 

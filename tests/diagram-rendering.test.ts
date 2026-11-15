@@ -1,4 +1,4 @@
-import { describe, expect, it, jest } from "@jest/globals";
+import { describe, expect, it, vi } from "vitest";
 import {
   convertMarkdownToDocx,
   MarkdownConversionError,
@@ -61,7 +61,7 @@ describe("Diagram rendering: Mermaid fenced blocks", () => {
   });
 
   it("embeds renderer output as a DOCX image when enabled", async () => {
-    const renderMermaid = jest.fn((input: MermaidRenderInput) => {
+    const renderMermaid = vi.fn((input: MermaidRenderInput) => {
       expect(input.code).toContain("graph TD");
       return {
         data: ONE_PX_PNG_BYTES,

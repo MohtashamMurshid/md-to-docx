@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, jest } from "@jest/globals";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   convertMarkdownToDocx,
   MarkdownConversionError,
@@ -13,12 +13,12 @@ async function documentRelationshipsXml(blob: Blob): Promise<string> {
 
 describe("Security regressions", () => {
   afterEach(() => {
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
   });
 
   it("does not write diagnostics to console during library conversion", async () => {
-    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
-    const errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     await convertMarkdownToDocx("# Title\n\n[[toc]]");
 
@@ -80,7 +80,7 @@ describe("Security regressions", () => {
   });
 
   it("rejects function text replacements in untrusted mode before execution", async () => {
-    const replacement = jest.fn((match: string) => `Number: ${match}`);
+    const replacement = vi.fn((match: string) => `Number: ${match}`);
 
     await expect(
       convertMarkdownToDocx("Invoice 42", {
@@ -104,7 +104,7 @@ describe("Security regressions", () => {
   });
 
   it("preserves trusted function text replacement behavior", async () => {
-    const replacement = jest.fn((match: string) => `Number: ${match}`);
+    const replacement = vi.fn((match: string) => `Number: ${match}`);
     const blob = await convertMarkdownToDocx("Invoice 42", {
       textReplacementMode: "trusted",
       textReplacements: [{ find: /(\d+)/g, replace: replacement }],

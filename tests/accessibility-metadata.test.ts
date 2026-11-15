@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, jest } from "@jest/globals";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import JSZip from "jszip";
 import {
   convertMarkdownToArrayBuffer,
@@ -27,7 +27,7 @@ async function part(zip: JSZip, path: string): Promise<string> {
 }
 
 afterEach(() => {
-  jest.restoreAllMocks();
+  vi.restoreAllMocks();
 });
 
 describe("document metadata package parts", () => {
@@ -201,7 +201,7 @@ describe("drawing accessibility properties", () => {
   });
 
   it("propagates alt text for allowed remote images", async () => {
-    jest.spyOn(globalThis, "fetch").mockResolvedValue(
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(new Uint8Array(ONE_PX_PNG_BYTES), {
         status: 200,
         headers: { "content-type": "image/png" },
@@ -228,7 +228,7 @@ describe("drawing accessibility properties", () => {
   });
 
   it("throws for empty normal and remote image alt text in strict mode before lookup", async () => {
-    const fetchSpy = jest.spyOn(globalThis, "fetch");
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
     await expect(
       convertMarkdownToDocx(`![](${ONE_PX_PNG})`, {
         accessibility: { missingImageAltText: "throw" },
@@ -262,7 +262,7 @@ describe("drawing accessibility properties", () => {
       alt: "Quarterly revenue",
       options: { plugins: { title: { display: true, text: "FY26 <Revenue>" } } },
     });
-    const customRenderer = jest.fn(() => ONE_PX_PNG);
+    const customRenderer = vi.fn(() => ONE_PX_PNG);
     const builtInXml = await getDocumentXml(
       await convertMarkdownToDocx(`\`\`\`chart\n${definition}\n\`\`\``, {
         chartRendering: { enabled: true },

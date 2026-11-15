@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, jest } from "@jest/globals";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { convertMarkdownToDocx } from "../src/index.js";
 import type { Options } from "../src/types.js";
 import { at, getDocumentXml, getZip } from "./helpers.js";
@@ -31,12 +31,12 @@ async function mediaCount(markdown: string, options?: Options): Promise<number> 
 }
 
 afterEach(() => {
-  jest.restoreAllMocks();
+  vi.restoreAllMocks();
 });
 
 describe("Image security", () => {
   it("rejects remote images by default", async () => {
-    const fetchSpy = jest
+    const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockRejectedValue(new Error("unexpected fetch"));
     const xml = await render("![remote](https://example.com/image.png)");
@@ -47,7 +47,7 @@ describe("Image security", () => {
   });
 
   it("rejects http URLs even when remote image fetching is enabled", async () => {
-    const fetchSpy = jest
+    const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockRejectedValue(new Error("unexpected fetch"));
     const xml = await render("![remote](http://93.184.216.34/image.png)", {
@@ -59,7 +59,7 @@ describe("Image security", () => {
   });
 
   it("rejects loopback and private-network addresses before fetch", async () => {
-    const fetchSpy = jest
+    const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockRejectedValue(new Error("unexpected fetch"));
     const xml = await render("![remote](https://127.0.0.1/image.png)", {
@@ -71,7 +71,7 @@ describe("Image security", () => {
   });
 
   it("rejects IPv4-mapped IPv6 private addresses before fetch", async () => {
-    const fetchSpy = jest
+    const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockRejectedValue(new Error("unexpected fetch"));
     const xml = await render("![remote](https://[::ffff:192.168.1.10]/image.png)", {
@@ -83,7 +83,7 @@ describe("Image security", () => {
   });
 
   it("rejects hex IPv4-mapped IPv6 hostnames before fetch", async () => {
-    const fetchSpy = jest
+    const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockRejectedValue(new Error("unexpected fetch"));
     const xml = await render("![remote](https://[::ffff:c0a8:010a]/image.png)", {
@@ -95,7 +95,7 @@ describe("Image security", () => {
   });
 
   it("rejects uncompressed IPv6-mapped private addresses before fetch", async () => {
-    const fetchSpy = jest
+    const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockRejectedValue(new Error("unexpected fetch"));
     const xml = await render(
@@ -127,7 +127,7 @@ describe("Image security", () => {
   });
 
   it("rejects remote images with oversized content-length", async () => {
-    jest.spyOn(globalThis, "fetch").mockResolvedValue(
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response("", {
         status: 200,
         headers: {
@@ -155,7 +155,7 @@ describe("Image security", () => {
         controller.close();
       },
     });
-    jest.spyOn(globalThis, "fetch").mockResolvedValue(
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(body, {
         status: 200,
         headers: {
@@ -175,7 +175,7 @@ describe("Image security", () => {
   });
 
   it("re-checks redirected remote image targets", async () => {
-    jest.spyOn(globalThis, "fetch").mockResolvedValue(
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response("", {
         status: 302,
         headers: {
@@ -196,7 +196,7 @@ describe("Image security", () => {
 
   it("stops following redirects after maxRedirects", async () => {
     let fetchCalls = 0;
-    jest.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
       fetchCalls += 1;
       expect(init?.redirect).toBe("manual");
       return Promise.resolve(
@@ -221,7 +221,7 @@ describe("Image security", () => {
   });
 
   it("aborts slow remote image fetches", async () => {
-    jest.spyOn(globalThis, "fetch").mockImplementation((_, init) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((_, init) => {
       return new Promise<Response>((_resolve, reject) => {
         init?.signal?.addEventListener("abort", () => {
           reject(new DOMException("The operation was aborted", "AbortError"));
@@ -240,7 +240,7 @@ describe("Image security", () => {
   });
 
   it("aborts slow remote image response bodies", async () => {
-    jest.spyOn(globalThis, "fetch").mockResolvedValue(
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         new ReadableStream<Uint8Array>({
           start() {
@@ -262,7 +262,7 @@ describe("Image security", () => {
   });
 
   it("does not count failed images toward maxImages", async () => {
-    const fetchSpy = jest
+    const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockRejectedValue(new Error("unexpected fetch"));
 
@@ -283,7 +283,7 @@ describe("Image security", () => {
 
   it("stops attempting remote fetches once the failed-image budget is spent", async () => {
     let fetchCalls = 0;
-    jest.spyOn(globalThis, "fetch").mockImplementation(() => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
       fetchCalls += 1;
       return Promise.reject(new Error("connection refused"));
     });
@@ -304,7 +304,7 @@ describe("Image security", () => {
   });
 
   it("denies every remote host when an empty allowedHosts list is provided", async () => {
-    const fetchSpy = jest
+    const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockRejectedValue(new Error("unexpected fetch"));
 
@@ -318,7 +318,7 @@ describe("Image security", () => {
 
   it("still fetches hosts present in the allowedHosts list", async () => {
     const pngBytes = Buffer.from(at(ONE_PX_PNG.split(","), 1), "base64");
-    jest.spyOn(globalThis, "fetch").mockResolvedValue(
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(new Uint8Array(pngBytes), {
         status: 200,
         headers: { "content-type": "image/png" },

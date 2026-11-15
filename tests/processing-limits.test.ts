@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, jest } from "@jest/globals";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   convertMarkdownToDocx,
   MarkdownConversionError,
@@ -9,7 +9,7 @@ import type { DocxDocumentModel } from "../src/docxModel.js";
 import type { Options, Style } from "../src/types.js";
 
 afterEach(() => {
-  jest.restoreAllMocks();
+  vi.restoreAllMocks();
 });
 
 const invalidLimitCases: Array<{
@@ -107,7 +107,7 @@ describe("Conversion cancellation", () => {
 
   it("rejects when the signal aborts during remote image fetch", async () => {
     const controller = new AbortController();
-    jest.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
       setTimeout(() => {
         controller.abort(new Error("caller cancelled"));
       }, 0);
@@ -141,7 +141,7 @@ describe("Conversion cancellation", () => {
       ],
     };
 
-    jest.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
       setTimeout(() => {
         controller.abort(new Error("caller cancelled"));
       }, 0);

@@ -1,4 +1,4 @@
-import { describe, expect, it, jest } from "@jest/globals";
+import { describe, expect, it, vi } from "vitest";
 import {
   fetchRemoteImage,
   resolveImageHandlingOptions,
@@ -6,7 +6,7 @@ import {
 
 describe("browser remote image policy", () => {
   it("fails closed without issuing a request even when remote images are enabled", async () => {
-    const fetchSpy = jest
+    const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockRejectedValue(new Error("unexpected browser fetch"));
     const options = resolveImageHandlingOptions({

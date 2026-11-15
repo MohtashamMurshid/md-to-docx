@@ -103,8 +103,9 @@ function stepStartIndex(lines, index) {
   return start;
 }
 
+/** A non-blank, non-comment line at or left of the step's `-` starts something else. */
 const endsStep = (line, indent) =>
-  line.trim() !== "" && indentOf(line) <= indent;
+  /^\s*[^\s#]/.test(line) && indentOf(line) <= indent;
 
 /** The lines of the workflow step that contains `index`, from its `-` to the next step. */
 function stepLines(lines, index) {

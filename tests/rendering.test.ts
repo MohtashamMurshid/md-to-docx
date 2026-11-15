@@ -12,6 +12,12 @@ import { getDocumentXml, getZip, saveBlobForDebug } from "./helpers.js";
 // 1x1 transparent PNG used in image tests so the suite doesn't hit the network.
 const ONE_PX_PNG =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAGgwJ/vk9yBgAAAABJRU5ErkJggg==";
+// Distinct 1x1 PNGs (red, blue): docx stores identical image bytes once, so
+// counting media parts needs different images.
+const RED_PX_PNG =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+const BLUE_PX_PNG =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVR4nGNgYPj/HwADAgH/5ncLrgAAAABJRU5ErkJggg==";
 
 function documentParagraphCount(xml: string): number {
   return xml.match(/<w:p>/g)?.length || 0;
@@ -587,7 +593,7 @@ Interrupting paragraph.
     expect(xml).toContain(" task");
     expect(xml).toContain("<w:b/>");
     expect(xml).toContain("<w:i/>");
-    expect(xml).toContain('<w:shd w:fill="F5F5F5"/');
+    expect(xml).toContain('<w:shd w:fill="F5F5F5" w:val="clear"/>');
     expect(numberingLevels(xml)).toEqual(["0", "0", "0", "1"]);
   });
 
@@ -648,7 +654,7 @@ describe("Rendering: thematic breaks", () => {
 
     expect(horizontalRuleCount(xml)).toBe(2);
     expect(xml).toMatch(
-      /<w:pBdr><w:bottom\b[^>]*\/><w:left\b[^>]*\/><\/w:pBdr>/,
+      /<w:pBdr><w:left\b[^>]*\/><w:bottom\b[^>]*\/><\/w:pBdr>/,
     );
     expect(xml).toContain('<w:ind w:left="720"/>');
     expect(numberingMarkerCount(xml)).toBe(1);
@@ -977,9 +983,9 @@ describe("Rendering: images", () => {
   it("applies maximum image count across top-level and nested images", async () => {
     const markdown = `![one](${ONE_PX_PNG})
 
-- ![two](${ONE_PX_PNG})
+- ![two](${RED_PX_PNG})
 
-> ![three](${ONE_PX_PNG})`;
+> ![three](${BLUE_PX_PNG})`;
 
     const blob = await convertMarkdownToDocx(markdown, {
       imageHandling: { maxImages: 2 },
@@ -1161,5 +1167,40 @@ describe("Rendering: error cases", () => {
     await expect(
       convertMarkdownToDocx(undefined as unknown as string),
     ).rejects.toBeInstanceOf(MarkdownConversionError);
+  });
+});
+
+describe("Rendering: stable IDs", () => {
+  it("numbers bookmarks and drawings the same way on every conversion", async () => {
+    const markdown = `# One
+
+![a](${ONE_PX_PNG}) text[^n]
+
+## Two
+
+![b](${RED_PX_PNG})
+
+[^n]: Note with ![c](${BLUE_PX_PNG})`;
+    const parts = async () => {
+      const zip = await getZip(await convertMarkdownToDocx(markdown));
+      return Promise.all(
+        ["word/document.xml", "word/footnotes.xml"].map((part) =>
+          zip.file(part)!.async("string"),
+        ),
+      );
+    };
+
+    const first = await parts();
+    expect(await parts()).toEqual(first);
+
+    const xml = first.join("");
+    const ids = (pattern: RegExp) =>
+      Array.from(xml.matchAll(pattern), (match) => match[1]);
+    const starts = ids(/<w:bookmarkStart\b[^>]*\bw:id="(\d+)"/g);
+    const ends = ids(/<w:bookmarkEnd\b[^>]*\bw:id="(\d+)"/g);
+    expect(starts.length).toBeGreaterThan(2);
+    expect(new Set(starts).size).toBe(starts.length);
+    expect([...ends].sort()).toEqual([...starts].sort());
+    expect(ids(/<wp:docPr\b[^>]*\bid="(\d+)"/g)).toEqual(["1", "2", "3"]);
   });
 });

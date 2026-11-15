@@ -817,8 +817,7 @@ async function patchDocx(
   const merged = await mergePatchPackage(
     basePackage,
     donorBytes,
-    markers,
-    patchEntries.map(([name]) => name),
+    { markers, names: patchEntries.map(([name]) => name) },
     options,
   );
   let patched = patchOutput(merged, outputType);

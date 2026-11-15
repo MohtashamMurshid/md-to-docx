@@ -60,7 +60,7 @@ A TypeScript-first library and CLI that turns Markdown into production-ready Wor
 - **Reference DOCX style generation** — create a fresh Markdown-derived document while adopting named styles, theme/fonts, page geometry, and final-section headers/footers from a trusted or untrusted Word reference.
 - **Accessible document semantics** — real Word drawing descriptions, strict missing-alt gates, proofing language, semantic headings/table headers, and typed package metadata.
 - **Optional syntax highlighting** — opt-in, powered by `[lowlight](https://github.com/wooorm/lowlight)`; ships a GitHub-light theme and lets you override any token color.
-- **Native Word math** — Markdown `$...$` and `$$...$$` equations render as editable Word math for a documented TeX subset.
+- **Native Word math** — Markdown `$...$` and `$$...$$` equations render as editable Word math, including matrices, `cases` and aligned equations.
 - **Works everywhere** — Node.js (18.17+) and modern browsers; the package ships ESM with type declarations.
 - **Small public surface, stable API** — only the root entrypoint is exported via `package.json#exports`.
 
@@ -868,9 +868,14 @@ $$
 $$
 ```
 
-The renderer emits native Word math objects, not images, so supported equations remain editable in Word. The first supported subset covers plain symbols and text, superscript/subscript, combined subscript/superscript, `\frac{...}{...}`, `\sqrt{...}`, common Greek-letter commands, common operators such as `\times`, `\cdot`, `\le`, `\ge`, `\neq`, `\approx`, `\sum`, and `\int`, plus simple function names such as `\sin`, `\cos`, `\tan`, `\log`, and `\ln`.
+The renderer emits native Word math objects, not images, so equations remain editable in Word. Each expression goes through two engines, in order:
 
-Unsupported TeX falls back to literal source text by default, including delimiters, so content is not silently dropped. To fail conversion instead, set:
+1. docx's `latexToMath`, which reads the math that LaTeX, MathJax and KaTeX write: fractions, scripts, roots with a degree (`\sqrt[3]{x}`), sums, integrals and other large operators, functions such as `\sin` and `\lim`, brackets that grow with `\left` and `\right`, accents, `\overline`, braces, boxes, fonts such as `\mathbb` and `\mathrm`, `\text`, Greek letters and symbols, and the `matrix`/`pmatrix`/`bmatrix`, `cases` and `align` environments, with `\tag` numbers.
+2. If `latexToMath` rejects the expression, the library's own TeX subset tries it: symbols and text, superscript/subscript, `\frac{...}{...}`, `\sqrt{...}`, common Greek letters, operators and function names, plus a backslash before any punctuation character (such as `\*`), which it renders as that character.
+
+Colors, sizes and spacing that Word works out for itself are left out.
+
+TeX that neither engine reads (an unknown command, say, or an unclosed `{`) falls back to literal source text by default, including delimiters, so content is not silently dropped. To fail conversion instead, set:
 
 ```typescript
 await convertMarkdownToDocx(markdown, {
@@ -886,7 +891,7 @@ await convertMarkdownToDocx(markdown, {
 });
 ```
 
-Escaped dollars such as `\$x^2$` remain text. Advanced TeX layout commands such as matrices, over/under accents, custom macros, and root-degree syntax are not rendered as equations in this native subset.
+Escaped dollars such as `\$x^2$` remain text. Custom macros (`\newcommand`) are not expanded.
 
 ### Custom heading and paragraph alignment
 

@@ -8,6 +8,7 @@ import {
   MathSuperScript,
 } from "docx";
 import type { MathComponent } from "docx";
+import { latexToMath } from "docx/math";
 
 const COMMAND_REPLACEMENTS = new Map<string, string>([
   ["alpha", "α"],
@@ -54,10 +55,36 @@ const COMMAND_REPLACEMENTS = new Map<string, string>([
 ]);
 
 type ParseResult =
-  | { supported: true; children: MathComponent[] }
+  | { supported: true; children: readonly MathComponent[] }
   | { supported: false; reason: string };
 
 class MathParseError extends Error {}
+
+interface Scripts {
+  subScript?: MathComponent[];
+  superScript?: MathComponent[];
+}
+
+const SCRIPT_SLOTS = new Map<string, { key: keyof Scripts; label: string }>([
+  ["_", { key: "subScript", label: "subscript" }],
+  ["^", { key: "superScript", label: "superscript" }],
+]);
+
+function attachScripts(
+  base: MathComponent,
+  { subScript, superScript }: Scripts,
+): MathComponent {
+  if (subScript && superScript) {
+    return new MathSubSuperScript({ children: [base], subScript, superScript });
+  }
+  if (subScript) {
+    return new MathSubScript({ children: [base], subScript });
+  }
+  if (superScript) {
+    return new MathSuperScript({ children: [base], superScript });
+  }
+  return base;
+}
 
 class TexMathParser {
   private position = 0;
@@ -96,41 +123,26 @@ class TexMathParser {
   }
 
   private parseAtomWithScripts(): MathComponent {
-    let base = this.parseAtom();
-    let subScript: MathComponent[] | undefined;
-    let superScript: MathComponent[] | undefined;
+    const base = this.parseAtom();
+    return attachScripts(base, this.parseScripts());
+  }
 
-    while (this.source[this.position] === "_" || this.source[this.position] === "^") {
-      const marker = this.source[this.position];
+  /** The `_` and `^` scripts after an atom, at most one of each. */
+  private parseScripts(): Scripts {
+    const scripts: Scripts = {};
+    let slot = SCRIPT_SLOTS.get(this.source[this.position] ?? "");
+
+    while (slot) {
       this.position++;
       const value = this.parseScriptArgument();
-
-      if (marker === "_") {
-        if (subScript) {
-          throw new MathParseError("Duplicate subscript");
-        }
-        subScript = value;
-      } else {
-        if (superScript) {
-          throw new MathParseError("Duplicate superscript");
-        }
-        superScript = value;
+      if (scripts[slot.key]) {
+        throw new MathParseError(`Duplicate ${slot.label}`);
       }
+      scripts[slot.key] = value;
+      slot = SCRIPT_SLOTS.get(this.source[this.position] ?? "");
     }
 
-    if (subScript && superScript) {
-      base = new MathSubSuperScript({
-        children: [base],
-        subScript,
-        superScript,
-      });
-    } else if (subScript) {
-      base = new MathSubScript({ children: [base], subScript });
-    } else if (superScript) {
-      base = new MathSuperScript({ children: [base], superScript });
-    }
-
-    return base;
+    return scripts;
   }
 
   private parseAtom(): MathComponent {
@@ -240,7 +252,7 @@ class TexMathParser {
   }
 }
 
-export function parseTexMath(source: string): ParseResult {
+function parseTexSubset(source: string): ParseResult {
   try {
     return {
       supported: true,
@@ -254,6 +266,29 @@ export function parseTexMath(source: string): ParseResult {
   }
 }
 
-export function renderNativeMath(children: MathComponent[]): DocxMath {
+/** docx's LaTeX reader, or [] when it throws. */
+function readLatex(source: string): readonly MathComponent[] {
+  try {
+    return latexToMath(source);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Reads TeX with docx's `latexToMath` first. When that throws, or reads nothing,
+ * the hand-written subset above gets a turn, and its reason is the one reported
+ * when neither engine can read the expression.
+ */
+export function parseTexMath(source: string): ParseResult {
+  const children = readLatex(source);
+  return children.length > 0
+    ? { supported: true, children }
+    : parseTexSubset(source);
+}
+
+export function renderNativeMath(
+  children: readonly MathComponent[],
+): DocxMath {
   return new DocxMath({ children });
 }

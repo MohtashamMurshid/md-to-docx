@@ -22,8 +22,7 @@ test-output.docx
 .DS_Store
 Thumbs.db 
 
-# Jest
-jest.config.js
+# Test output
 /test-output
 
 # docx

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@jest/globals";
+import { describe, expect, it } from "vitest";
 import { convertMarkdownToDocx } from "../src/index.js";
 import type { Options } from "../src/types.js";
 import { at, getDocumentXml, saveBlobForDebug } from "./helpers.js";

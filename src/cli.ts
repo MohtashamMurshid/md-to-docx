@@ -43,19 +43,23 @@ interface CliArgs {
   batch: boolean;
   watch: boolean;
 }
-function parseCliArgs(args: string[]): CliArgs | undefined {
-  if (args.includes("--help") || args.includes("-h")) return undefined;
-  const result: CliArgs = { input: "", output: "", batch: false, watch: false };
-  const values: Record<
-    string,
-    "options" | "reference" | "patches" | "baseDirectory"
-  > = {
-    "--options": "options",
-    "-o": "options",
-    "--reference": "reference",
-    "--patches": "patches",
-    "--base-dir": "baseDirectory",
-  };
+type ValueFlagField = "options" | "reference" | "patches" | "baseDirectory";
+const VALUE_FLAGS: Record<string, ValueFlagField> = {
+  "--options": "options",
+  "-o": "options",
+  "--reference": "reference",
+  "--patches": "patches",
+  "--base-dir": "baseDirectory",
+};
+
+function flagValue(value: string | undefined, flag: string): string {
+  if (!value || value.startsWith("-"))
+    throw new Error(`Missing value for ${flag}`);
+  return value;
+}
+
+/** Reads flags into `result` and returns the positional arguments. */
+function collectCliArgs(args: string[], result: CliArgs): string[] {
   const positional: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
@@ -63,22 +67,16 @@ function parseCliArgs(args: string[]): CliArgs | undefined {
       result[arg.slice(2) as "batch" | "watch"] = true;
       continue;
     }
-    const key = values[arg];
-    if (key) {
-      const value = args[++i];
-      if (!value || value.startsWith("-"))
-        throw new Error(`Missing value for ${arg}`);
-      result[key] = value;
-    } else if (arg.startsWith("-") && arg !== "-")
+    const key = VALUE_FLAGS[arg];
+    if (key) result[key] = flagValue(args[++i], arg);
+    else if (arg.startsWith("-") && arg !== "-")
       throw new Error(`Unknown argument: ${arg}`);
     else positional.push(arg);
   }
-  if (positional.length !== 2)
-    throw new Error(
-      "Expected exactly 2 positional arguments: <input.md> <output.docx>",
-    );
-  result.input = positional[0]!;
-  result.output = positional[1]!;
+  return positional;
+}
+
+function assertCompatibleArgs(result: CliArgs, positional: string[]): void {
   if (
     result.patches &&
     (result.reference || result.batch || result.input === "-")
@@ -93,6 +91,19 @@ function parseCliArgs(args: string[]): CliArgs | undefined {
     path.resolve(result.input) === path.resolve(result.output)
   )
     throw new Error("Batch input and output directories must differ");
+}
+
+function parseCliArgs(args: string[]): CliArgs | undefined {
+  if (args.includes("--help") || args.includes("-h")) return undefined;
+  const result: CliArgs = { input: "", output: "", batch: false, watch: false };
+  const positional = collectCliArgs(args, result);
+  if (positional.length !== 2)
+    throw new Error(
+      "Expected exactly 2 positional arguments: <input.md> <output.docx>",
+    );
+  result.input = positional[0]!;
+  result.output = positional[1]!;
+  assertCompatibleArgs(result, positional);
   return result;
 }
 async function readOptionsFile(
@@ -157,6 +168,129 @@ async function atomicWrite(file: string, data: Buffer): Promise<void> {
   }
 }
 
+/** One CLI run: parsed arguments and where its output and messages go. */
+interface CliRun {
+  parsed: CliArgs;
+  output: CliOutput;
+  signal: AbortSignal | undefined;
+  /** Progress messages: stdout, or stderr when stdout carries the DOCX. */
+  report: (message: string) => void;
+  binaryStdout: boolean;
+}
+
+/** A CLI run with its options file and reference DOCX loaded. */
+interface CliJob extends CliRun {
+  options: ReferenceDocxGenerationOptions;
+  reference: Buffer | undefined;
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function listInputs(parsed: CliArgs): Promise<string[]> {
+  if (!parsed.batch) return [parsed.input];
+  const files = await collectFiles(path.resolve(parsed.input));
+  return files.filter((file) => /\.md$/i.test(file));
+}
+
+/** The JSON options for one input, with the caller's signal and warnings. */
+function conversionOptionsFor(input: string, job: CliJob) {
+  const { parsed, options, signal, output } = job;
+  const baseDirectory = path.resolve(
+    parsed.baseDirectory ??
+      options.imageHandling?.baseDirectory ??
+      (input === "-" ? process.cwd() : path.dirname(input)),
+  );
+  // The caller's signal always replaces any `signal` key from JSON.
+  const { signal: _jsonSignal, ...jsonOptions } = options;
+  return {
+    ...jsonOptions,
+    ...(signal ? { signal } : {}),
+    imageHandling: { ...options.imageHandling, baseDirectory },
+    onWarning: (warning: { code: string; message: string }) => {
+      output.error(`[${warning.code}] ${warning.message}`);
+    },
+  };
+}
+
+async function renderInput(input: string, job: CliJob): Promise<Buffer> {
+  const { parsed, reference, output } = job;
+  const conversionOptions = conversionOptionsFor(input, job);
+  if (parsed.patches) {
+    const patches: unknown = JSON.parse(
+      await fs.readFile(parsed.patches, "utf8"),
+    );
+    return patchMarkdownInDocxToBuffer(
+      await fs.readFile(input),
+      patches as Parameters<typeof patchMarkdownInDocxToBuffer>[1],
+      conversionOptions,
+    );
+  }
+  const markdown =
+    input === "-"
+      ? await (output.readStdin ?? standardInput)()
+      : await fs.readFile(input, "utf8");
+  return reference
+    ? convertMarkdownWithReferenceDocxToBuffer(
+        markdown,
+        reference,
+        conversionOptions,
+      )
+    : convertMarkdownToBuffer(markdown, conversionOptions);
+}
+
+/** Batch outputs mirror the input tree, with .md renamed to .docx. */
+function destinationFor(parsed: CliArgs, input: string): string {
+  return parsed.batch
+    ? path.resolve(
+        parsed.output,
+        path
+          .relative(path.resolve(parsed.input), input)
+          .replace(/\.md$/i, ".docx"),
+      )
+    : path.resolve(parsed.output);
+}
+
+async function convertInput(input: string, job: CliJob): Promise<void> {
+  // Called unbound, as the caller-supplied CliOutput function always was.
+  const { output, report } = job;
+  const buffer = await renderInput(input, job);
+  const destination = destinationFor(job.parsed, input);
+  if (job.binaryStdout) await (output.writeStdout ?? standardOutput)(buffer);
+  else {
+    await atomicWrite(destination, buffer);
+    report(`DOCX created at: ${destination}`);
+  }
+}
+
+/**
+ * Converts every input once. In batch mode a failed input is reported and
+ * the rest still convert; the run then fails as a whole.
+ */
+async function convertAll(run: CliRun): Promise<void> {
+  const { parsed, signal } = run;
+  const options = parsed.options ? await readOptionsFile(parsed.options) : {};
+  const inputs = await listInputs(parsed);
+  if (!inputs.length) throw new Error("No Markdown files found");
+  const reference = parsed.reference
+    ? await fs.readFile(parsed.reference)
+    : undefined;
+  const job: CliJob = { ...run, options, reference };
+  let failed = false;
+  for (const input of inputs) {
+    if (signal?.aborted) return;
+    try {
+      await convertInput(input, job);
+    } catch (error) {
+      if (!parsed.batch) throw error;
+      failed = true;
+      run.output.error(`${input}: ${errorText(error)}`);
+    }
+  }
+  if (failed) throw new Error("One or more batch conversions failed");
+}
+
 export async function runCli(
   args: string[],
   output: CliOutput = { log: console.log, error: console.error },
@@ -171,84 +305,8 @@ export async function runCli(
     }
     const binaryStdout = parsed.output === "-";
     const report = binaryStdout ? output.error : output.log;
-    const convert = async (): Promise<void> => {
-      const options = parsed.options
-        ? await readOptionsFile(parsed.options)
-        : {};
-      const inputs = parsed.batch
-        ? (await collectFiles(path.resolve(parsed.input))).filter((file) =>
-            /\.md$/i.test(file),
-          )
-        : [parsed.input];
-      if (!inputs.length) throw new Error("No Markdown files found");
-      const reference = parsed.reference
-        ? await fs.readFile(parsed.reference)
-        : undefined;
-      let failed = false;
-      for (const input of inputs) {
-        if (signal?.aborted) return;
-        try {
-          const baseDirectory = path.resolve(
-            parsed.baseDirectory ??
-              options.imageHandling?.baseDirectory ??
-              (input === "-" ? process.cwd() : path.dirname(input)),
-          );
-          // The caller's signal always replaces any `signal` key from JSON.
-          const { signal: _jsonSignal, ...jsonOptions } = options;
-          const conversionOptions = {
-            ...jsonOptions,
-            ...(signal ? { signal } : {}),
-            imageHandling: { ...options.imageHandling, baseDirectory },
-            onWarning: (warning: { code: string; message: string }) =>
-              { output.error(`[${warning.code}] ${warning.message}`); },
-          };
-          let buffer: Buffer;
-          if (parsed.patches) {
-            const patches: unknown = JSON.parse(
-              await fs.readFile(parsed.patches, "utf8"),
-            );
-            buffer = await patchMarkdownInDocxToBuffer(
-              await fs.readFile(input),
-              patches as Parameters<typeof patchMarkdownInDocxToBuffer>[1],
-              conversionOptions,
-            );
-          } else {
-            const markdown =
-              input === "-"
-                ? await (output.readStdin ?? standardInput)()
-                : await fs.readFile(input, "utf8");
-            buffer = reference
-              ? await convertMarkdownWithReferenceDocxToBuffer(
-                  markdown,
-                  reference,
-                  conversionOptions,
-                )
-              : await convertMarkdownToBuffer(markdown, conversionOptions);
-          }
-          const destination = parsed.batch
-            ? path.resolve(
-                parsed.output,
-                path
-                  .relative(path.resolve(parsed.input), input)
-                  .replace(/\.md$/i, ".docx"),
-              )
-            : path.resolve(parsed.output);
-          if (binaryStdout)
-            await (output.writeStdout ?? standardOutput)(buffer);
-          else {
-            await atomicWrite(destination, buffer);
-            report(`DOCX created at: ${destination}`);
-          }
-        } catch (error) {
-          if (!parsed.batch) throw error;
-          failed = true;
-          output.error(
-            `${input}: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
-      }
-      if (failed) throw new Error("One or more batch conversions failed");
-    };
+    const convert = (): Promise<void> =>
+      convertAll({ parsed, output, signal, report, binaryStdout });
     try {
       await convert();
     } catch (error) {
@@ -352,9 +410,7 @@ export async function runCli(
     await finishRun;
     return 0;
   } catch (error) {
-    output.error(
-      `Error: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    output.error(`Error: ${errorText(error)}`);
     output.error(HELP_TEXT);
     return 1;
   } finally {

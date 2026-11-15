@@ -288,142 +288,191 @@ export function validatePluginConfiguration(options: Options): void {
     );
   }
 
-  const names = new Set<string>();
-  const fenceOwners = new Map<string, string>();
-  const nodeOwners = new Map<string, string>();
-  const conflictPolicy = options.pluginOptions?.conflictPolicy ?? "error";
+  const registry: PluginRegistry = {
+    names: new Set<string>(),
+    fenceOwners: new Map<string, string>(),
+    nodeOwners: new Map<string, string>(),
+    conflictPolicy: options.pluginOptions?.conflictPolicy ?? "error",
+    options,
+  };
   const pluginList: readonly unknown[] = plugins;
 
   pluginList.forEach((plugin, registrationIndex) => {
-    if (!plugin || typeof plugin !== "object") {
-      throw new MarkdownConversionError("Invalid plugin: must be an object", {
-        registrationIndex,
-      });
-    }
-    const fields: PluginFields = plugin;
-    if (fields.apiVersion !== 1) {
-      throw new MarkdownConversionError("Unsupported plugin apiVersion", {
-        plugin: fields.name,
-        apiVersion: fields.apiVersion,
-      });
-    }
-    const pluginName = fields.name;
-    if (typeof pluginName !== "string" || !PLUGIN_NAME.test(pluginName)) {
-      throw new MarkdownConversionError(
-        "Invalid plugin name: use a stable lowercase identifier",
-        { plugin: pluginName, registrationIndex },
-      );
-    }
-    if (names.has(pluginName)) {
-      throw new MarkdownConversionError("Duplicate plugin name", {
-        plugin: pluginName,
-      });
-    }
-    names.add(pluginName);
-
-    const pluginPriority = fields.priority;
-    if (
-      pluginPriority !== undefined &&
-      (typeof pluginPriority !== "number" ||
-        !Number.isSafeInteger(pluginPriority) ||
-        Math.abs(pluginPriority) > 1000)
-    ) {
-      throw new MarkdownConversionError(
-        "Invalid plugin priority: must be an integer from -1000 to 1000",
-        { plugin: pluginName, priority: pluginPriority },
-      );
-    }
-    if (fields.setup !== undefined && typeof fields.setup !== "function") {
-      throw new MarkdownConversionError("Invalid plugin setup: must be a function", {
-        plugin: pluginName,
-      });
-    }
-    if (
-      fields.transformAst !== undefined &&
-      typeof fields.transformAst !== "function"
-    ) {
-      throw new MarkdownConversionError(
-        "Invalid plugin transformAst: must be a function",
-        { plugin: pluginName },
-      );
-    }
-
-    const fencedBlocks = fields.fencedBlocks;
-    if (fencedBlocks !== undefined && !Array.isArray(fencedBlocks)) {
-      throw new MarkdownConversionError(
-        "Invalid plugin fencedBlocks: must be an array",
-        { plugin: pluginName },
-      );
-    }
-    const blockNodes = fields.blockNodes;
-    if (blockNodes !== undefined && !Array.isArray(blockNodes)) {
-      throw new MarkdownConversionError(
-        "Invalid plugin blockNodes: must be an array",
-        { plugin: pluginName },
-      );
-    }
-    const fenceHandlers: readonly unknown[] | undefined = fencedBlocks;
-    const blockNodeHandlers: readonly unknown[] | undefined = blockNodes;
-
-    fenceHandlers?.forEach((rawHandler, handlerIndex) => {
-      const handler = handlerFields(rawHandler);
-      validateHandler(handler, handlerIndex, pluginName, "fence");
-      for (const rawLanguage of handler.languages) {
-        const language = rawLanguage.trim().toLowerCase();
-        const builtInEnabled =
-          (language === "mermaid" && options.mermaidRendering?.enabled === true) ||
-          ((language === "chart" || language === "chartjs") &&
-            options.chartRendering?.enabled === true);
-        if (builtInEnabled) {
-          throw new MarkdownConversionError(
-            "Plugin fence conflicts with an enabled built-in renderer",
-            pluginContext(pluginName, "fence", undefined, { language }),
-          );
-        }
-        const owner = fenceOwners.get(language);
-        if (owner === pluginName) {
-          throw new MarkdownConversionError("Duplicate plugin fence handler", {
-            plugin: pluginName,
-            language,
-          });
-        }
-        if (owner && conflictPolicy === "error") {
-          throw new MarkdownConversionError("Conflicting plugin fence handlers", {
-            language,
-            plugins: [owner, pluginName],
-          });
-        }
-        fenceOwners.set(language, owner ?? pluginName);
-      }
-    });
-
-    blockNodeHandlers?.forEach((rawHandler, handlerIndex) => {
-      const handler = handlerFields(rawHandler);
-      validateHandler(handler, handlerIndex, pluginName, "blockNode");
-      for (const nodeType of handler.nodeTypes) {
-        if (BUILT_IN_BLOCK_NODES.has(nodeType)) {
-          throw new MarkdownConversionError(
-            "Plugin block-node handler cannot override a built-in node type",
-            pluginContext(pluginName, "blockNode", undefined, { nodeType }),
-          );
-        }
-        const owner = nodeOwners.get(nodeType);
-        if (owner === pluginName) {
-          throw new MarkdownConversionError("Duplicate plugin block-node handler", {
-            plugin: pluginName,
-            nodeType,
-          });
-        }
-        if (owner && conflictPolicy === "error") {
-          throw new MarkdownConversionError(
-            "Conflicting plugin block-node handlers",
-            { nodeType, plugins: [owner, pluginName] },
-          );
-        }
-        nodeOwners.set(nodeType, owner ?? pluginName);
-      }
-    });
+    validatePluginRegistration(plugin, registrationIndex, registry);
   });
+}
+
+/** Names and handler owners claimed so far while validating plugins. */
+interface PluginRegistry {
+  names: Set<string>;
+  fenceOwners: Map<string, string>;
+  nodeOwners: Map<string, string>;
+  conflictPolicy: string;
+  options: Options;
+}
+
+function validatePluginRegistration(
+  plugin: unknown,
+  registrationIndex: number,
+  registry: PluginRegistry,
+): void {
+  if (!plugin || typeof plugin !== "object") {
+    throw new MarkdownConversionError("Invalid plugin: must be an object", {
+      registrationIndex,
+    });
+  }
+  const fields: PluginFields = plugin;
+  const pluginName = validatePluginIdentity(fields, registrationIndex, registry);
+  validatePluginHooks(fields, pluginName);
+
+  const fencedBlocks = fields.fencedBlocks;
+  if (fencedBlocks !== undefined && !Array.isArray(fencedBlocks)) {
+    throw new MarkdownConversionError(
+      "Invalid plugin fencedBlocks: must be an array",
+      { plugin: pluginName },
+    );
+  }
+  const blockNodes = fields.blockNodes;
+  if (blockNodes !== undefined && !Array.isArray(blockNodes)) {
+    throw new MarkdownConversionError(
+      "Invalid plugin blockNodes: must be an array",
+      { plugin: pluginName },
+    );
+  }
+  const fenceHandlers: readonly unknown[] | undefined = fencedBlocks;
+  const blockNodeHandlers: readonly unknown[] | undefined = blockNodes;
+
+  fenceHandlers?.forEach((rawHandler, handlerIndex) => {
+    const handler = handlerFields(rawHandler);
+    validateHandler(handler, handlerIndex, pluginName, "fence");
+    for (const rawLanguage of handler.languages) {
+      claimFence(rawLanguage.trim().toLowerCase(), pluginName, registry);
+    }
+  });
+
+  blockNodeHandlers?.forEach((rawHandler, handlerIndex) => {
+    const handler = handlerFields(rawHandler);
+    validateHandler(handler, handlerIndex, pluginName, "blockNode");
+    for (const nodeType of handler.nodeTypes) {
+      claimBlockNode(nodeType, pluginName, registry);
+    }
+  });
+}
+
+/** Checks apiVersion, name and uniqueness; returns the registered name. */
+function validatePluginIdentity(
+  fields: PluginFields,
+  registrationIndex: number,
+  registry: PluginRegistry,
+): string {
+  if (fields.apiVersion !== 1) {
+    throw new MarkdownConversionError("Unsupported plugin apiVersion", {
+      plugin: fields.name,
+      apiVersion: fields.apiVersion,
+    });
+  }
+  const pluginName = fields.name;
+  if (typeof pluginName !== "string" || !PLUGIN_NAME.test(pluginName)) {
+    throw new MarkdownConversionError(
+      "Invalid plugin name: use a stable lowercase identifier",
+      { plugin: pluginName, registrationIndex },
+    );
+  }
+  if (registry.names.has(pluginName)) {
+    throw new MarkdownConversionError("Duplicate plugin name", {
+      plugin: pluginName,
+    });
+  }
+  registry.names.add(pluginName);
+  return pluginName;
+}
+
+function validatePluginHooks(fields: PluginFields, pluginName: string): void {
+  const pluginPriority = fields.priority;
+  if (
+    pluginPriority !== undefined &&
+    (typeof pluginPriority !== "number" ||
+      !Number.isSafeInteger(pluginPriority) ||
+      Math.abs(pluginPriority) > 1000)
+  ) {
+    throw new MarkdownConversionError(
+      "Invalid plugin priority: must be an integer from -1000 to 1000",
+      { plugin: pluginName, priority: pluginPriority },
+    );
+  }
+  if (fields.setup !== undefined && typeof fields.setup !== "function") {
+    throw new MarkdownConversionError("Invalid plugin setup: must be a function", {
+      plugin: pluginName,
+    });
+  }
+  if (
+    fields.transformAst !== undefined &&
+    typeof fields.transformAst !== "function"
+  ) {
+    throw new MarkdownConversionError(
+      "Invalid plugin transformAst: must be a function",
+      { plugin: pluginName },
+    );
+  }
+}
+
+function claimFence(
+  language: string,
+  pluginName: string,
+  registry: PluginRegistry,
+): void {
+  const { options } = registry;
+  const builtInEnabled =
+    (language === "mermaid" && options.mermaidRendering?.enabled === true) ||
+    ((language === "chart" || language === "chartjs") &&
+      options.chartRendering?.enabled === true);
+  if (builtInEnabled) {
+    throw new MarkdownConversionError(
+      "Plugin fence conflicts with an enabled built-in renderer",
+      pluginContext(pluginName, "fence", undefined, { language }),
+    );
+  }
+  const owner = registry.fenceOwners.get(language);
+  if (owner === pluginName) {
+    throw new MarkdownConversionError("Duplicate plugin fence handler", {
+      plugin: pluginName,
+      language,
+    });
+  }
+  if (owner && registry.conflictPolicy === "error") {
+    throw new MarkdownConversionError("Conflicting plugin fence handlers", {
+      language,
+      plugins: [owner, pluginName],
+    });
+  }
+  registry.fenceOwners.set(language, owner ?? pluginName);
+}
+
+function claimBlockNode(
+  nodeType: string,
+  pluginName: string,
+  registry: PluginRegistry,
+): void {
+  if (BUILT_IN_BLOCK_NODES.has(nodeType)) {
+    throw new MarkdownConversionError(
+      "Plugin block-node handler cannot override a built-in node type",
+      pluginContext(pluginName, "blockNode", undefined, { nodeType }),
+    );
+  }
+  const owner = registry.nodeOwners.get(nodeType);
+  if (owner === pluginName) {
+    throw new MarkdownConversionError("Duplicate plugin block-node handler", {
+      plugin: pluginName,
+      nodeType,
+    });
+  }
+  if (owner && registry.conflictPolicy === "error") {
+    throw new MarkdownConversionError(
+      "Conflicting plugin block-node handlers",
+      { nodeType, plugins: [owner, pluginName] },
+    );
+  }
+  registry.nodeOwners.set(nodeType, owner ?? pluginName);
 }
 
 export class PluginRuntime {

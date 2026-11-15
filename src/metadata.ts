@@ -434,6 +434,46 @@ function customPropertyName(element: XmlElement): string {
   return element.getAttribute("name") ?? "";
 }
 
+interface CustomPropertyEntry {
+  name: string;
+  value: string;
+}
+
+/**
+ * Removes the existing properties that `incoming` replaces (names compare
+ * case-insensitively) and returns the highest pid in use, at least 1.
+ */
+function removeReplacedCustomProperties(
+  root: XmlElement,
+  incoming: ReadonlyMap<string, CustomPropertyEntry>,
+): number {
+  let maxPid = 1;
+  for (const child of directChildren(root)) {
+    if (child.localName !== "property") continue;
+    const pid = Number.parseInt(child.getAttribute("pid") ?? "", 10);
+    if (Number.isFinite(pid)) maxPid = Math.max(maxPid, pid);
+    if (incoming.has(customPropertyName(child).toLocaleLowerCase("en-US"))) {
+      root.removeChild(child);
+    }
+  }
+  return maxPid;
+}
+
+function createCustomProperty(
+  document: XmlDocument,
+  pid: number,
+  { name, value }: CustomPropertyEntry,
+): XmlElement {
+  const property = document.createElementNS(CUSTOM_NS, "property");
+  property.setAttribute("fmtid", CUSTOM_FMTID);
+  property.setAttribute("pid", String(pid));
+  property.setAttribute("name", name);
+  const propertyValue = document.createElementNS(VT_NS, "vt:lpwstr");
+  propertyValue.appendChild(document.createTextNode(value));
+  property.appendChild(propertyValue);
+  return property;
+}
+
 async function writeCustomProperties(
   zip: JSZip,
   metadata: NormalizedMetadata,
@@ -454,24 +494,9 @@ async function writeCustomProperties(
       { name, value },
     ]),
   );
-  let maxPid = 1;
-  for (const child of directChildren(root)) {
-    if (child.localName !== "property") continue;
-    const pid = Number.parseInt(child.getAttribute("pid") ?? "", 10);
-    if (Number.isFinite(pid)) maxPid = Math.max(maxPid, pid);
-    if (incoming.has(customPropertyName(child).toLocaleLowerCase("en-US"))) {
-      root.removeChild(child);
-    }
-  }
-  for (const { name, value } of incoming.values()) {
-    const property = document.createElementNS(CUSTOM_NS, "property");
-    property.setAttribute("fmtid", CUSTOM_FMTID);
-    property.setAttribute("pid", String(++maxPid));
-    property.setAttribute("name", name);
-    const propertyValue = document.createElementNS(VT_NS, "vt:lpwstr");
-    propertyValue.appendChild(document.createTextNode(value));
-    property.appendChild(propertyValue);
-    root.appendChild(property);
+  let maxPid = removeReplacedCustomProperties(root, incoming);
+  for (const entry of incoming.values()) {
+    root.appendChild(createCustomProperty(document, ++maxPid, entry));
   }
   zip.file("docProps/custom.xml", serializeXml(document));
   return true;

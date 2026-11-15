@@ -74,80 +74,97 @@ describe("sections API", () => {
     expect(at(docxOptions.numbering?.config ?? [], 1).reference).toBe("numbered-list-2");
   });
 
-  it("applies template and section-level advanced properties, including section types and numbering variants", async () => {
-    const docxOptions = await parseToDocxOptions("", {
-      template: {
-        page: {
-          margin: { top: 1600, left: 1200 },
-        },
-        headers: {
-          default: { text: "Template Header", alignment: "LEFT" },
-        },
-        pageNumbering: { display: "current", alignment: "CENTER" },
-      },
-      sections: [
-        {
-          markdown: "# Intro\n\nTemplate should apply here.",
-          titlePage: true,
-          type: "ODD_PAGE",
-          page: { size: { orientation: "LANDSCAPE" } },
-          headers: {
-            first: { text: "First Page Header", alignment: "RIGHT" },
+  describe("template and section-level advanced properties", () => {
+    // Three sections: the template applies to all, and each section varies
+    // its type and page-numbering format.
+    const parseAdvancedSections = () =>
+      parseToDocxOptions("", {
+        template: {
+          page: {
+            margin: { top: 1600, left: 1200 },
           },
-          footers: {
-            default: {
-              text: "Custom Footer",
-              pageNumberDisplay: "currentAndTotal",
-              alignment: "RIGHT",
+          headers: {
+            default: { text: "Template Header", alignment: "LEFT" },
+          },
+          pageNumbering: { display: "current", alignment: "CENTER" },
+        },
+        sections: [
+          {
+            markdown: "# Intro\n\nTemplate should apply here.",
+            titlePage: true,
+            type: "ODD_PAGE",
+            page: { size: { orientation: "LANDSCAPE" } },
+            headers: {
+              first: { text: "First Page Header", alignment: "RIGHT" },
+            },
+            footers: {
+              default: {
+                text: "Custom Footer",
+                pageNumberDisplay: "currentAndTotal",
+                alignment: "RIGHT",
+              },
+            },
+            pageNumbering: {
+              start: 5,
+              formatType: "upperRoman",
+              separator: "colon",
             },
           },
-          pageNumbering: {
-            start: 5,
-            formatType: "upperRoman",
-            separator: "colon",
+          {
+            markdown: "# B\n\nTwo",
+            type: "CONTINUOUS",
+            pageNumbering: {
+              start: 1,
+              formatType: "lowerRoman",
+              separator: "period",
+            },
           },
-        },
-        {
-          markdown: "# B\n\nTwo",
-          type: "CONTINUOUS",
-          pageNumbering: {
-            start: 1,
-            formatType: "lowerRoman",
-            separator: "period",
+          {
+            markdown: "# C\n\nThree",
+            type: "EVEN_PAGE",
+            pageNumbering: {
+              start: 1,
+              formatType: "upperLetter",
+              separator: "hyphen",
+            },
           },
-        },
-        {
-          markdown: "# C\n\nThree",
-          type: "EVEN_PAGE",
-          pageNumbering: {
-            start: 1,
-            formatType: "upperLetter",
-            separator: "hyphen",
-          },
-        },
-      ],
+        ],
+      });
+
+    it("merges template headers with section headers, footers and title page", async () => {
+      const docxOptions = await parseAdvancedSections();
+      expect(docxOptions.sections).toHaveLength(3);
+
+      const first = at(docxOptions.sections, 0);
+      expect(first.headers?.default).toBeDefined();
+      expect(first.headers?.first).toBeDefined();
+      expect(first.footers?.default).toBeDefined();
+      expect(first.properties?.titlePage).toBe(true);
+      expect(first.properties?.type).toBeDefined();
     });
 
-    expect(docxOptions.sections).toHaveLength(3);
+    it("merges template margins with the section page size", async () => {
+      const first = at((await parseAdvancedSections()).sections, 0);
+      expect(first.properties?.page?.size?.orientation).toBeDefined();
+      expect(first.properties?.page?.margin?.top).toBe(1600);
+      expect(first.properties?.page?.margin?.left).toBe(1200);
+    });
 
-    const first = at(docxOptions.sections, 0);
-    expect(first.headers?.default).toBeDefined();
-    expect(first.headers?.first).toBeDefined();
-    expect(first.footers?.default).toBeDefined();
-    expect(first.properties?.titlePage).toBe(true);
-    expect(first.properties?.type).toBeDefined();
-    expect(first.properties?.page?.size?.orientation).toBeDefined();
-    expect(first.properties?.page?.margin?.top).toBe(1600);
-    expect(first.properties?.page?.margin?.left).toBe(1200);
-    expect(first.properties?.page?.pageNumbers?.start).toBe(5);
-    expect(first.properties?.page?.pageNumbers?.formatType).toBeDefined();
-    expect(first.properties?.page?.pageNumbers?.separator).toBeDefined();
+    it("applies the section page-number start, format and separator", async () => {
+      const first = at((await parseAdvancedSections()).sections, 0);
+      expect(first.properties?.page?.pageNumbers?.start).toBe(5);
+      expect(first.properties?.page?.pageNumbers?.formatType).toBeDefined();
+      expect(first.properties?.page?.pageNumbers?.separator).toBeDefined();
+    });
 
-    expect(at(docxOptions.sections, 1).properties?.type).toBeDefined();
-    expect(at(docxOptions.sections, 1).properties?.page?.pageNumbers?.separator).toBeDefined();
-    expect(at(docxOptions.sections, 2).properties?.type).toBeDefined();
-    expect(at(docxOptions.sections, 2).properties?.page?.pageNumbers?.formatType).toBeDefined();
-    expect(at(docxOptions.sections, 2).footers?.default).toBeDefined();
+    it("applies section types and numbering variants to later sections", async () => {
+      const docxOptions = await parseAdvancedSections();
+      expect(at(docxOptions.sections, 1).properties?.type).toBeDefined();
+      expect(at(docxOptions.sections, 1).properties?.page?.pageNumbers?.separator).toBeDefined();
+      expect(at(docxOptions.sections, 2).properties?.type).toBeDefined();
+      expect(at(docxOptions.sections, 2).properties?.page?.pageNumbers?.formatType).toBeDefined();
+      expect(at(docxOptions.sections, 2).footers?.default).toBeDefined();
+    });
   });
 
   it("supports per-section style overrides in full conversion", async () => {

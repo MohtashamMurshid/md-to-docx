@@ -357,8 +357,8 @@ export interface MathRenderingOptions {
    */
   enabled?: boolean;
   /**
-   * Behavior when the native renderer does not support an expression.
-   * Defaults to "text".
+   * Behavior when neither docx's `latexToMath` nor the built-in TeX subset
+   * can read an expression. Defaults to "text".
    */
   unsupported?: "text" | "throw";
 }

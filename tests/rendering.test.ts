@@ -6,7 +6,7 @@ import {
   convertMarkdownToDocx,
   MarkdownConversionError,
 } from "../src/index.js";
-import type { Options } from "../src/types.js";
+import type { ConversionWarning, Options } from "../src/types.js";
 import { at, getDocumentXml, getZip, saveBlobForDebug } from "./helpers.js";
 
 // 1x1 transparent PNG used in image tests so the suite doesn't hit the network.
@@ -401,16 +401,82 @@ $$`);
     expect(xml).toContain("$x^2$ remains text.");
   });
 
-  it("falls back to literal text for unsupported TeX by default", async () => {
-    const xml = await render("Unsupported $\\overline{x}$ stays literal.");
+  it.each([
+    {
+      name: "a matrix",
+      markdown:
+        "$$\n\\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix}\n$$",
+      expected: [
+        '<m:begChr m:val="("/>',
+        "<m:mr><m:e><m:r><m:t>1</m:t></m:r></m:e><m:e><m:r><m:t>2</m:t></m:r></m:e></m:mr>",
+        "<m:mr><m:e><m:r><m:t>3</m:t></m:r></m:e><m:e><m:r><m:t>4</m:t></m:r></m:e></m:mr>",
+      ],
+    },
+    {
+      name: "a cases environment",
+      markdown:
+        "$$\n|x| = \\begin{cases} x & x \\ge 0 \\\\ -x & x < 0 \\end{cases}\n$$",
+      expected: [
+        '<m:begChr m:val="{"/><m:endChr m:val=""/>',
+        "<m:mr><m:e><m:r><m:t>x</m:t></m:r></m:e><m:e><m:r><m:t>x≥0</m:t></m:r></m:e></m:mr>",
+      ],
+    },
+    {
+      name: "a fraction without braces",
+      markdown: "$$\n\\frac12\n$$",
+      expected: [
+        "<m:f><m:num><m:r><m:t>1</m:t></m:r></m:num><m:den><m:r><m:t>2</m:t></m:r></m:den></m:f>",
+      ],
+    },
+    {
+      name: "an inline root with a degree",
+      markdown: "The cube root $\\sqrt[3]{x}$ is inline.",
+      expected: [
+        "<m:deg><m:r><m:t>3</m:t></m:r></m:deg><m:e><m:r><m:t>x</m:t></m:r></m:e>",
+        "The cube root ",
+        " is inline.",
+      ],
+    },
+    {
+      // latexToMath rejects \*, so the TeX subset renders it.
+      name: "an escaped character only the subset parser reads",
+      markdown: "Product $a\\*b$ here.",
+      expected: ["<m:t>a</m:t>", "<m:t>*</m:t>", "<m:t>b</m:t>"],
+    },
+  ])("renders $name as native Word math", async ({ markdown, expected }) => {
+    const warnings: ConversionWarning[] = [];
+    const xml = await render(markdown, {
+      onWarning: (warning) => warnings.push(warning),
+    });
 
-    expect(mathObjectCount(xml)).toBe(0);
-    expect(xml).toContain("$\\overline{x}$");
+    expect(warnings).toEqual([]);
+    expect(mathObjectCount(xml)).toBe(1);
+    expect(xml).not.toContain("$");
+    for (const fragment of expected) {
+      expect(xml).toContain(fragment);
+    }
   });
 
-  it("throws for unsupported TeX when configured", async () => {
+  it("falls back to literal text and warns when no engine reads the TeX", async () => {
+    const warnings: ConversionWarning[] = [];
+    const xml = await render("Unsupported $\\unknowncmd{x}$ stays literal.", {
+      onWarning: (warning) => warnings.push(warning),
+    });
+
+    expect(mathObjectCount(xml)).toBe(0);
+    expect(xml).toContain("$\\unknowncmd{x}$");
+    expect(warnings).toEqual([
+      {
+        code: "UNSUPPORTED_MATH",
+        message: "Unsupported command \\unknowncmd",
+        source: "\\unknowncmd{x}",
+      },
+    ]);
+  });
+
+  it("throws for TeX no engine reads when configured", async () => {
     await expect(
-      convertMarkdownToDocx("Unsupported $\\overline{x}$", {
+      convertMarkdownToDocx("Unsupported $\\unknowncmd{x}$", {
         mathRendering: { unsupported: "throw" },
       }),
     ).rejects.toThrow(MarkdownConversionError);

@@ -1,3 +1,9 @@
+## [4.0.5](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.0.4...v4.0.5) (2026-11-15)
+
+### Bug Fixes
+
+* **links:** refuse UNC and protocol-relative link targets ([#104](https://github.com/MohtashamMurshid/md-to-docx/issues/104)) ([bb527d2](https://github.com/MohtashamMurshid/md-to-docx/commit/bb527d25a96bdba953e270c921c61c886b57b3b1))
+
 ## [4.0.4](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.0.3...v4.0.4) (2026-11-15)
 
 ### Bug Fixes

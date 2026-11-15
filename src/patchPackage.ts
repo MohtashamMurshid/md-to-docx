@@ -35,6 +35,18 @@ const maxId = (text: string, pattern: RegExp): number => {
   return maximum;
 };
 
+/** Highest bookmark ID in the template, read by namespace so any prefix counts. */
+function maxBookmarkId(documents: Iterable<XmlDocument>): number {
+  let maximum = 0;
+  for (const document of documents)
+    for (const local of ["bookmarkStart", "bookmarkEnd"])
+      for (const bookmark of elements(document, local)) {
+        const id = Number(bookmark.getAttributeNS(W, "id"));
+        if (Number.isFinite(id)) maximum = Math.max(maximum, id);
+      }
+  return maximum;
+}
+
 export async function loadPatchPackage(
   input: ReferenceDocxInput,
   signal?: AbortSignal,
@@ -100,7 +112,7 @@ export async function mergePatchPackage(
     abstractNumId: maxId(baseText, /w:abstractNumId="(\d+)"/g) + 1,
     // Donor bookmarks start at 1 too; lift them above the template's so the
     // final pairing pass never matches a donor end to a template start.
-    bookmark: maxId(baseText, /<w:bookmark(?:Start|End)\b[^>]*w:id="(\d+)"/g) + 1,
+    bookmark: maxBookmarkId(documents.values()) + 1,
     footnote: maxId(baseText, /<w:footnote\b[^>]*w:id="(\d+)"/g) + 1,
     comment: maxId(baseText, /<w:comment\b[^>]*w:id="(\d+)"/g) + 1,
   };

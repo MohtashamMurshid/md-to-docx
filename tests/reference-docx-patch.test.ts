@@ -2,6 +2,7 @@ import { describe, expect, it } from "@jest/globals";
 import fs from "node:fs";
 import path from "node:path";
 import JSZip from "jszip";
+import { DOMParser } from "@xmldom/xmldom";
 import { Document, Packer, Paragraph } from "docx";
 import {
   patchMarkdownInDocx,
@@ -163,7 +164,10 @@ Hello **team**.
 });
 
 describe("patch bookmark IDs", () => {
-  it("keeps a template bookmark that spans the placeholder paired with its own end", async () => {
+  it.each([
+    ["w", ""],
+    ["x", ' xmlns:x="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'],
+  ])("keeps a template bookmark that spans the placeholder paired with its own end (%s: prefix)", async (prefix, declaration) => {
     const templateZip = await JSZip.loadAsync(
       await Packer.toBuffer(
         new Document({
@@ -185,11 +189,11 @@ describe("patch bookmark IDs", () => {
       templateXml
         .replace(
           /(<w:p\b(?:(?!<w:p\b)[\s\S])*?Before)/,
-          '<w:bookmarkStart w:id="1" w:name="span"/>$1',
+          `<${prefix}:bookmarkStart${declaration} ${prefix}:id="2" ${prefix}:name="span"/>$1`,
         )
         .replace(
           /(<w:p\b(?:(?!<w:p\b)[\s\S])*?After)/,
-          '<w:bookmarkEnd w:id="1"/>$1',
+          `<${prefix}:bookmarkEnd${declaration} ${prefix}:id="2"/>$1`,
         ),
     );
     const template = await templateZip.generateAsync({ type: "nodebuffer" });
@@ -201,9 +205,19 @@ describe("patch bookmark IDs", () => {
     const xml = await (await JSZip.loadAsync(output))
       .file("word/document.xml")!
       .async("string");
-    const tags = [
-      ...xml.matchAll(/<w:bookmark(Start|End)\b[^>]*?w:id="(\d+)"(?:[^>]*?w:name="([^"]*)")?/g),
-    ].map((match) => ({ kind: match[1]!, id: match[2]!, name: match[3] }));
+    const W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+    // Walk the body in document order by namespace, so any prefix is found.
+    const tags = Array.from(
+      new DOMParser()
+        .parseFromString(xml, "application/xml")
+        .getElementsByTagNameNS(W, "*"),
+    )
+      .filter((element) => /^bookmark(Start|End)$/.test(element.localName ?? ""))
+      .map((element) => ({
+        kind: element.localName === "bookmarkStart" ? "Start" : "End",
+        id: element.getAttributeNS(W, "id"),
+        name: element.getAttributeNS(W, "name"),
+      }));
     const spanStart = tags.findIndex((tag) => tag.name === "span");
     expect(spanStart).toBeGreaterThanOrEqual(0);
     const spanId = tags[spanStart]!.id;
@@ -219,8 +233,6 @@ describe("patch bookmark IDs", () => {
     );
     expect(innerEnd).toBeGreaterThan(inner);
     expect(spanEnd).toBeGreaterThan(innerEnd);
-    expect(xml.indexOf("After")).toBeGreaterThan(
-      xml.indexOf(`<w:bookmarkEnd w:id="${spanId}"/>`),
-    );
+    expect(spanEnd).toBe(tags.length - 1);
   });
 });

@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse as parseYaml } from "yaml";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
@@ -85,52 +86,40 @@ function actionPinProblems(where, reference) {
     : [`${where} pins ${reference}; use a full commit SHA followed by "# vX.Y.Z"`];
 }
 
-/** The step's lines without YAML comments, so a commented-out setting doesn't count. */
-const withoutComments = (lines) =>
-  lines.map((line) => line.replace(/(^|\s)#.*$/, "")).join("\n");
-
-const DROPS_TOKEN = /^\s*persist-credentials:\s*(?:false|"false"|'false')\s*$/m;
-
-function checkoutProblems(where, reference, stepLines) {
-  const keepsToken =
-    /^actions\/checkout@/.test(reference) &&
-    !DROPS_TOKEN.test(withoutComments(stepLines));
-  return keepsToken
-    ? [`${where} checks out without persist-credentials: false`]
-    : [];
+/** Version pins live in comments, which parsing drops, so pins are read line by line. */
+function pinLineProblems(file, lines) {
+  return lines.flatMap((line, index) => {
+    const reference = remoteAction(line);
+    return reference === undefined
+      ? []
+      : actionPinProblems(`${file}:${index + 1}`, reference);
+  });
 }
 
-const indentOf = (line) => line.length - line.trimStart().length;
-const STEP_START = /^\s*-\s/;
-
-function stepStartIndex(lines, index) {
-  let start = index;
-  while (start > 0 && !STEP_START.test(lines[start])) start--;
-  return start;
+/** Every step of every job in a parsed workflow. */
+function workflowSteps(workflow) {
+  return Object.entries(workflow?.jobs ?? {}).flatMap(([job, definition]) =>
+    (definition?.steps ?? []).map((step, index) => ({ job, index, step })),
+  );
 }
 
-/** A non-blank, non-comment line at or left of the step's `-` starts something else. */
-const endsStep = (line, indent) =>
-  /^\s*[^\s#]/.test(line) && indentOf(line) <= indent;
-
-/** The lines of the workflow step that contains `index`, from its `-` to the next step. */
-function stepLines(lines, index) {
-  const start = stepStartIndex(lines, index);
-  const indent = indentOf(lines[start]);
-  const length = lines
-    .slice(start + 1)
-    .findIndex((line) => endsStep(line, indent));
-  return lines.slice(start, length === -1 ? lines.length : start + 1 + length);
+/** Reads the step's own `with:` settings, so comments or other keys can't stand in. */
+function keepsCheckoutToken({ step }) {
+  const setting = step?.with?.["persist-credentials"];
+  return (
+    String(step?.uses ?? "").startsWith("actions/checkout@") &&
+    setting !== false &&
+    setting !== "false"
+  );
 }
 
-function stepProblems(file, lines, index) {
-  const reference = remoteAction(lines[index]);
-  if (reference === undefined) return [];
-  const where = `${file}:${index + 1}`;
-  return [
-    ...actionPinProblems(where, reference),
-    ...checkoutProblems(where, reference, stepLines(lines, index)),
-  ];
+function checkoutProblems(file, workflow) {
+  return workflowSteps(workflow)
+    .filter(keepsCheckoutToken)
+    .map(
+      ({ job, index }) =>
+        `${file} job ${job}, step ${index + 1} checks out without with.persist-credentials: false`,
+    );
 }
 
 /** Each `uses:` is a commit SHA with its tag beside it, checkouts drop their token, and permissions are explicit. */
@@ -140,13 +129,15 @@ function workflowProblems() {
   );
   return workflows.flatMap((file) => {
     const text = read(file);
-    const lines = text.split("\n");
-    const permissions = /^permissions:/m.test(text)
-      ? []
-      : [`${file} has no top-level permissions block`];
+    const workflow = parseYaml(text);
+    const permissions =
+      workflow?.permissions === undefined
+        ? [`${file} has no top-level permissions block`]
+        : [];
     return [
       ...permissions,
-      ...lines.flatMap((_, index) => stepProblems(file, lines, index)),
+      ...pinLineProblems(file, text.split("\n")),
+      ...checkoutProblems(file, workflow),
     ];
   });
 }
@@ -178,10 +169,10 @@ function lintExceptionProblems() {
     ? read("docs/DECISIONS.md")
     : "";
   const relaxed = [
-    // "off", "warn", 0 or 1, alone or as an array's severity, or "error" with
-    // options that replace the preset's.
+    // "off", "warn", 0 or 1, alone or as an array's severity, or "error" / 2
+    // with options that replace the preset's.
     ...config.matchAll(
-      /"((?:@typescript-eslint\/)?[a-z-]+)":\s*(?:\[\s*)?(?:"(?:off|warn)"|[01]\b|(?<=\[\s*)"error",\s*\{)/g,
+      /"((?:@typescript-eslint\/)?[a-z-]+)":\s*(?:\[\s*)?(?:"(?:off|warn)"|[01]\b|(?<=\[\s*)(?:"error"|2),\s*\{)/g,
     ),
   ].map((match) => match[1]);
   return [...new Set(relaxed)]

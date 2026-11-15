@@ -224,6 +224,25 @@ describe("Security regressions", () => {
     expect(relationshipsXml).not.toContain('Target="https://"');
   });
 
+  it.each([
+    { name: "a UNC path", markdown: String.raw`[x](<\\\\host\\share>)` },
+    { name: "a single-backslash UNC path", markdown: String.raw`[x](<\\host\share>)` },
+    { name: "a protocol-relative URL", markdown: "[x](//host/share)" },
+    { name: "a protocol-relative URL after a space", markdown: "[x](< //host/share>)" },
+  ])("renders a link to $name as plain text", async ({ markdown }) => {
+    // The URL parser reads `\\host\share` as `https://host/share`, so it
+    // passed the scheme check, while Word got the raw UNC path, which on
+    // Windows sends NTLM credentials when clicked.
+    const blob = await convertMarkdownToDocx(`Open ${markdown}.`);
+
+    const documentXml = await getDocumentXml(blob);
+    const relationshipsXml = await documentRelationshipsXml(blob);
+
+    expect(documentXml).toContain(">x<");
+    expect(documentXml).not.toContain("<w:hyperlink");
+    expect(relationshipsXml).not.toContain("host");
+  });
+
   it("keeps https, mailto, and relative links as hyperlinks", async () => {
     const blob = await convertMarkdownToDocx(
       [

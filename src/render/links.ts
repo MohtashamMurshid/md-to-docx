@@ -12,6 +12,26 @@ import {
 
 const SAFE_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
 
+/** The first character a URL parser keeps: it drops leading C0 controls and spaces. */
+function urlStart(url: string): number {
+  let start = 0;
+  while (start < url.length && url.charCodeAt(start) <= 0x20) start++;
+  return start;
+}
+
+/**
+ * UNC paths (`\\host\share`) and protocol-relative targets (`//host/share`)
+ * name a host without a scheme. The URL parser resolves them against the
+ * base's https scheme, but Word opens the raw target, which on Windows can
+ * be an SMB share that receives the user's NTLM credentials. Any backslash
+ * is refused, as the parser reads it as a slash in an http(s) URL.
+ */
+function namesHostWithoutScheme(url: string): boolean {
+  // The URL parser also drops tabs and new lines anywhere in the target.
+  const target = url.replace(/[\t\n\r]/g, "");
+  return target.includes("\\") || target.startsWith("//", urlStart(target));
+}
+
 /**
  * Hyperlink targets are restricted to a scheme allowlist so a malicious
  * document cannot embed e.g. file:// UNC links (NTLM credential leak when
@@ -21,6 +41,9 @@ const SAFE_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
  * Word may still treat the raw string as an active hyperlink.
  */
 function isSafeLinkUrl(url: string): boolean {
+  if (namesHostWithoutScheme(url)) {
+    return false;
+  }
   let protocol: string;
   try {
     protocol = new URL(url, "https://relative-link.invalid/").protocol;

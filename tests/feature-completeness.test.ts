@@ -468,21 +468,31 @@ describe("CLI workflows", () => {
       await ready;
       // macOS's FSEvents can drop a change made just after a watcher starts,
       // so keep editing until the rebuild is seen.
-      // Every write is awaited before cleanup removes the directory.
+      // A failed write stops the wait at once, and every write settles before
+      // cleanup removes the directory.
+      let failWrite!: (error: unknown) => void;
+      const writeFailed = new Promise<never>((_, reject) => {
+        failWrite = reject;
+      });
+      void writeFailed.catch(() => undefined);
       const writes: Promise<void>[] = [];
-      const edit = (): Promise<void> => {
+      const edit = (): void => {
         const write = fs.writeFile(md, "# After");
+        void write.catch(failWrite);
         writes.push(write);
-        return write;
       };
-      const retry = setInterval(() => void edit(), 250);
-      try {
-        await edit();
-        await changed;
-      } finally {
-        clearInterval(retry);
-        await Promise.all(writes);
-      }
+      edit();
+      const retry = setInterval(edit, 250);
+      const waitError = await Promise.race([changed, writeFailed]).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      clearInterval(retry);
+      const failed = (await Promise.allSettled(writes)).find(
+        (result) => result.status === "rejected",
+      );
+      expect(failed?.reason).toBeUndefined();
+      expect(waitError).toBeUndefined();
       expect((await unpack(await fs.readFile(out))).text).toContain("After");
     } finally {
       controller.abort();

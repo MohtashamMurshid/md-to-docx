@@ -2,97 +2,11 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { Agent, buildConnector } from "undici";
 import { throwIfAborted } from "../processingLimits.js";
+import { isBlockedIpAddress } from "./blockedAddresses.js";
 import type { ResolvedImageHandlingOptions } from "./imageHandling.js";
 
 export { resolveImageHandlingOptions } from "./imageHandling.js";
 export type { ResolvedImageHandlingOptions } from "./imageHandling.js";
-
-function isPrivateIPv4(address: string): boolean {
-  const parts = address.split(".").map((part) => Number(part));
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part))) {
-    return true;
-  }
-  const [a, b] = parts;
-  if (a === undefined || b === undefined) {
-    return true;
-  }
-  return (
-    a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    (a === 100 && b >= 64 && b <= 127) ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    (a === 198 && (b === 18 || b === 19)) ||
-    a >= 224
-  );
-}
-
-function ipv6HextetsToIpv4(hiHex: string, loHex: string): string | undefined {
-  const hi = parseInt(hiHex, 16);
-  const lo = parseInt(loHex, 16);
-  if (
-    Number.isNaN(hi) ||
-    Number.isNaN(lo) ||
-    hi < 0 ||
-    hi > 65535 ||
-    lo < 0 ||
-    lo > 65535
-  ) {
-    return undefined;
-  }
-  return `${(hi >> 8) & 255}.${hi & 255}.${(lo >> 8) & 255}.${lo & 255}`;
-}
-
-/**
- * True when `address` is IPv4-in-IPv6 (RFC 4291 §2.5.5.2): 80 zero bits + 16
- * bits 0xffff + 32-bit IPv4 encoded as dotted decimal or final two hextets.
- */
-function ipv4EmbeddedInIpv4MappedAddress(address: string): string | undefined {
-  const n = address.toLowerCase().split("%")[0]!;
-
-  const dotted = n.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (dotted) return dotted[1]!;
-
-  const hexTail = n.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-  if (hexTail) return ipv6HextetsToIpv4(hexTail[1]!, hexTail[2]!);
-
-  const hexLong = n.match(
-    /^(?:0:){5}ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/
-  );
-  if (hexLong) return ipv6HextetsToIpv4(hexLong[1]!, hexLong[2]!);
-
-  return undefined;
-}
-
-function isPrivateIPv6(address: string): boolean {
-  const normalized = address.toLowerCase().split("%")[0]!;
-  const mappedV4 = ipv4EmbeddedInIpv4MappedAddress(normalized);
-  if (mappedV4) {
-    return isPrivateIPv4(mappedV4);
-  }
-
-  return (
-    normalized === "::" ||
-    normalized === "::1" ||
-    normalized.startsWith("fe80:") ||
-    normalized.startsWith("fc") ||
-    normalized.startsWith("fd") ||
-    normalized.startsWith("ff")
-  );
-}
-
-function isBlockedIpAddress(address: string): boolean {
-  const family = isIP(address);
-  if (family === 4) {
-    return isPrivateIPv4(address);
-  }
-  if (family === 6) {
-    return isPrivateIPv6(address);
-  }
-  return true;
-}
 
 function enforceRemoteHttpsPolicy(
   url: URL,
@@ -305,61 +219,94 @@ async function cancelReadableBody(response: Response): Promise<void> {
   }
 }
 
+/** Chunks may be undefined from non-conforming fetch implementations. */
+type BodyReader = ReadableStreamDefaultReader<Uint8Array | undefined>;
+
+function assertWithinImageBudget(byteLength: number, maxImageBytes: number): void {
+  if (byteLength > maxImageBytes) {
+    throw new Error("Remote image exceeds maximum size");
+  }
+}
+
+async function readUnstreamedBody(
+  response: Response,
+  maxImageBytes: number,
+  signal?: AbortSignal
+): Promise<Uint8Array> {
+  const arrayBuffer = await abortablePromise(response.arrayBuffer(), signal);
+  assertWithinImageBudget(arrayBuffer.byteLength, maxImageBytes);
+  return new Uint8Array(arrayBuffer);
+}
+
+/** Reads every chunk, failing as soon as the running total exceeds the budget. */
+async function readBodyChunks(
+  reader: BodyReader,
+  maxImageBytes: number,
+  signal?: AbortSignal
+): Promise<{ chunks: Uint8Array[]; total: number }> {
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await abortablePromise(reader.read(), signal);
+    if (done) {
+      return { chunks, total };
+    }
+    if (!value) {
+      continue;
+    }
+    total += value.byteLength;
+    assertWithinImageBudget(total, maxImageBytes);
+    chunks.push(value);
+  }
+}
+
+function joinChunks(chunks: Uint8Array[], total: number): Uint8Array {
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
+async function cancelReader(reader: BodyReader): Promise<void> {
+  try {
+    await reader.cancel();
+  } catch {
+    /* ignore */
+  }
+}
+
+async function readStreamedBody(
+  body: ReadableStream<Uint8Array>,
+  maxImageBytes: number,
+  signal?: AbortSignal
+): Promise<Uint8Array> {
+  const reader: BodyReader = body.getReader();
+  try {
+    const { chunks, total } = await readBodyChunks(reader, maxImageBytes, signal);
+    return joinChunks(chunks, total);
+  } catch (error) {
+    await cancelReader(reader);
+    throw error;
+  }
+}
+
 async function readResponseBytes(
   response: Response,
   maxImageBytes: number,
   signal?: AbortSignal
 ): Promise<Uint8Array> {
   const contentLength = parseContentLength(response.headers.get("content-length"));
-  if (contentLength !== undefined && contentLength > maxImageBytes) {
-    throw new Error("Remote image exceeds maximum size");
+  if (contentLength !== undefined) {
+    assertWithinImageBudget(contentLength, maxImageBytes);
   }
 
   if (!response.body) {
-    const arrayBuffer = await abortablePromise(response.arrayBuffer(), signal);
-    if (arrayBuffer.byteLength > maxImageBytes) {
-      throw new Error("Remote image exceeds maximum size");
-    }
-    return new Uint8Array(arrayBuffer);
+    return readUnstreamedBody(response, maxImageBytes, signal);
   }
-
-  // Chunks are typed as possibly undefined so the guard below still covers
-  // non-conforming fetch implementations.
-  const reader: ReadableStreamDefaultReader<Uint8Array | undefined> =
-    response.body.getReader();
-  try {
-    const chunks: Uint8Array[] = [];
-    let total = 0;
-    for (;;) {
-      const { done, value } = await abortablePromise(reader.read(), signal);
-      if (done) {
-        break;
-      }
-      if (!value) {
-        continue;
-      }
-      total += value.byteLength;
-      if (total > maxImageBytes) {
-        throw new Error("Remote image exceeds maximum size");
-      }
-      chunks.push(value);
-    }
-
-    const bytes = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) {
-      bytes.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return bytes;
-  } catch (error) {
-    try {
-      await reader.cancel();
-    } catch {
-      /* ignore */
-    }
-    throw error;
-  }
+  return readStreamedBody(response.body, maxImageBytes, signal);
 }
 
 export interface RemoteImage {

@@ -131,15 +131,16 @@ async function embedImageNode(
 ): Promise<Paragraph[]> {
   const { options } = env;
   const { embedded, paragraphs, reason } = await processImage(
-    node.alt,
-    node.url,
+    {
+      altText: node.alt,
+      url: node.url,
+      imageHandling: env.imageHandling,
+      paragraphOptions,
+      signal: options.signal,
+      title: node.title,
+      prefixChildren: taskMarkerChildren(env, marker),
+    },
     env.style,
-    env.imageHandling,
-    paragraphOptions,
-    options.signal,
-    true,
-    node.title,
-    taskMarkerChildren(env, marker),
   );
   countImageAttempt(env, embedded, isRemoteImageUrl(node.url));
   if (!embedded) {
@@ -203,14 +204,16 @@ export async function renderChartNode(
   }
 
   const { embedded, paragraphs } = await processChartBlock(
-    node.value,
+    {
+      value: node.value,
+      chartRendering: options.chartRendering,
+      imageHandling: options.imageHandling,
+      paragraphOptions,
+      signal: options.signal,
+      accessibility: options.accessibility,
+      prefixChildren: taskMarkerChildren(env, marker),
+    },
     env.style,
-    options.chartRendering,
-    options.imageHandling,
-    paragraphOptions,
-    options.signal,
-    options.accessibility,
-    taskMarkerChildren(env, marker),
   );
   if (embedded) {
     env.processedImageCounter.count++;

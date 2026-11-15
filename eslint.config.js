@@ -63,8 +63,6 @@ export default [
     // functions pass fallow's thresholds and these two rules
     // (docs/DECISIONS.md, "Complexity baseline").
     files: [
-      "src/renderers/chartRenderer.ts",
-      "src/renderers/imageRenderer.ts",
     ],
     rules: {
       "max-depth": "off",

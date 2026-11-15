@@ -40,14 +40,14 @@ async function prepareInlineImage(
   }
 
   const result = await processImage(
-    node.alt,
-    node.url,
+    {
+      altText: node.alt,
+      url: node.url,
+      imageHandling: env.imageHandling,
+      signal: options.signal,
+      title: node.title,
+    },
     env.style,
-    env.imageHandling,
-    {},
-    options.signal,
-    true,
-    node.title,
   );
   env.inlineImages.set(node, result.run ?? notDisplayed());
   countImageAttempt(env, result.embedded, remote);

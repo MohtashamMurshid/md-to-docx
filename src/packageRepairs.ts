@@ -21,6 +21,7 @@ export async function packDocumentWithRepairs(
   const zip = await JSZip.loadAsync(await blob.arrayBuffer());
   let changed = hasFootnotes && (await repairFootnoteNumbering(zip, document));
   changed = (await renumberProcessWideIds(zip)) || changed;
+  changed = (await renumberHyperlinkRelationships(zip)) || changed;
   if (!changed) return blob;
   return new Blob(
     [await zip.generateAsync({ type: "arraybuffer", compression: "DEFLATE" })],
@@ -63,6 +64,67 @@ async function repairFootnoteNumbering(
 }
 
 // One start tag, with quoted attribute values that may themselves contain ">".
+// docx names each hyperlink relationship with a random 21-character ID.
+const RANDOM_RELATIONSHIP_ID = /^rId[A-Za-z0-9_-]{21}$/;
+const RELATIONSHIP_TAG = /<Relationship\b[^>]*>/g;
+const HYPERLINK_TYPE =
+  "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink";
+
+/** The random hyperlink relationship IDs in one `.rels` part, in part order. */
+function randomHyperlinkIds(rels: string): Set<string> {
+  const ids = new Set<string>();
+  for (const [tag] of rels.matchAll(RELATIONSHIP_TAG)) {
+    const id = /\bId="([^"]+)"/.exec(tag)?.[1];
+    if (id && tag.includes(`Type="${HYPERLINK_TYPE}"`) && RANDOM_RELATIONSHIP_ID.test(id))
+      ids.add(id);
+  }
+  return ids;
+}
+
+/** Replaces each `attribute="old"` with its new ID; IDs are unique tokens. */
+function replaceIds(xml: string, attribute: string, renamed: Map<string, string>): string {
+  return xml.replace(
+    new RegExp(`(\\s${attribute}=")(rId[A-Za-z0-9_-]{21})"`, "g"),
+    (match, prefix: string, id: string) => {
+      const next = renamed.get(id);
+      return next === undefined ? match : `${prefix}${next}"`;
+    },
+  );
+}
+
+/**
+ * Renames docx's random hyperlink relationship IDs to `rIdLink<n>`, numbered
+ * in the order the part first uses them, so the same input gives the same
+ * package. Relationships the template or other code wrote keep their IDs.
+ */
+async function renumberHyperlinkRelationships(zip: JSZip): Promise<boolean> {
+  let changed = false;
+  for (const relsName of Object.keys(zip.files).filter((name) =>
+    /^word\/_rels\/[^/]+\.xml\.rels$/.test(name),
+  )) {
+    const partName = relsName.replace("_rels/", "").replace(/\.rels$/, "");
+    const part = zip.file(partName);
+    const rels = await zip.file(relsName)!.async("string");
+    const random = randomHyperlinkIds(rels);
+    if (!part || random.size === 0) continue;
+    const xml = await part.async("string");
+    const used = [...xml.matchAll(/\br:id="([^"]+)"/g)].map((match) => match[1]!);
+    const ordered = [...new Set([...used.filter((id) => random.has(id)), ...random])];
+    const taken = new Set([...rels.matchAll(/\bId="([^"]+)"/g)].map((match) => match[1]!));
+    const renamed = new Map<string, string>();
+    let next = 1;
+    for (const id of ordered) {
+      while (taken.has(`rIdLink${next}`)) next++;
+      renamed.set(id, `rIdLink${next}`);
+      taken.add(`rIdLink${next++}`);
+    }
+    zip.file(relsName, replaceIds(rels, "Id", renamed));
+    zip.file(partName, replaceIds(xml, "r:id", renamed));
+    changed = true;
+  }
+  return changed;
+}
+
 const ATTRIBUTES = String.raw`(?:\s+[^\s=/>]+\s*=\s*(?:"[^"]*"|'[^']*'))*\s*/?>`;
 const BOOKMARK_TAG = new RegExp(`<w:bookmark(?:Start|End)${ATTRIBUTES}`, "g");
 const DRAWING_TAG = new RegExp(

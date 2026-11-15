@@ -63,11 +63,9 @@ export default [
     // functions pass fallow's thresholds and these two rules
     // (docs/DECISIONS.md, "Complexity baseline").
     files: [
-      "src/mdastToDocxModel.ts",
       "src/modelToDocx.ts",
       "src/renderers/chartRenderer.ts",
       "src/renderers/imageRenderer.ts",
-      "src/richTables.ts",
     ],
     rules: {
       "max-depth": "off",

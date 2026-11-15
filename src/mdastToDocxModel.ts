@@ -1,110 +1,104 @@
-import {
-  collectFirstNodesByKey,
-  resolveMarkdownReferences,
-} from "./markdownAst.js";
-import type { RichTableAst } from "./richTables.js";
-import type {
-  Root,
-  Node,
-  List,
-  Heading,
-  Paragraph,
-  Code,
-  Blockquote,
-  Image,
-  Table,
-  TableCell,
-  PhrasingContent,
-  FootnoteDefinition,
-  FootnoteReference,
-} from "mdast";
-import type {
-  DocxDocumentModel,
-  DocxBlockNode,
-  DocxCalloutType,
-  DocxInlineNode,
-  DocxListItemNode,
-  DocxFootnoteDefinitionNode,
-} from "./docxModel.js";
-import { Style, Options } from "./types.js";
+import type { Root, RootContent } from "mdast";
+import { resolveMarkdownReferences } from "./markdownAst.js";
+import type { DocxBlockNode, DocxDocumentModel } from "./docxModel.js";
+import type { Style, Options } from "./types.js";
 import {
   captionAt,
   bindCrossReferenceCaptions,
-  resolveCrossReference,
-  throwOnUnresolvedCrossReference,
 } from "./crossReferences.js";
-import type { CrossReferenceRegistry } from "./crossReferences.js";
+import type {
+  CrossReferenceRegistry,
+  ResolvedCaption,
+} from "./crossReferences.js";
 import type { PluginRuntime } from "./pluginRuntime.js";
+import type { ConversionContext } from "./mdastModel/context.js";
+import { blockResultToArray } from "./mdastModel/context.js";
+import {
+  classifyHtmlNode,
+  convertBlockNode,
+  htmlNodeValue,
+} from "./mdastModel/blocks.js";
+import { createFootnoteState } from "./mdastModel/footnotes.js";
+import { processReferencedFootnotes } from "./mdastModel/footnoteDefinitions.js";
+import { processInlineNodes } from "./mdastModel/inline.js";
 
-interface ProcessOptions {
-  allowFootnoteReferences?: boolean;
+/** Optional collaborators, after the positional root, style and options. */
+type ConversionServices = [
+  crossReferences?: CrossReferenceRegistry | undefined,
+  pluginRuntime?: PluginRuntime | undefined,
+];
+
+/** What one top-level child contributes, and how many root children it used. */
+interface RootStep {
+  blocks: DocxBlockNode[];
+  consumed: number;
 }
 
-type MathBlock = { value?: string };
-
-const GITHUB_CALLOUT_MARKER =
-  /^\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*(?:\r?\n[ \t]*)?/i;
+/** Standalone `[TOC]` and `\pagebreak` paragraphs are document markers. */
+function rootParagraphMarker(child: RootContent): DocxBlockNode | null {
+  if (child.type !== "paragraph") {
+    return null;
+  }
+  const textContent = child.children
+    .filter((c) => c.type === "text")
+    .map((c) => c.value)
+    .join("")
+    .trim();
+  if (textContent === "[TOC]") {
+    return { type: "tocPlaceholder" };
+  }
+  return textContent === "\\pagebreak" ? { type: "pageBreak" } : null;
+}
 
 /**
- * Classifies a raw HTML node value into a comment or page-break block, or
- * null when it carries no recognized marker. Shared by the top-level scan
- * and the nested (blockquote/list) block walker.
+ * Attaches the caption paragraph that follows an image or table. Returns
+ * whether it did, in which case the caption paragraph is consumed.
  */
-function classifyHtmlNode(value: string): DocxBlockNode | null {
-  const commentMatch = value.match(
-    /^\s*<!--\s*COMMENT:\s*([\s\S]*?)\s*(?:-->\s*|$)/,
-  );
-  if (commentMatch) {
-    // Group 1 is mandatory in the pattern, so it is always present on a match.
-    return { type: "comment", value: commentMatch[1]!.trim() };
+function attachCaption(
+  context: ConversionContext,
+  block: DocxBlockNode,
+  caption: ResolvedCaption | undefined,
+): boolean {
+  if (!caption || (block.type !== "image" && block.type !== "table")) {
+    return false;
   }
-  if (value.includes("pagebreak")) {
-    return { type: "pageBreak" };
-  }
-  return null;
+  block.caption = {
+    id: caption.id,
+    kind: caption.kind,
+    number: caption.number,
+    bookmarkId: caption.bookmarkId,
+    children: processInlineNodes(context, caption.children),
+  };
+  return true;
 }
 
-/** Plugin-provided inline nodes may carry a non-string `value`. */
-function stringifyNodeValue(value: unknown): string {
-  return String(value);
-}
-
-function isParagraphNode(node: Node): node is Paragraph {
-  return node.type === "paragraph";
-}
-
-function stripGithubCalloutMarker(
-  paragraph: Paragraph,
-): { calloutType: DocxCalloutType; paragraph: Paragraph | null } | null {
-  const firstChild = paragraph.children[0];
-  if (!firstChild || firstChild.type !== "text") {
-    return null;
+function convertRootChild(
+  context: ConversionContext,
+  root: Root,
+  index: number,
+): RootStep {
+  // Bounded by the caller's loop condition.
+  const child = root.children[index]!;
+  const resolvedCaption = captionAt(context.crossReferences, root, index);
+  const marker = rootParagraphMarker(child);
+  if (marker) {
+    return { blocks: [marker], consumed: 1 };
+  }
+  if (child.type === "html") {
+    return { blocks: blockResultToArray(classifyHtmlNode(htmlNodeValue(child))), consumed: 1 };
+  }
+  if (child.type === "footnoteDefinition") {
+    return { blocks: [], consumed: 1 };
   }
 
-  const markerMatch = firstChild.value.match(GITHUB_CALLOUT_MARKER);
-  if (!markerMatch) {
-    return null;
-  }
-
-  // Group 1 is mandatory in the pattern, so it is always present on a match.
-  const calloutType = markerMatch[1]!.toLowerCase() as DocxCalloutType;
-  const remainingValue = firstChild.value.slice(markerMatch[0].length);
-  const children = [
-    ...(remainingValue.length > 0
-      ? [{ ...firstChild, value: remainingValue }]
-      : []),
-    ...paragraph.children.slice(1),
-  ] as Paragraph["children"];
-
+  const processed = context.convertBlock(child, {});
+  const captioned =
+    processed !== null &&
+    !Array.isArray(processed) &&
+    attachCaption(context, processed, resolvedCaption);
   return {
-    calloutType,
-    paragraph:
-      children.length > 0
-        ? {
-            ...paragraph,
-            children,
-          }
-        : null,
+    blocks: blockResultToArray(processed),
+    consumed: captioned ? 2 : 1,
   };
 }
 
@@ -116,712 +110,26 @@ export function mdastToDocxModel(
   root: Root,
   _style: Style,
   options: Options,
-  crossReferences?: CrossReferenceRegistry,
-  pluginRuntime?: PluginRuntime,
+  ...[crossReferences, pluginRuntime]: ConversionServices
 ): DocxDocumentModel {
   resolveMarkdownReferences(root);
   bindCrossReferenceCaptions(crossReferences, root);
+  const context: ConversionContext = {
+    options,
+    crossReferences,
+    pluginRuntime,
+    footnotes: createFootnoteState(root),
+    listSequenceIds: new Map(),
+    convertBlock: (node, processOptions) =>
+      convertBlockNode(context, node, processOptions),
+  };
+
   const children: DocxBlockNode[] = [];
-  const footnoteDefinitions = collectFirstNodesByKey<FootnoteDefinition>(
-    root,
-    "footnoteDefinition",
-    (definition) => normalizeFootnoteIdentifier(definition.identifier),
-  );
-  const referencedFootnoteIds = new Map<string, number>();
-  const footnoteReferenceCounts = new Map<string, number>();
-  let numberedListSequenceId = 0;
-  const listSequenceMap = new Map<List, number>();
-
-  function normalizeFootnoteIdentifier(identifier: string): string {
-    return identifier.trim().toLowerCase();
+  for (let index = 0; index < root.children.length; ) {
+    const step = convertRootChild(context, root, index);
+    children.push(...step.blocks);
+    index += step.consumed;
   }
 
-  function footnoteLabel(
-    node: Pick<FootnoteReference | FootnoteDefinition, "identifier" | "label">,
-  ): string {
-    return node.label || node.identifier;
-  }
-
-  function footnoteReferenceId(identifier: string): number {
-    const normalizedIdentifier = normalizeFootnoteIdentifier(identifier);
-    const existingId = referencedFootnoteIds.get(normalizedIdentifier);
-    if (existingId) {
-      return existingId;
-    }
-
-    const id = referencedFootnoteIds.size + 1;
-    referencedFootnoteIds.set(normalizedIdentifier, id);
-    return id;
-  }
-
-  function processNode(
-    node: Node,
-    options: ProcessOptions = {},
-  ): DocxBlockNode | DocxBlockNode[] | null {
-    switch (node.type) {
-      case "heading":
-        return processHeading(node as Heading, options);
-      case "paragraph":
-        return processParagraph(node as Paragraph, options);
-      case "list":
-        return processList(node as List, options);
-      case "code":
-        return processCodeBlock(node as Code);
-      case "math":
-        return processMathBlock(node as MathBlock);
-      case "blockquote":
-        return processBlockquote(node as Blockquote, options);
-      case "image":
-        return processImage(node as Image);
-      case "richTable": {
-        const table = node as RichTableAst;
-        const rows = table.children.map((row) =>
-          row.children.map((cell) => ({
-            type: "tableCell" as const,
-            ...(cell.columnSpan !== undefined
-              ? { columnSpan: cell.columnSpan }
-              : {}),
-            ...(cell.rowSpan !== undefined ? { rowSpan: cell.rowSpan } : {}),
-            children: cell.children.flatMap((child) => {
-              const result = processNode(child, options);
-              return result ? (Array.isArray(result) ? result : [result]) : [];
-            }),
-          })),
-        );
-        return {
-          type: "table",
-          headers: table.header ? rows.shift()! : [],
-          rows,
-          ...(table.columnWidths !== undefined
-            ? { columnWidths: table.columnWidths }
-            : {}),
-        };
-      }
-      case "table":
-        return processTable(node as Table, options);
-      case "html":
-        return classifyHtmlNode((node as { value?: string }).value || "");
-      case "thematicBreak":
-        return { type: "horizontalRule" };
-      default:
-        return processPluginBlockNode(node, options);
-    }
-  }
-
-  function extractNodeText(node: Node): string {
-    const value = (node as Node & { value?: unknown }).value;
-    if (typeof value === "string") {
-      return value;
-    }
-    const nodeChildren = (node as Node & { children?: unknown }).children;
-    if (Array.isArray(nodeChildren)) {
-      return nodeChildren
-        .map((child) => extractNodeText(child as Node))
-        .filter(Boolean)
-        .join("\n");
-    }
-    return `[Unsupported Markdown node: ${node.type}]`;
-  }
-
-  function processPluginBlockNode(
-    node: Node,
-    processOptions: ProcessOptions,
-  ): DocxBlockNode | null {
-    const handler = pluginRuntime?.blockNode(node.type);
-    if (!handler) {
-      return null;
-    }
-
-    const children: DocxBlockNode[] = [];
-    const nodeChildren = (node as Node & { children?: unknown }).children;
-    if (Array.isArray(nodeChildren)) {
-      for (const child of nodeChildren) {
-        const processed = processNode(child as Node, processOptions);
-        if (Array.isArray(processed)) {
-          children.push(...processed);
-        } else if (processed) {
-          children.push(processed);
-        }
-      }
-    }
-
-    return {
-      type: "pluginBlock",
-      handler,
-      source: {
-        kind: "blockNode",
-        node,
-        nodeType: node.type,
-      },
-      children,
-      fallbackText: extractNodeText(node),
-    };
-  }
-
-  function processHeading(
-    heading: Heading,
-    options: ProcessOptions = {},
-  ): DocxBlockNode {
-    const children = processInlineNodes(heading.children, options);
-    return {
-      type: "heading",
-      level: heading.depth,
-      children,
-    };
-  }
-
-  function processParagraph(
-    paragraph: Paragraph,
-    options: ProcessOptions = {},
-  ): DocxBlockNode | DocxBlockNode[] {
-    // If the paragraph consists of a single image, treat it as a block image
-    const [img] = paragraph.children;
-    if (paragraph.children.length === 1 && img?.type === "image") {
-      return {
-        type: "image",
-        alt: img.alt || "",
-        ...(img.title ? { title: img.title } : {}),
-        url: img.url || "",
-      };
-    }
-
-    // Regular paragraph with inline content
-    const children = processInlineNodes(paragraph.children, options);
-    return {
-      type: "paragraph",
-      children,
-    };
-  }
-
-  function processList(
-    list: List,
-    options: ProcessOptions = {},
-  ): DocxBlockNode {
-    // Assign sequence ID for numbered lists
-    if (list.ordered && !listSequenceMap.has(list)) {
-      numberedListSequenceId++;
-      listSequenceMap.set(list, numberedListSequenceId);
-    }
-
-    const listItems: DocxListItemNode[] = [];
-    for (const item of list.children) {
-      const itemChildren: DocxBlockNode[] = [];
-
-      // Process children of list item (ListItem.children is FlowContent[])
-      for (const child of item.children) {
-        if (child.type === "list") {
-          // Nested list - process recursively
-          itemChildren.push(processList(child, options));
-        } else if (child.type === "paragraph") {
-          const processedParagraph = processParagraph(
-            child,
-            options,
-          );
-          if (Array.isArray(processedParagraph)) {
-            itemChildren.push(...processedParagraph);
-          } else {
-            itemChildren.push(processedParagraph);
-          }
-        } else {
-          // Other block content (headings, code blocks, etc.)
-          const processed = processNode(child, options);
-          if (processed) {
-            if (Array.isArray(processed)) {
-              itemChildren.push(...processed);
-            } else {
-              itemChildren.push(processed);
-            }
-          }
-        }
-      }
-
-      // If no block children, create an empty paragraph
-      if (itemChildren.length === 0) {
-        itemChildren.push({
-          type: "paragraph",
-          children: [],
-        });
-      }
-
-      listItems.push({
-        type: "listItem",
-        children: itemChildren,
-        ...(typeof item.checked === "boolean" ? { checked: item.checked } : {}),
-      });
-    }
-
-    const sequenceId = list.ordered ? listSequenceMap.get(list) : undefined;
-    return {
-      type: "list",
-      ordered: list.ordered || false,
-      start: list.start ?? 1,
-      children: listItems,
-      ...(sequenceId !== undefined ? { sequenceId } : {}),
-    };
-  }
-
-  function processCodeBlock(code: Code): DocxBlockNode {
-    const language = code.lang || undefined;
-    const normalizedLanguage = language?.trim().toLowerCase();
-
-    if (
-      options.mermaidRendering?.enabled === true &&
-      normalizedLanguage === "mermaid"
-    ) {
-      return {
-        type: "mermaidBlock",
-        value: code.value || "",
-        ...(code.meta ? { meta: code.meta } : {}),
-      };
-    }
-
-    if (
-      options.chartRendering?.enabled === true &&
-      (normalizedLanguage === "chart" || normalizedLanguage === "chartjs")
-    ) {
-      return {
-        type: "chartBlock",
-        ...(language !== undefined ? { language } : {}),
-        value: code.value || "",
-      };
-    }
-
-    if (normalizedLanguage) {
-      const handler = pluginRuntime?.fence(normalizedLanguage);
-      if (handler) {
-        return {
-          type: "pluginBlock",
-          handler,
-          source: {
-            kind: "fence",
-            language: normalizedLanguage,
-            value: code.value || "",
-            ...(code.meta ? { meta: code.meta } : {}),
-          },
-          children: [],
-          fallbackText: code.value || "",
-        };
-      }
-    }
-
-    return {
-      type: "codeBlock",
-      ...(language !== undefined ? { language } : {}),
-      value: code.value || "",
-    };
-  }
-
-  function processMathBlock(math: MathBlock): DocxBlockNode {
-    return {
-      type: "mathBlock",
-      value: math.value || "",
-    };
-  }
-
-  function processBlockquote(
-    blockquote: Blockquote,
-    options: ProcessOptions = {},
-  ): DocxBlockNode {
-    const children: DocxBlockNode[] = [];
-    const firstChild = blockquote.children[0];
-    const callout =
-      firstChild?.type === "paragraph"
-        ? stripGithubCalloutMarker(firstChild)
-        : null;
-    const blockquoteChildren = callout
-      ? [
-          ...(callout.paragraph ? [callout.paragraph] : []),
-          ...blockquote.children.slice(1),
-        ]
-      : blockquote.children;
-
-    for (const child of blockquoteChildren) {
-      const processed = processNode(child, options);
-      if (processed) {
-        if (Array.isArray(processed)) {
-          children.push(...processed);
-        } else {
-          children.push(processed);
-        }
-      }
-    }
-    return {
-      type: "blockquote",
-      children,
-      ...(callout ? { calloutType: callout.calloutType } : {}),
-    };
-  }
-
-  function processImage(image: Image): DocxBlockNode {
-    return {
-      type: "image",
-      alt: image.alt || "",
-      ...(image.title ? { title: image.title } : {}),
-      url: image.url || "",
-    };
-  }
-
-  function processTable(
-    table: Table,
-    options: ProcessOptions = {},
-  ): DocxBlockNode {
-    const headers: DocxInlineNode[][] = [];
-    const rows: DocxInlineNode[][][] = [];
-
-    if (table.children.length > 0) {
-      // Guarded by the length check above.
-      const headerRow = table.children[0]!;
-      for (const cell of headerRow.children) {
-        headers.push(extractRichTextFromTableCell(cell, options));
-      }
-
-      for (let i = 1; i < table.children.length; i++) {
-        const row = table.children[i]!;
-        const rowData: DocxInlineNode[][] = [];
-        for (const cell of row.children) {
-          rowData.push(
-            extractRichTextFromTableCell(cell, options),
-          );
-        }
-        while (rowData.length < headers.length) rowData.push([]);
-        rows.push(rowData.slice(0, headers.length));
-      }
-    }
-
-    return {
-      type: "table",
-      headers,
-      rows,
-      ...(table.align ? { align: table.align } : {}),
-    };
-  }
-
-  function extractRichTextFromTableCell(
-    cell: TableCell,
-    options: ProcessOptions = {},
-  ): DocxInlineNode[] {
-    const nodes: DocxInlineNode[] = [];
-    for (const child of cell.children) {
-      // mdast types cells as phrasing-only, but plugin AST transforms may
-      // still place paragraphs inside them.
-      const cellChild: Node = child;
-      if (isParagraphNode(cellChild)) {
-        nodes.push(...processInlineNodes(cellChild.children, options));
-      } else {
-        nodes.push(...processInlineNodes([child], options));
-      }
-    }
-    return nodes;
-  }
-
-  function processInlineNodes(
-    nodes: readonly PhrasingContent[],
-    options: ProcessOptions = {},
-  ): DocxInlineNode[] {
-    const result: DocxInlineNode[] = [];
-    const allowFootnoteReferences = options.allowFootnoteReferences ?? true;
-
-    function pushTextWithUnderline(value: string): void {
-      const parts = value.split(/(\+\+[^+\n][\s\S]*?\+\+)/g);
-      for (const part of parts) {
-        if (part.startsWith("++") && part.endsWith("++") && part.length > 4) {
-          result.push({
-            type: "text",
-            value: part.slice(2, -2),
-            underline: true,
-          });
-        } else if (part.length > 0) {
-          result.push({
-            type: "text",
-            value: part,
-          });
-        }
-      }
-    }
-
-    function pushTextAndCrossReferences(value: string): void {
-      const referencePattern = /\[@((?:fig|tbl):[^\]\s]+)\]/g;
-      let cursor = 0;
-      for (const match of value.matchAll(referencePattern)) {
-        const matchIndex = match.index;
-        if (matchIndex > cursor) {
-          pushTextWithUnderline(value.slice(cursor, matchIndex));
-        }
-
-        // Group 1 is mandatory in the pattern, so it is always present.
-        const identifier = match[1]!;
-        const definition = resolveCrossReference(crossReferences, identifier);
-        if (definition) {
-          result.push({
-            type: "crossReference",
-            ...definition,
-          });
-        } else {
-          throwOnUnresolvedCrossReference(crossReferences, identifier);
-          pushTextWithUnderline(match[0]);
-        }
-        cursor = matchIndex + match[0].length;
-      }
-
-      if (cursor < value.length) {
-        pushTextWithUnderline(value.slice(cursor));
-      }
-    }
-
-    for (const node of nodes) {
-      switch (node.type) {
-        case "text":
-          pushTextAndCrossReferences(node.value);
-          break;
-        case "emphasis": {
-          const emphasisChildren = processInlineNodes(
-            node.children,
-            options,
-          );
-          for (const child of emphasisChildren) {
-            result.push(
-              child.type === "text" ? { ...child, italic: true } : child,
-            );
-          }
-          break;
-        }
-        case "strong": {
-          const strongChildren = processInlineNodes(
-            node.children,
-            options,
-          );
-          for (const child of strongChildren) {
-            result.push(
-              child.type === "text" ? { ...child, bold: true } : child,
-            );
-          }
-          break;
-        }
-        case "delete": {
-          const strikeChildren = processInlineNodes(
-            node.children,
-            options,
-          );
-          for (const child of strikeChildren) {
-            result.push(
-              child.type === "text" ? { ...child, strikethrough: true } : child,
-            );
-          }
-          break;
-        }
-        case "image": {
-          const title = node.title ?? undefined;
-          result.push({
-            type: "inlineImage",
-            url: node.url,
-            alt: node.alt ?? "",
-            ...(title !== undefined ? { title } : {}),
-          });
-          break;
-        }
-        case "inlineCode":
-          result.push({
-            type: "text",
-            value: node.value,
-            code: true,
-          });
-          break;
-        case "link": {
-          const previous = result[result.length - 1];
-          const [linkText] = node.children;
-          if (
-            previous?.type === "text" &&
-            /\[[^\]]+\]\($/.test(previous.value) &&
-            node.children.length === 1 &&
-            linkText?.type === "text" &&
-            linkText.value === node.url
-          ) {
-            previous.value += node.url;
-            break;
-          }
-          const linkChildren = processInlineNodes(
-            node.children,
-            options,
-          );
-          for (const child of linkChildren) {
-            result.push(
-              child.type === "text"
-                ? { ...child, link: node.url }
-                : child,
-            );
-          }
-          break;
-        }
-        case "footnoteReference": {
-          const footnoteReference = node;
-          const normalizedIdentifier = normalizeFootnoteIdentifier(
-            footnoteReference.identifier,
-          );
-
-          if (
-            allowFootnoteReferences &&
-            footnoteDefinitions.has(normalizedIdentifier)
-          ) {
-            const referenceCount =
-              (footnoteReferenceCounts.get(normalizedIdentifier) ?? 0) + 1;
-            footnoteReferenceCounts.set(normalizedIdentifier, referenceCount);
-            result.push({
-              type: "footnoteReference",
-              identifier: normalizedIdentifier,
-              id: footnoteReferenceId(normalizedIdentifier),
-              isRepeatedReference: referenceCount > 1,
-            });
-          } else {
-            result.push({
-              type: "text",
-              value: `[^${footnoteLabel(footnoteReference)}]`,
-            });
-          }
-          break;
-        }
-        case "inlineMath":
-          result.push({
-            type: "mathInline",
-            value: node.value || "",
-          });
-          break;
-        case "break":
-          result.push({
-            type: "text",
-            value: "\n",
-          });
-          break;
-        default: {
-          // Unknown inline node - try to extract text
-          const unknownNode: Node = node;
-          const value = "value" in unknownNode ? unknownNode.value : undefined;
-          if (value) {
-            result.push({
-              type: "text",
-              value: stringifyNodeValue(value),
-            });
-          }
-        }
-      }
-    }
-
-    return result;
-  }
-
-  function processFootnoteDefinition(
-    definition: FootnoteDefinition,
-    id: number,
-  ): DocxFootnoteDefinitionNode {
-    const footnoteChildren: DocxBlockNode[] = [];
-
-    for (const child of definition.children) {
-      const processed = processFootnoteDefinitionChild(child);
-      if (processed) {
-        if (Array.isArray(processed)) {
-          footnoteChildren.push(...processed);
-        } else {
-          footnoteChildren.push(processed);
-        }
-      }
-    }
-
-    if (footnoteChildren.length === 0) {
-      footnoteChildren.push({
-        type: "paragraph",
-        children: [],
-      });
-    }
-
-    return {
-      identifier: normalizeFootnoteIdentifier(definition.identifier),
-      id,
-      children: footnoteChildren,
-    };
-  }
-
-  function processFootnoteDefinitionChild(
-    node: Node,
-  ): DocxBlockNode | DocxBlockNode[] | null {
-    if (node.type === "paragraph") {
-      const paragraph = node as Paragraph;
-      return {
-        type: "paragraph",
-        children: processInlineNodes(paragraph.children, {
-          allowFootnoteReferences: false,
-        }),
-      };
-    }
-
-    return processNode(node, { allowFootnoteReferences: false });
-  }
-
-  // Process root children
-  for (let childIndex = 0; childIndex < root.children.length; childIndex++) {
-    // Bounded by the loop condition.
-    const child = root.children[childIndex]!;
-    const resolvedCaption = captionAt(crossReferences, root, childIndex);
-    // Handle special cases for TOC and page breaks
-    if (child.type === "paragraph") {
-      const para = child;
-      // Check if paragraph contains only text nodes
-      const textContent = para.children
-        .filter((c) => c.type === "text")
-        .map((c) => (c).value)
-        .join("")
-        .trim();
-      if (textContent === "[TOC]") {
-        children.push({ type: "tocPlaceholder" });
-        continue;
-      }
-      if (textContent === "\\pagebreak" || textContent === "\\pagebreak") {
-        children.push({ type: "pageBreak" });
-        continue;
-      }
-    }
-
-    // Handle HTML comments and page-break markers.
-    if (child.type === "html") {
-      const classified = classifyHtmlNode(
-        (child as { value?: string }).value || "",
-      );
-      if (classified) {
-        children.push(classified);
-      }
-      continue;
-    }
-
-    if (child.type === "footnoteDefinition") {
-      continue;
-    }
-
-    const processed = processNode(child);
-    if (processed) {
-      if (
-        resolvedCaption &&
-        !Array.isArray(processed) &&
-        (processed.type === "image" || processed.type === "table")
-      ) {
-        processed.caption = {
-          id: resolvedCaption.id,
-          kind: resolvedCaption.kind,
-          number: resolvedCaption.number,
-          bookmarkId: resolvedCaption.bookmarkId,
-          children: processInlineNodes(resolvedCaption.children),
-        };
-        childIndex++;
-      }
-      if (Array.isArray(processed)) {
-        children.push(...processed);
-      } else {
-        children.push(processed);
-      }
-    }
-  }
-
-  const footnotes = Array.from(referencedFootnoteIds.entries()).map(
-    ([identifier, id]) =>
-      processFootnoteDefinition(footnoteDefinitions.get(identifier)!, id),
-  );
-
-  return { children, footnotes };
+  return { children, footnotes: processReferencedFootnotes(context) };
 }

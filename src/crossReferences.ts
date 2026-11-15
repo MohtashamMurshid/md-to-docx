@@ -128,6 +128,29 @@ function captionCandidateAt(
   return candidate ? { kind, candidate } : null;
 }
 
+/** A candidate that parsed into an identifier and caption text, without error. */
+function validCandidate(
+  candidate: CaptionCandidate,
+): { id: string; children: PhrasingContent[] } | undefined {
+  if (candidate.error || !candidate.id || !candidate.children) {
+    return undefined;
+  }
+  return { id: candidate.id, children: candidate.children };
+}
+
+/** The registered definition for `id`, unless already bound or of another kind. */
+function unboundDefinition(
+  registry: CrossReferenceRegistry,
+  id: string,
+  kind: CaptionKind,
+): CrossReferenceDefinition | undefined {
+  if (registry.boundDefinitionIds.has(id)) {
+    return undefined;
+  }
+  const definition = registry.definitions.get(id);
+  return definition?.kind === kind ? definition : undefined;
+}
+
 function definitionError(
   registry: CrossReferenceRegistry,
   message: string,
@@ -180,7 +203,8 @@ export function buildCrossReferenceRegistry(
   for (const root of roots) {
     forEachCaptionCandidate(registry, root, (index, parsed, captions) => {
       const { kind, candidate } = parsed;
-      if (candidate.error || !candidate.id || !candidate.children) {
+      const valid = validCandidate(candidate);
+      if (!valid) {
         definitionError(
           registry,
           candidate.error || "Malformed caption",
@@ -189,10 +213,10 @@ export function buildCrossReferenceRegistry(
         return;
       }
 
-      const existing = registry.definitions.get(candidate.id);
+      const existing = registry.definitions.get(valid.id);
       if (existing) {
-        definitionError(registry, `Duplicate caption identifier: ${candidate.id}`, {
-          identifier: candidate.id,
+        definitionError(registry, `Duplicate caption identifier: ${valid.id}`, {
+          identifier: valid.id,
           firstKind: existing.kind,
           duplicateKind: kind,
         });
@@ -201,13 +225,13 @@ export function buildCrossReferenceRegistry(
 
       counters[kind]++;
       const definition: CrossReferenceDefinition = {
-        id: candidate.id,
+        id: valid.id,
         kind,
         number: counters[kind],
-        bookmarkId: crossReferenceBookmarkId(candidate.id),
+        bookmarkId: crossReferenceBookmarkId(valid.id),
       };
       registry.definitions.set(definition.id, definition);
-      captions.set(index, { ...definition, children: candidate.children });
+      captions.set(index, { ...definition, children: valid.children });
     });
   }
 
@@ -243,25 +267,14 @@ export function bindCrossReferenceCaptions(
   }
 
   forEachCaptionCandidate(registry, root, (index, parsed, captions) => {
-    const id = parsed.candidate.id;
-    if (
-      parsed.candidate.error ||
-      !id ||
-      !parsed.candidate.children ||
-      registry.boundDefinitionIds.has(id)
-    ) {
+    const candidate = validCandidate(parsed.candidate);
+    const definition =
+      candidate && unboundDefinition(registry, candidate.id, parsed.kind);
+    if (!candidate || !definition) {
       return;
     }
-
-    const definition = registry.definitions.get(id);
-    if (!definition || definition.kind !== parsed.kind) {
-      return;
-    }
-    captions.set(index, {
-      ...definition,
-      children: parsed.candidate.children,
-    });
-    registry.boundDefinitionIds.add(id);
+    captions.set(index, { ...definition, children: candidate.children });
+    registry.boundDefinitionIds.add(candidate.id);
   });
 }
 

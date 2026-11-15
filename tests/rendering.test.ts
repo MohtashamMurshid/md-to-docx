@@ -5,9 +5,9 @@ import {
   convertMarkdownToBuffer,
   convertMarkdownToDocx,
   MarkdownConversionError,
-} from "../src/index";
-import type { Options } from "../src/types";
-import { getDocumentXml, getZip, saveBlobForDebug } from "./helpers";
+} from "../src/index.js";
+import type { Options } from "../src/types.js";
+import { getDocumentXml, getZip, saveBlobForDebug } from "./helpers.js";
 
 // 1x1 transparent PNG used in image tests so the suite doesn't hit the network.
 const ONE_PX_PNG =

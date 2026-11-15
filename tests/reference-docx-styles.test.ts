@@ -9,11 +9,11 @@ import {
   convertMarkdownWithReferenceDocxToBuffer,
   MarkdownConversionError,
   type ReferenceDocxErrorContext,
-} from "../src/index";
+} from "../src/index.js";
 import {
   applyReferenceDocxPresentation,
   loadReferenceDocx,
-} from "../src/referenceDocx";
+} from "../src/referenceDocx.js";
 
 const fixturePath = path.join(
   process.cwd(),

@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it, jest } from "@jest/globals";
 import {
   convertMarkdownToDocx,
   MarkdownConversionError,
-} from "../src/index";
-import { canonicalLanguageName } from "../src/utils/codeHighlight";
-import { getDocumentXml, getZip } from "./helpers";
+} from "../src/index.js";
+import { canonicalLanguageName } from "../src/utils/codeHighlight.js";
+import { getDocumentXml, getZip } from "./helpers.js";
 
 async function documentRelationshipsXml(blob: Blob): Promise<string> {
   const zip = await getZip(blob);

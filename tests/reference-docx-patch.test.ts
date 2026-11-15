@@ -3,7 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import JSZip from "jszip";
 import { Document, Packer, Paragraph } from "docx";
-import { patchMarkdownInDocx, patchMarkdownInDocxToBuffer } from "../src/index";
+import {
+  patchMarkdownInDocx,
+  patchMarkdownInDocxToBuffer,
+} from "../src/index.js";
 
 const fixturePath = path.join(
   process.cwd(),

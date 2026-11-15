@@ -3,8 +3,8 @@ import {
   convertMarkdownToDocx,
   MarkdownConversionError,
   parseToDocxOptions,
-} from "../src/index";
-import type { Options } from "../src/types";
+} from "../src/index.js";
+import type { Options } from "../src/types.js";
 
 describe("sections API", () => {
   it("builds distinct section properties, footers, and page numbering", async () => {

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, jest } from "@jest/globals";
-import { convertMarkdownToDocx } from "../src/index";
-import type { Options } from "../src/types";
-import { getDocumentXml, getZip } from "./helpers";
+import { convertMarkdownToDocx } from "../src/index.js";
+import type { Options } from "../src/types.js";
+import { getDocumentXml, getZip } from "./helpers.js";
 
 const ONE_PX_PNG =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAGgwJ/vk9yBgAAAABJRU5ErkJggg==";

@@ -3,10 +3,10 @@ import {
   convertMarkdownToDocx,
   MarkdownConversionError,
   parseToDocxOptions,
-} from "../src/index";
-import { modelToDocx } from "../src/modelToDocx";
-import type { DocxDocumentModel } from "../src/docxModel";
-import type { Options, Style } from "../src/types";
+} from "../src/index.js";
+import { modelToDocx } from "../src/modelToDocx.js";
+import type { DocxDocumentModel } from "../src/docxModel.js";
+import type { Options, Style } from "../src/types.js";
 
 afterEach(() => {
   jest.restoreAllMocks();

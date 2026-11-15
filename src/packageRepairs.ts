@@ -14,7 +14,7 @@ const NOTE_PARTS = [
 /**
  * Pack after registering lists that docx otherwise discovers too late in
  * footnotes and endnotes, then renumber the IDs docx draws from process-wide
- * counters.
+ * counters or at random.
  */
 export async function packDocumentWithRepairs(
   options: IPropertiesOptions,
@@ -34,6 +34,7 @@ export async function packDocumentWithRepairs(
   changed = (await renumberProcessWideIds(zip)) || changed;
   changed = (await renumberHyperlinkRelationships(zip)) || changed;
   changed = (await normalizeChartParts(zip)) || changed;
+  changed = (await renumberWatermarkShapes(zip)) || changed;
   if (!changed) return blob;
   return new Blob(
     [await zip.generateAsync({ type: "arraybuffer", compression: "DEFLATE" })],
@@ -69,6 +70,34 @@ async function repairNoteNumbering(
     }
   }
   if (changed) zip.file(part, new XMLSerializer().serializeToString(notes));
+  return changed;
+}
+
+// docx/watermarks names each shape with this prefix and a random suffix.
+const WATERMARK_SHAPE_ID = /\bid="PowerPlusWaterMarkObject[^"]*"/g;
+
+/**
+ * Give generated watermark shapes IDs from 1, in header-part order. Word's
+ * Remove Watermark command finds them by the prefix, so it stays. Only new
+ * documents need this: reference and patch packages keep their own shapes.
+ */
+async function renumberWatermarkShapes(zip: JSZip): Promise<boolean> {
+  const headers = Object.keys(zip.files)
+    .filter((name) => /^word\/header\d+\.xml$/.test(name))
+    .sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
+  let next = 0;
+  let changed = false;
+  for (const name of headers) {
+    const source = await zip.file(name)!.async("string");
+    const output = source.replace(
+      WATERMARK_SHAPE_ID,
+      () => `id="PowerPlusWaterMarkObject${String(++next)}"`,
+    );
+    if (output !== source) {
+      zip.file(name, output);
+      changed = true;
+    }
+  }
   return changed;
 }
 

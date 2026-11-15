@@ -80,3 +80,10 @@ export function isNotOneOf(
 ): (value: unknown) => boolean {
   return (value) => !allowed.includes(value);
 }
+
+const HEX_COLOR = /^[0-9A-Fa-f]{6}$/;
+
+/** True unless the value is an RRGGBB string, as Word colors are written. */
+export function isNotHexColor(value: unknown): boolean {
+  return typeof value !== "string" || !HEX_COLOR.test(value);
+}

@@ -225,6 +225,29 @@ const answer = 42;
     expect(entries.map((entry) => /<w:t[^>]*>(\d+)<\/w:t><\/w:r><\/w:fldSimple>/.exec(entry)?.[1])).toEqual(["1", "2"]);
   });
 
+  it("keeps a watermark only when the generated headers are kept", async () => {
+    const reference = await createReferenceFixture();
+    await expect(
+      convertMarkdownWithReferenceDocxToBuffer("# Body", reference, {
+        watermark: { text: "DRAFT" },
+      }),
+    ).rejects.toThrow(
+      "watermark needs reference.preserveHeadersAndFooters: false",
+    );
+
+    const zip = await JSZip.loadAsync(
+      await convertMarkdownWithReferenceDocxToBuffer("# Body", reference, {
+        watermark: { text: "DRAFT" },
+        reference: { preserveHeadersAndFooters: false },
+      }),
+    );
+    const headers = Object.keys(zip.files).filter((name) =>
+      /^word\/header\d+\.xml$/.test(name),
+    );
+    expect(headers).toHaveLength(1);
+    expect(await xml(zip, headers[0]!)).toContain('string="DRAFT"');
+  });
+
   it("remaps reference numbering above generated ordered and bullet list IDs", async () => {
     const output = await convertMarkdownWithReferenceDocxToBuffer(
       "1. Ordered\n2. Still ordered\n\n- Bullet",

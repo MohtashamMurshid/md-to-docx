@@ -197,6 +197,7 @@ Each is off by default and works from a CLI `--options` JSON file. Where patch m
 | `toc.prefillPageNumbers` | `true` estimates TOC page numbers so Word does not ask to update fields on open | `false` | supported |
 | `footnotes.placement` | `footnotes`, `endnotes` (Word endnotes at the end of the document, numbered 1, 2, 3) | `footnotes` | `endnotes` rejected |
 | `taskLists.checkboxes` | `text` (`☐`/`☒` characters), `content-control` (clickable Word checkboxes, checked state kept) | `text` | supported |
+| `watermark` | `{ "text": "DRAFT", "color": "C0C0C0", "opacity": 0.5, "layout": "diagonal" }`; `text` (1–100 characters) is required. Added to every section's headers, alongside existing ones. With `--reference`, also set `reference.preserveHeadersAndFooters: false` | none | rejected |
 
 ## Troubleshooting
 

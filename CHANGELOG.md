@@ -1,3 +1,9 @@
+## [4.0.4](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.0.3...v4.0.4) (2026-11-15)
+
+### Bug Fixes
+
+* give hyperlink relationships the same IDs on every conversion ([#103](https://github.com/MohtashamMurshid/md-to-docx/issues/103)) ([f5cef9b](https://github.com/MohtashamMurshid/md-to-docx/commit/f5cef9b86e53624c279d78a30b360bed0243d382))
+
 ## [4.0.3](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.0.2...v4.0.3) (2026-11-15)
 
 ### Bug Fixes

@@ -1481,10 +1481,11 @@ cd md-to-docx
 npm install
 
 npm run build   # compile TypeScript to dist/
-npm test        # run the Jest suite
+npm test        # run the test suite
+npm run ci      # everything CI runs: guardrails, lint, typecheck, build, tests, fallow, packaging checks
 ```
 
-Tests run offline against generated Word XML using JSZip. Set `DEBUG_DOCX=1` to have tests also write `.docx` artifacts under `test-output/` for manual inspection.
+Tests run offline against generated Word XML using JSZip. Set `DEBUG_DOCX=1` to have tests also write `.docx` artifacts under `test-output/` for manual inspection. [docs/DECISIONS.md](./docs/DECISIONS.md) explains each check and lint rule.
 
 ## Changelog
 
@@ -1492,12 +1493,15 @@ See [CHANGELOG.md](./CHANGELOG.md) for a detailed history.
 
 ## Contributing
 
-PRs and issues are welcome. A few guidelines:
+PRs and issues are welcome. [.github/CONTRIBUTING.md](./.github/CONTRIBUTING.md) describes the path of a change, and [AGENTS.md](./AGENTS.md) has the engineering rules for people and coding agents alike. In short:
 
 1. Open an issue to discuss non-trivial changes before sending a patch.
-2. Add or update tests under `tests/` — the suite uses XML-level assertions on the generated DOCX, so changes to rendering should be verified at that level.
-3. Keep the public API surface stable; internal refactors should not require bumping the major version.
-4. Run `npm run build && npm test` before pushing.
+2. Add or update tests under `tests/`. The suite asserts the XML of the generated DOCX, so verify rendering changes at that level.
+3. Keep the public API stable. Internal refactors should not require a major version.
+4. Give the PR a [Conventional Commit](./.github/COMMITS.md) title; it decides the release.
+5. Run `npm run ci` before pushing.
+
+Report security issues privately, as [SECURITY.md](./.github/SECURITY.md) describes.
 
 ## License
 

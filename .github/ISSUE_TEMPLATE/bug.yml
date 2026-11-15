@@ -1,0 +1,39 @@
+name: Bug report
+description: Output is wrong, Word reports a problem, or conversion fails.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead. Include the error message if conversion failed, or what Word or LibreOffice showed.
+    validations:
+      required: true
+  - type: textarea
+    id: input
+    attributes:
+      label: Minimal input
+      description: The smallest Markdown (and options JSON, if any) that shows the problem. Attach a reference or template DOCX if one is involved.
+      render: markdown
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: How you ran it
+      options:
+        - CLI
+        - Node API
+        - Browser API
+        - Reference DOCX styles
+        - Placeholder patching
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: md-to-docx version, Node or browser version, and the app that opened the file.
+      placeholder: md-to-docx 4.0.1, Node 22.11, Word 365
+    validations:
+      required: true

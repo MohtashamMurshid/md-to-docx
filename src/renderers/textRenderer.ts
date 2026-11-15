@@ -22,6 +22,7 @@ export function processInlineCode(
   style?: Style,
   overrides?: { size?: number }
 ): TextRun {
+  const language = style ? runLanguage(style) : undefined;
   return new TextRun({
     text: code,
     font: "Courier New",
@@ -34,6 +35,6 @@ export function processInlineCode(
       fill: style?.inlineCodeBackground || "F5F5F5",
     },
     rightToLeft: style?.direction === "RTL",
-    language: style ? runLanguage(style) : undefined,
+    ...(language ? { language } : {}),
   });
 }

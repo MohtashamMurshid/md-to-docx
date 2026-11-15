@@ -1,7 +1,7 @@
 import type { ImageHandlingOptions } from "../types.js";
 
 export interface ResolvedImageHandlingOptions {
-  resolve?: ImageHandlingOptions["resolve"];
+  resolve?: NonNullable<ImageHandlingOptions["resolve"]>;
   baseDirectory?: string;
   remote: {
     enabled: boolean;
@@ -17,7 +17,7 @@ export interface ResolvedImageHandlingOptions {
   maxUrlLength: number;
 }
 
-export const DEFAULT_IMAGE_HANDLING: ResolvedImageHandlingOptions = {
+const DEFAULT_IMAGE_HANDLING: ResolvedImageHandlingOptions = {
   remote: {
     enabled: false,
   },
@@ -34,14 +34,17 @@ export const DEFAULT_IMAGE_HANDLING: ResolvedImageHandlingOptions = {
 export function resolveImageHandlingOptions(
   options?: ImageHandlingOptions
 ): ResolvedImageHandlingOptions {
+  const resolve = options?.resolve;
+  const baseDirectory = options?.baseDirectory;
+  const allowedHosts = options?.remote?.allowedHosts?.map((host) =>
+    host.trim().toLowerCase()
+  );
   return {
-    resolve: options?.resolve,
-    baseDirectory: options?.baseDirectory,
+    ...(resolve !== undefined ? { resolve } : {}),
+    ...(baseDirectory !== undefined ? { baseDirectory } : {}),
     remote: {
       enabled: options?.remote?.enabled === true,
-      allowedHosts: options?.remote?.allowedHosts?.map((host) =>
-        host.trim().toLowerCase()
-      ),
+      ...(allowedHosts !== undefined ? { allowedHosts } : {}),
     },
     dataUrls: {
       enabled: options?.dataUrls?.enabled !== false,

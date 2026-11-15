@@ -3,7 +3,7 @@ import {
   convertMarkdownToDocx,
   MarkdownConversionError,
 } from "../src/index.js";
-import { getDocumentXml, getZip } from "./helpers.js";
+import { at, getDocumentXml, getZip } from "./helpers.js";
 
 const ONE_PX_PNG =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAGgwJ/vk9yBgAAAABJRU5ErkJggg==";
@@ -15,7 +15,7 @@ async function render(markdown: string, options = {}): Promise<string> {
 function fieldInstructions(xml: string, field: "SEQ" | "REF"): string[] {
   return Array.from(
     xml.matchAll(new RegExp(`<w:fldSimple w:instr=" ([^"]*${field}[^"]*)">`, "g")),
-    (match) => match[1],
+    (match) => at(match, 1),
   );
 }
 

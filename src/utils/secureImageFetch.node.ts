@@ -4,10 +4,7 @@ import { Agent, buildConnector } from "undici";
 import { throwIfAborted } from "../processingLimits.js";
 import type { ResolvedImageHandlingOptions } from "./imageHandling.js";
 
-export {
-  DEFAULT_IMAGE_HANDLING,
-  resolveImageHandlingOptions,
-} from "./imageHandling.js";
+export { resolveImageHandlingOptions } from "./imageHandling.js";
 export type { ResolvedImageHandlingOptions } from "./imageHandling.js";
 
 function isPrivateIPv4(address: string): boolean {
@@ -16,6 +13,9 @@ function isPrivateIPv4(address: string): boolean {
     return true;
   }
   const [a, b] = parts;
+  if (a === undefined || b === undefined) {
+    return true;
+  }
   return (
     a === 0 ||
     a === 10 ||
@@ -50,24 +50,24 @@ function ipv6HextetsToIpv4(hiHex: string, loHex: string): string | undefined {
  * bits 0xffff + 32-bit IPv4 encoded as dotted decimal or final two hextets.
  */
 function ipv4EmbeddedInIpv4MappedAddress(address: string): string | undefined {
-  const n = address.toLowerCase().split("%")[0];
+  const n = address.toLowerCase().split("%")[0]!;
 
   const dotted = n.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (dotted) return dotted[1];
+  if (dotted) return dotted[1]!;
 
   const hexTail = n.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-  if (hexTail) return ipv6HextetsToIpv4(hexTail[1], hexTail[2]);
+  if (hexTail) return ipv6HextetsToIpv4(hexTail[1]!, hexTail[2]!);
 
   const hexLong = n.match(
     /^(?:0:){5}ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/
   );
-  if (hexLong) return ipv6HextetsToIpv4(hexLong[1], hexLong[2]);
+  if (hexLong) return ipv6HextetsToIpv4(hexLong[1]!, hexLong[2]!);
 
   return undefined;
 }
 
 function isPrivateIPv6(address: string): boolean {
-  const normalized = address.toLowerCase().split("%")[0];
+  const normalized = address.toLowerCase().split("%")[0]!;
   const mappedV4 = ipv4EmbeddedInIpv4MappedAddress(normalized);
   if (mappedV4) {
     return isPrivateIPv4(mappedV4);
@@ -203,7 +203,10 @@ async function preparePinnedAgent(
   }
 
   const addresses = await resolveVerifiedAddresses(url.hostname, dnsTimeoutMs);
-  const pick = addresses[0];
+  const [pick] = addresses;
+  if (!pick) {
+    throw new Error("Remote image host did not resolve");
+  }
   return buildPinnedHttpsAgent(tlsServerName, pick.address, port);
 }
 
@@ -228,7 +231,7 @@ async function abortablePromise<T>(
 
   let onAbort!: () => void;
   const abortPromise = new Promise<never>((_, reject) => {
-    onAbort = () => reject(abortErrorFromSignal(signal));
+    onAbort = () => { reject(abortErrorFromSignal(signal)); };
     signal.addEventListener("abort", onAbort);
   });
 
@@ -250,7 +253,7 @@ async function abortableCallerPromise<T>(
 
   let onAbort!: () => void;
   const abortPromise = new Promise<never>((_, reject) => {
-    onAbort = () => reject(abortErrorFromSignal(signal));
+    onAbort = () => { reject(abortErrorFromSignal(signal)); };
     signal.addEventListener("abort", onAbort, { once: true });
   });
 
@@ -283,11 +286,11 @@ function linkCallerSignal(
   };
   signal.addEventListener("abort", onAbort, { once: true });
 
-  return () => signal.removeEventListener("abort", onAbort);
+  return () => { signal.removeEventListener("abort", onAbort); };
 }
 
 function abortErrorFromSignal(signal: AbortSignal): Error {
-  const reason = signal.reason;
+  const reason: unknown = signal.reason;
   if (reason instanceof Error) {
     return reason;
   }
@@ -296,7 +299,7 @@ function abortErrorFromSignal(signal: AbortSignal): Error {
 
 async function cancelReadableBody(response: Response): Promise<void> {
   try {
-    await response.body?.cancel?.();
+    await response.body?.cancel();
   } catch {
     /* ignore */
   }
@@ -320,11 +323,14 @@ async function readResponseBytes(
     return new Uint8Array(arrayBuffer);
   }
 
-  const reader = response.body.getReader();
+  // Chunks are typed as possibly undefined so the guard below still covers
+  // non-conforming fetch implementations.
+  const reader: ReadableStreamDefaultReader<Uint8Array | undefined> =
+    response.body.getReader();
   try {
     const chunks: Uint8Array[] = [];
     let total = 0;
-    while (true) {
+    for (;;) {
       const { done, value } = await abortablePromise(reader.read(), signal);
       if (done) {
         break;
@@ -362,6 +368,85 @@ export interface RemoteImage {
   finalUrl: string;
 }
 
+type HopResult = { redirect: URL } | { image: RemoteImage };
+
+/**
+ * Performs one pinned request hop. Returns the redirect target for a 3xx with
+ * a `Location` header, or the image bytes for a successful response.
+ */
+async function fetchHop(
+  currentUrl: URL,
+  dispatcher: Agent,
+  options: ResolvedImageHandlingOptions,
+  hop: { remainMs: number; redirects: number; signal: AbortSignal | undefined }
+): Promise<HopResult> {
+  const { signal } = hop;
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => { controller.abort(new Error("Remote image fetch timed out")); },
+    hop.remainMs
+  );
+  const unlinkCallerSignal = linkCallerSignal(controller, signal);
+
+  try {
+    throwIfAborted(signal);
+    const fetchInit: RequestInit & { dispatcher?: Agent } = {
+      redirect: "manual",
+      signal: controller.signal,
+      dispatcher,
+    };
+
+    const response = await fetch(currentUrl.href, fetchInit);
+    throwIfAborted(signal);
+
+    if (
+      response.status >= 300 &&
+      response.status < 400 &&
+      response.headers.has("location")
+    ) {
+      clearTimeout(timeout);
+      await cancelReadableBody(response);
+
+      if (hop.redirects >= options.maxRedirects) {
+        throw new Error("Remote image exceeded redirect limit");
+      }
+      const location = response.headers.get("location");
+      return { redirect: new URL(location!, currentUrl) };
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch image: ${response.status} ${response.statusText}`
+      );
+    }
+
+    const bytes = await readResponseBytes(
+      response,
+      options.maxImageBytes,
+      controller.signal
+    );
+    throwIfAborted(signal);
+
+    clearTimeout(timeout);
+
+    return {
+      image: {
+        bytes,
+        contentType: response.headers.get("content-type") || "",
+        finalUrl: currentUrl.href,
+      },
+    };
+  } catch (error) {
+    if (signal?.aborted) {
+      throwIfAborted(signal);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    unlinkCallerSignal();
+  }
+}
+
 /**
  * Fetches a remote image over HTTPS with SSRF protections: host allowlisting,
  * private-network IP blocking, DNS-pinned TLS connections (to prevent DNS
@@ -394,7 +479,7 @@ export async function fetchRemoteImage(
   };
 
   try {
-    while (true) {
+    for (;;) {
       throwIfAborted(signal);
 
       const remainMs = deadline - Date.now();
@@ -418,70 +503,16 @@ export async function fetchRemoteImage(
         throw new Error("Remote image fetch timed out");
       }
 
-      const controller = new AbortController();
-      const timeout = setTimeout(
-        () => controller.abort(new Error("Remote image fetch timed out")),
-        hopRemainMs
-      );
-      const unlinkCallerSignal = linkCallerSignal(controller, signal);
-
-      try {
-        throwIfAborted(signal);
-        const fetchInit: RequestInit & { dispatcher?: Agent } = {
-          redirect: "manual",
-          signal: controller.signal,
-          ...(pinnedAgent ? { dispatcher: pinnedAgent } : {}),
-        };
-
-        const response = await fetch(currentUrl.href, fetchInit);
-        throwIfAborted(signal);
-
-        if (
-          response.status >= 300 &&
-          response.status < 400 &&
-          response.headers.has("location")
-        ) {
-          clearTimeout(timeout);
-          await cancelReadableBody(response);
-
-          if (redirects >= options.maxRedirects) {
-            throw new Error("Remote image exceeded redirect limit");
-          }
-          const location = response.headers.get("location");
-          currentUrl = new URL(location!, currentUrl);
-          redirects++;
-          continue;
-        }
-
-        if (!response.ok) {
-          throw new Error(
-            `Failed to fetch image: ${response.status} ${response.statusText}`
-          );
-        }
-
-        const bytes = await readResponseBytes(
-          response,
-          options.maxImageBytes,
-          controller.signal
-        );
-        throwIfAborted(signal);
-
-        clearTimeout(timeout);
-
-        return {
-          bytes,
-          contentType: response.headers.get("content-type") || "",
-          finalUrl: currentUrl.href,
-        };
-      } catch (error) {
-        if (signal?.aborted) {
-          throwIfAborted(signal);
-        }
-        throw error;
-      } finally {
-        clearTimeout(timeout);
-        unlinkCallerSignal();
+      const result = await fetchHop(currentUrl, pinnedAgent, options, {
+        remainMs: hopRemainMs,
+        redirects,
+        signal,
+      });
+      if ("image" in result) {
+        return result.image;
       }
+      currentUrl = result.redirect;
+      redirects++;
     }
   } finally {
     await closePinned();

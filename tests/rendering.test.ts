@@ -7,7 +7,7 @@ import {
   MarkdownConversionError,
 } from "../src/index.js";
 import type { Options } from "../src/types.js";
-import { getDocumentXml, getZip, saveBlobForDebug } from "./helpers.js";
+import { at, getDocumentXml, getZip, saveBlobForDebug } from "./helpers.js";
 
 // 1x1 transparent PNG used in image tests so the suite doesn't hit the network.
 const ONE_PX_PNG =
@@ -28,7 +28,7 @@ function numberingLevels(xml: string): string[] {
     xml.matchAll(
       /<w:numPr>[\s\S]*?<w:ilvl w:val="(\d+)"\/>[\s\S]*?<\/w:numPr>/g,
     ),
-    (match) => match[1],
+    (match) => at(match, 1),
   );
 }
 
@@ -48,10 +48,10 @@ function mediaFilesFromZip(zip: Awaited<ReturnType<typeof getZip>>): string[] {
 
 function readPngUint32(bytes: Uint8Array, offset: number): number {
   return (
-    ((bytes[offset] << 24) |
-      (bytes[offset + 1] << 16) |
-      (bytes[offset + 2] << 8) |
-      bytes[offset + 3]) >>>
+    ((at(bytes, offset) << 24) |
+      (at(bytes, offset + 1) << 16) |
+      (at(bytes, offset + 2) << 8) |
+      at(bytes, offset + 3)) >>>
     0
   );
 }
@@ -65,10 +65,10 @@ function countNonWhitePixelsInPng(bytes: Uint8Array): number {
   while (offset + 8 <= bytes.length) {
     const length = readPngUint32(bytes, offset);
     const type = String.fromCharCode(
-      bytes[offset + 4],
-      bytes[offset + 5],
-      bytes[offset + 6],
-      bytes[offset + 7],
+      at(bytes, offset + 4),
+      at(bytes, offset + 5),
+      at(bytes, offset + 6),
+      at(bytes, offset + 7),
     );
     const dataStart = offset + 8;
     const dataEnd = dataStart + length;
@@ -463,6 +463,23 @@ describe("Rendering: footnotes", () => {
     expect(footnoteRels).toContain("https://example.com/fn");
   });
 
+  it("links an image inside a footnote to its media part", async () => {
+    const zip = await getZip(
+      await convertMarkdownToDocx(`Note[^img].\n\n[^img]: Pixel ![p](${ONE_PX_PNG})`),
+    );
+    const footnotesXml = await zip.file("word/footnotes.xml")!.async("string");
+    const footnoteRels =
+      (await zip.file("word/_rels/footnotes.xml.rels")?.async("string")) ?? "";
+
+    const embed = /r:embed="([^"]+)"/.exec(footnotesXml)?.[1];
+    expect(embed).toBeDefined();
+    const target = new RegExp(`Id="${embed}"[^>]*Target="([^"]+)"`).exec(
+      footnoteRels,
+    )?.[1];
+    expect(target).toMatch(/^media\//);
+    expect(zip.file(`word/${target}`)).not.toBeNull();
+  });
+
   it("renders repeated footnote references as valid NOTEREF fields", async () => {
     const blob = await convertMarkdownToDocx(
       "First[^alpha], second[^beta], first again[^alpha].\n\n[^beta]: Beta body.\n[^alpha]: Alpha body.",
@@ -782,7 +799,7 @@ describe("Rendering: chart blocks", () => {
         chartRendering: { enabled: true },
       });
       const zip = await getZip(blob);
-      const mediaFile = mediaFilesFromZip(zip)[0];
+      const mediaFile = at(mediaFilesFromZip(zip), 0);
       const pngBytes = await zip.file(mediaFile)!.async("uint8array");
 
       expect(countNonWhitePixelsInPng(pngBytes)).toBeGreaterThan(100);
@@ -804,7 +821,7 @@ describe("Rendering: chart blocks", () => {
       chartRendering: { enabled: true },
     });
     const zip = await getZip(blob);
-    const mediaFile = mediaFilesFromZip(zip)[0];
+    const mediaFile = at(mediaFilesFromZip(zip), 0);
     const pngBytes = await zip.file(mediaFile)!.async("uint8array");
 
     expect(countNonWhitePixelsInPng(pngBytes)).toBeGreaterThan(100);

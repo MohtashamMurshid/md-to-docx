@@ -3,8 +3,6 @@ import { Document, Packer } from "docx";
 import type { IPropertiesOptions } from "docx";
 import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
 
-const R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-const REL = "http://schemas.openxmlformats.org/package/2006/relationships";
 const W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 
 /**
@@ -34,7 +32,7 @@ async function repairFootnoteNumbering(
   zip: JSZip,
   document: Document,
 ): Promise<boolean> {
-  let changed = await repairFootnoteImages(zip);
+  let changed = false;
   const footnotes = new DOMParser().parseFromString(
     await zip.file("word/footnotes.xml")!.async("string"),
     "application/xml",
@@ -136,67 +134,16 @@ function renumberAttribute(
 ): string {
   return tag.replace(
     ATTRIBUTE,
-    (match, space: string, key: string, equals: string, ...values) => {
+    (match: string, ...groups: (string | undefined)[]) => {
+      const [space, key, equals, doubleQuoted, singleQuoted] = groups;
       if (key !== attribute) return match;
-      const old = `${part}\u0000${(values[0] ?? values[1]) as string}`;
+      const old = `${part}\u0000${doubleQuoted ?? singleQuoted ?? ""}`;
       let id = ids.get(old);
       if (id === undefined) {
         if (lookupOnly) return match;
         ids.set(old, (id = String(ids.size + 1)));
       }
-      return `${space}${key}${equals}"${id}"`;
+      return `${space ?? ""}${key}${equals ?? ""}"${id}"`;
     },
   );
-}
-
-/** docx leaves unresolved media tokens in footnotes; give those drawings real relationships. */
-export async function repairFootnoteImages(zip: JSZip): Promise<boolean> {
-  const file = zip.file("word/footnotes.xml");
-  if (!file) return false;
-  const source = await file.async("string");
-  if (!source.includes("rId{")) return false;
-  const parser = new DOMParser();
-  const document = parser.parseFromString(source, "application/xml");
-  const relPath = "word/_rels/footnotes.xml.rels";
-  const relationships = parser.parseFromString(
-    (await zip.file(relPath)?.async("string")) ??
-      `<Relationships xmlns="${REL}"/>`,
-    "application/xml",
-  );
-  const ids = new Set(
-    Array.from(
-      relationships.getElementsByTagNameNS(REL, "Relationship"),
-      (rel) => rel.getAttribute("Id"),
-    ),
-  );
-  const media = new Map<string, string>();
-  let nextId = 1;
-  let changed = false;
-  for (const element of Array.from(document.getElementsByTagName("*"))) {
-    const token = element.getAttributeNS(R, "embed");
-    const match = token && /^rId\{([^}]+)\}$/.exec(token);
-    if (!match) continue;
-    const name = match[1];
-    if (!zip.file(`word/media/${name}`))
-      throw new Error("Generated footnote image is missing from the package");
-    if (!media.has(name)) {
-      while (ids.has(`mdImage${nextId}`)) nextId++;
-      const id = `mdImage${nextId++}`;
-      ids.add(id);
-      media.set(name, id);
-      const rel = relationships.createElementNS(REL, "Relationship");
-      rel.setAttribute("Id", id);
-      rel.setAttribute("Type", `${R}/image`);
-      rel.setAttribute("Target", `media/${name}`);
-      relationships.documentElement!.appendChild(rel);
-    }
-    element.setAttributeNS(R, "r:embed", media.get(name)!);
-    changed = true;
-  }
-  if (changed) {
-    const serializer = new XMLSerializer();
-    zip.file("word/footnotes.xml", serializer.serializeToString(document));
-    zip.file(relPath, serializer.serializeToString(relationships));
-  }
-  return changed;
 }

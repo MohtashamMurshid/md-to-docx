@@ -1,4 +1,5 @@
 import { Paragraph, TextRun, AlignmentType, BorderStyle } from "docx";
+import type { IRunOptions } from "docx";
 import { CodeHighlightOptions, Style } from "../types.js";
 import { resolveTheme, tokenizeToRuns } from "../utils/codeHighlight.js";
 import { runLanguage } from "../accessibility.js";
@@ -19,8 +20,13 @@ export function processCodeBlock(
 ): Paragraph {
   const highlightingEnabled = codeHighlighting?.enabled === true;
   const resolvedTheme = highlightingEnabled
-    ? resolveTheme(codeHighlighting?.theme)
+    ? resolveTheme(codeHighlighting.theme)
     : undefined;
+
+  const runLanguageOptions = runLanguage(style);
+  const languageOption = runLanguageOptions
+    ? { language: runLanguageOptions }
+    : {};
 
   const codeRuns: TextRun[] = [];
   const showLanguageLabel =
@@ -35,15 +41,15 @@ export function processCodeBlock(
         color: resolvedTheme?.languageLabel || "666666",
         bold: true,
         rightToLeft: style.direction === "RTL",
-        language: runLanguage(style),
-      }),
+        ...languageOption,
+      } satisfies IRunOptions),
       new TextRun({
         text: "\n",
         font: "Courier New",
         size: style.codeBlockSize || 18,
         break: 1,
         rightToLeft: style.direction === "RTL",
-        language: runLanguage(style),
+        ...languageOption,
       })
     );
   }
@@ -54,7 +60,7 @@ export function processCodeBlock(
       code,
       language,
       style,
-      codeHighlighting!
+      codeHighlighting
     );
   }
 
@@ -74,7 +80,7 @@ export function processCodeBlock(
           size: style.codeBlockSize || 20,
           color: resolvedTheme?.default || "444444",
           rightToLeft: style.direction === "RTL",
-          language: runLanguage(style),
+          ...languageOption,
         })
       );
 
@@ -86,7 +92,7 @@ export function processCodeBlock(
             size: style.codeBlockSize || 20,
             break: 1,
             rightToLeft: style.direction === "RTL",
-            language: runLanguage(style),
+            ...languageOption,
           })
         );
       }

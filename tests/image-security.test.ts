@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, jest } from "@jest/globals";
 import { convertMarkdownToDocx } from "../src/index.js";
 import type { Options } from "../src/types.js";
-import { getDocumentXml, getZip } from "./helpers.js";
+import { at, getDocumentXml, getZip } from "./helpers.js";
 
 const ONE_PX_PNG =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAGgwJ/vk9yBgAAAABJRU5ErkJggg==";
@@ -22,10 +22,10 @@ async function render(markdown: string, options?: Options): Promise<string> {
 async function mediaCount(markdown: string, options?: Options): Promise<number> {
   const blob = await convertMarkdownToDocx(markdown, options);
   const zip = await getZip(blob);
-  return Object.keys(zip.files).filter(
-    (p) =>
+  return Object.entries(zip.files).filter(
+    ([p, file]) =>
       p.startsWith("word/media/") &&
-      !zip.files[p].dir &&
+      !file.dir &&
       !p.endsWith("/")
   ).length;
 }
@@ -134,7 +134,7 @@ describe("Image security", () => {
           "content-length": "128",
           "content-type": "image/png",
         },
-      }) as never
+      })
     );
 
     const xml = await render("![remote](https://93.184.216.34/image.png)", {
@@ -161,7 +161,7 @@ describe("Image security", () => {
         headers: {
           "content-type": "image/png",
         },
-      }) as never
+      })
     );
 
     const xml = await render("![remote](https://93.184.216.34/image.png)", {
@@ -181,7 +181,7 @@ describe("Image security", () => {
         headers: {
           location: "https://127.0.0.1/private.png",
         },
-      }) as never
+      })
     );
 
     const xml = await render("![remote](https://93.184.216.34/image.png)", {
@@ -226,7 +226,7 @@ describe("Image security", () => {
         init?.signal?.addEventListener("abort", () => {
           reject(new DOMException("The operation was aborted", "AbortError"));
         });
-      }) as never;
+      });
     });
 
     const xml = await render("![remote](https://93.184.216.34/image.png)", {
@@ -248,7 +248,7 @@ describe("Image security", () => {
           },
         }),
         { status: 200, headers: { "content-type": "image/png" } }
-      ) as never
+      )
     );
 
     const xml = await render("![remote](https://93.184.216.34/image.png)", {
@@ -317,12 +317,12 @@ describe("Image security", () => {
   });
 
   it("still fetches hosts present in the allowedHosts list", async () => {
-    const pngBytes = Buffer.from(ONE_PX_PNG.split(",")[1], "base64");
+    const pngBytes = Buffer.from(at(ONE_PX_PNG.split(","), 1), "base64");
     jest.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(new Uint8Array(pngBytes), {
         status: 200,
         headers: { "content-type": "image/png" },
-      }) as never
+      })
     );
 
     const xml = await render("![remote](https://93.184.216.34/image.png)", {

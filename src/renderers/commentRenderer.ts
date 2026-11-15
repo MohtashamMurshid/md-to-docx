@@ -1,4 +1,5 @@
 import { Paragraph, TextRun } from "docx";
+import type { IRunOptions } from "docx";
 import { Style } from "../types.js";
 import { resolveFontFamily } from "../utils/styleUtils.js";
 import { runLanguage } from "../accessibility.js";
@@ -11,16 +12,17 @@ import { runLanguage } from "../accessibility.js";
  */
 export function processComment(text: string, style: Style): Paragraph {
   const fontFamily = resolveFontFamily(style);
+  const language = runLanguage(style);
   return new Paragraph({
     children: [
       new TextRun({
         text: "Comment: " + text,
         italics: true,
         color: "666666",
-        font: fontFamily,
-        language: runLanguage(style),
+        ...(fontFamily !== undefined ? { font: fontFamily } : {}),
+        ...(language ? { language } : {}),
         rightToLeft: style.direction === "RTL",
-      }),
+      } satisfies IRunOptions),
     ],
     spacing: {
       before: style.paragraphSpacing,

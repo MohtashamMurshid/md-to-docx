@@ -26,24 +26,24 @@ const RELATIONSHIPS_NS =
   "http://schemas.openxmlformats.org/package/2006/relationships";
 const CUSTOM_FMTID = "{D5CDD505-2E9C-101B-9397-08002B2CF9AE}";
 
-export const MAX_METADATA_VALUE_LENGTH = 4_096;
+const MAX_METADATA_VALUE_LENGTH = 4_096;
 export const MAX_METADATA_LANGUAGE_LENGTH = 64;
-export const MAX_METADATA_KEYWORDS = 128;
-export const MAX_CUSTOM_PROPERTIES = 64;
-export const MAX_CUSTOM_PROPERTY_NAME_LENGTH = 255;
+const MAX_METADATA_KEYWORDS = 128;
+const MAX_CUSTOM_PROPERTIES = 64;
+const MAX_CUSTOM_PROPERTY_NAME_LENGTH = 255;
 
 type NormalizedMetadata = {
-  title?: string;
-  subject?: string;
-  description?: string;
-  creator?: string;
-  keywords?: string;
-  category?: string;
-  company?: string;
-  language?: string;
-  created?: string;
-  modified?: string;
-  custom?: Readonly<Record<string, string>>;
+  title?: string | undefined;
+  subject?: string | undefined;
+  description?: string | undefined;
+  creator?: string | undefined;
+  keywords?: string | undefined;
+  category?: string | undefined;
+  company?: string | undefined;
+  language?: string | undefined;
+  created?: string | undefined;
+  modified?: string | undefined;
+  custom?: Readonly<Record<string, string>> | undefined;
 };
 
 type MetadataMode = "new" | "patch";
@@ -98,11 +98,11 @@ function normalizeKeywords(
     );
   }
   keywords.forEach((keyword, index) =>
-    validateOoxmlText(
+    { validateOoxmlText(
       keyword,
       `metadata.keywords[${index}]`,
       MAX_METADATA_VALUE_LENGTH,
-    ),
+    ); },
   );
   const joined = keywords.join("; ");
   validateOoxmlText(joined, "metadata.keywords", MAX_METADATA_VALUE_LENGTH);
@@ -113,7 +113,9 @@ function validateCustomProperties(
   custom: Readonly<Record<string, string>> | undefined,
 ): void {
   if (custom === undefined) return;
-  if (!custom || typeof custom !== "object" || Array.isArray(custom)) {
+  // Read as unknown: metadata may come from untyped JS or CLI JSON.
+  const input: unknown = custom;
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new MarkdownConversionError("metadata.custom must be an object");
   }
   const entries = Object.entries(custom);
@@ -150,7 +152,9 @@ function validateCustomProperties(
 export function normalizeDocumentMetadata(
   metadata: DocumentMetadata,
 ): NormalizedMetadata {
-  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+  // Read as unknown: metadata may come from untyped JS or CLI JSON.
+  const input: unknown = metadata;
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new MarkdownConversionError("metadata must be an object");
   }
 
@@ -296,13 +300,21 @@ function directChildren(root: XmlElement): XmlElement[] {
   return children;
 }
 
+interface ElementTarget {
+  namespace: string;
+  qualifiedName: string;
+  localName: string;
+  attributes?: readonly [string, string, string][];
+}
+
+const W3CDTF_ATTRIBUTES: readonly [string, string, string][] = [
+  [XSI_NS, "xsi:type", "dcterms:W3CDTF"],
+];
+
 function replaceElement(
   document: XmlDocument,
-  namespace: string,
-  qualifiedName: string,
-  localName: string,
+  { namespace, qualifiedName, localName, attributes = [] }: ElementTarget,
   value: string | undefined,
-  attributes: readonly [string, string, string][] = [],
 ): void {
   const root = rootOf(document);
   for (const child of directChildren(root)) {
@@ -366,22 +378,35 @@ async function writeCoreProperties(
   ] as const;
   for (const [namespace, name, localName, value, sourceValue] of fields) {
     if (shouldSet(mode, sourceValue)) {
-      replaceElement(document, namespace, name, localName, value);
+      replaceElement(
+        document,
+        { namespace, qualifiedName: name, localName },
+        value,
+      );
     }
   }
   if (shouldSet(mode, source.created)) {
-    replaceElement(document, DCTERMS_NS, "dcterms:created", "created", metadata.created, [
-      [XSI_NS, "xsi:type", "dcterms:W3CDTF"],
-    ]);
+    replaceElement(
+      document,
+      {
+        namespace: DCTERMS_NS,
+        qualifiedName: "dcterms:created",
+        localName: "created",
+        attributes: W3CDTF_ATTRIBUTES,
+      },
+      metadata.created,
+    );
   }
   if (shouldSet(mode, source.modified)) {
     replaceElement(
       document,
-      DCTERMS_NS,
-      "dcterms:modified",
-      "modified",
+      {
+        namespace: DCTERMS_NS,
+        qualifiedName: "dcterms:modified",
+        localName: "modified",
+        attributes: W3CDTF_ATTRIBUTES,
+      },
       metadata.modified,
-      [[XSI_NS, "xsi:type", "dcterms:W3CDTF"]],
     );
   }
   zip.file("docProps/core.xml", serializeXml(document));
@@ -396,7 +421,11 @@ async function writeAppProperties(
   if (source.company === undefined) return false;
   const document =
     (await readXmlPart(zip, "docProps/app.xml")) ?? createAppDocument();
-  replaceElement(document, APP_NS, "Company", "Company", metadata.company);
+  replaceElement(
+    document,
+    { namespace: APP_NS, qualifiedName: "Company", localName: "Company" },
+    metadata.company,
+  );
   zip.file("docProps/app.xml", serializeXml(document));
   return true;
 }
@@ -525,12 +554,26 @@ async function ensurePackagePartRegistration(
   await ensureRelationship(zip, values.target, values.relationship);
 }
 
-export async function applyDocumentMetadata(
+export interface ApplyDocumentMetadataOptions {
+  mode: MetadataMode;
+  outputType: MetadataOutputType;
+  signal?: AbortSignal | undefined;
+}
+
+/** Writes `source` metadata into the package without an abort signal. */
+export function applyDocumentMetadata(
   data: Blob | ArrayBuffer | Buffer,
   source: DocumentMetadata,
   mode: MetadataMode,
   outputType: MetadataOutputType,
-  signal?: AbortSignal,
+): Promise<Blob | ArrayBuffer | Buffer> {
+  return applyDocumentMetadataWithOptions(data, source, { mode, outputType });
+}
+
+export async function applyDocumentMetadataWithOptions(
+  data: Blob | ArrayBuffer | Buffer,
+  source: DocumentMetadata,
+  { mode, outputType, signal }: ApplyDocumentMetadataOptions,
 ): Promise<Blob | ArrayBuffer | Buffer> {
   throwIfAborted(signal);
   const metadata = normalizeDocumentMetadata(source);

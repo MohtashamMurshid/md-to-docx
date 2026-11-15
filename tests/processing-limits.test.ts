@@ -51,7 +51,7 @@ describe("Processing limits", () => {
       await expect(
         parseToDocxOptions("Valid input", {
           [optionName]: value,
-        } as Options)
+        })
       ).rejects.toBeInstanceOf(MarkdownConversionError);
     }
   );
@@ -116,7 +116,7 @@ describe("Conversion cancellation", () => {
         init?.signal?.addEventListener("abort", () => {
           reject(new DOMException("The operation was aborted", "AbortError"));
         });
-      }) as never;
+      });
     });
 
     await expect(
@@ -150,7 +150,7 @@ describe("Conversion cancellation", () => {
         init?.signal?.addEventListener("abort", () => {
           reject(new DOMException("The operation was aborted", "AbortError"));
         });
-      }) as never;
+      });
     });
 
     await expect(

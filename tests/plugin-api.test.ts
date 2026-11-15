@@ -6,6 +6,7 @@ import {
   patchMarkdownInDocxToBuffer,
 } from "../src/index.js";
 import type {
+  PluginInlineText,
   MarkdownDocxPlugin,
   PluginRenderContext,
   PluginRenderResult,
@@ -27,11 +28,11 @@ function fencePlugin(
   return {
     apiVersion: 1,
     name,
-    priority: options.priority,
+    ...(options.priority === undefined ? {} : { priority: options.priority }),
     fencedBlocks: [
       {
         languages: [options.language ?? "notice"],
-        failureMode: options.failureMode,
+        ...(options.failureMode ? { failureMode: options.failureMode } : {}),
         render: (input, context) => render(input.value, context),
       },
     ],
@@ -41,13 +42,15 @@ function fencePlugin(
 function replaceMarkedParagraphs(root: Root): void {
   const walk = (parent: Parent): void => {
     parent.children = parent.children.map((node) => {
+      const onlyChild =
+        node.type === "paragraph" && node.children.length === 1
+          ? node.children[0]
+          : undefined;
       if (
-        node.type === "paragraph" &&
-        node.children.length === 1 &&
-        node.children[0].type === "text" &&
-        node.children[0].value.startsWith(":::note ")
+        onlyChild?.type === "text" &&
+        onlyChild.value.startsWith(":::note ")
       ) {
-        const text = node.children[0].value.slice(":::note ".length);
+        const text = onlyChild.value.slice(":::note ".length);
         return {
           type: "noteDirective",
           children: [
@@ -59,7 +62,7 @@ function replaceMarkedParagraphs(root: Root): void {
         } as unknown as Node;
       }
       if ("children" in node && Array.isArray(node.children)) {
-        walk(node as Parent);
+        walk(node);
       }
       return node;
     }) as Parent["children"];
@@ -74,7 +77,9 @@ describe("stable custom renderer plugin API", () => {
         plugins: [
           fencePlugin("acme.notice", (value) => ({
             type: "paragraph",
-            children: [{ type: "text", value: `NOTICE: ${value}`, bold: true }],
+            children: [
+              { type: "text", value: `NOTICE: ${value}`, bold: true } satisfies PluginInlineText,
+            ],
           })),
         ],
       }),
@@ -266,7 +271,7 @@ Footnote reference[^plugin].
             calls.push("render");
             markStarted?.();
             await new Promise<void>((_resolve, reject) => {
-              context.signal?.addEventListener("abort", () => reject(new Error("cancelled")), {
+              context.signal?.addEventListener("abort", () => { reject(new Error("cancelled")); }, {
                 once: true,
               });
             });

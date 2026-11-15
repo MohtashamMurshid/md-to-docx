@@ -1,13 +1,15 @@
 import { throwIfAborted } from "../processingLimits.js";
 
-export async function readLocalAsset(
+export function readLocalAsset(
   _source: string,
   _directory: string,
   _maxBytes: number,
   _signal?: AbortSignal,
 ): Promise<Uint8Array> {
-  throw new Error(
-    "baseDirectory is available only in Node.js; use imageHandling.resolve in browsers",
+  return Promise.reject(
+    new Error(
+      "baseDirectory is available only in Node.js; use imageHandling.resolve in browsers",
+    ),
   );
 }
 
@@ -35,11 +37,14 @@ export async function rasterizeAsset(
     if (!context) throw new Error("Canvas image conversion is unavailable");
     context.drawImage(image, 0, 0);
     const png = await new Promise<Blob>((resolve, reject) =>
-      canvas.toBlob(
+      { canvas.toBlob(
         (value) =>
-          value ? resolve(value) : reject(new Error("Image conversion failed")),
+          {
+            if (value) resolve(value);
+            else reject(new Error("Image conversion failed"));
+          },
         "image/png",
-      ),
+      ); },
     );
     throwIfAborted(signal);
     return new Uint8Array(await png.arrayBuffer());

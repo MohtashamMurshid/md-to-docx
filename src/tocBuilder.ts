@@ -11,6 +11,7 @@ import {
   TabStopType,
   LeaderType,
 } from "docx";
+import type { IRunOptions } from "docx";
 import { Style, TocOptions } from "./types.js";
 import { resolveFontFamily } from "./utils/styleUtils.js";
 import { runLanguage } from "./accessibility.js";
@@ -59,7 +60,7 @@ class FieldAttributes extends XmlAttributeComponent<{
   dirty?: string;
   space?: string;
 }> {
-  protected readonly xmlKeys = {
+  protected override readonly xmlKeys = {
     type: "w:fldCharType",
     dirty: "w:dirty",
     space: "xml:space",
@@ -70,13 +71,16 @@ class FieldElement extends XmlComponent {
   attributes(value: FieldAttributes): void {
     this.root.push(value);
   }
+
+  text(value: string): void {
+    this.root.push(value);
+  }
 }
 
 function fieldRun(
   type: "begin" | "separate" | "end",
   instruction?: string,
 ): TextRun {
-  const run = new TextRun({});
   const field = new FieldElement("w:fldChar");
   field.attributes(
     new FieldAttributes({
@@ -84,14 +88,14 @@ function fieldRun(
       ...(type === "begin" ? { dirty: "true" } : {}),
     }),
   );
-  run.addChildElement(field);
+  const children: FieldElement[] = [field];
   if (instruction) {
     const text = new FieldElement("w:instrText");
     text.attributes(new FieldAttributes({ space: "preserve" }));
-    text.addChildElement(instruction);
-    run.addChildElement(text);
+    text.text(instruction);
+    children.push(text);
   }
-  return run;
+  return new TextRun({ children });
 }
 
 export function buildTocContent(
@@ -130,6 +134,8 @@ export function buildTocContent(
       heading.level,
       style,
     );
+    const font = resolveFontFamily(style);
+    const language = runLanguage(style);
 
     tocContent.push(
       new Paragraph({
@@ -161,10 +167,10 @@ export function buildTocContent(
                 size: fontSize,
                 bold,
                 italics: italic,
-                font: resolveFontFamily(style),
-                language: runLanguage(style),
+                ...(font !== undefined ? { font } : {}),
+                ...(language ? { language } : {}),
                 rightToLeft: style.direction === "RTL",
-              }),
+              } satisfies IRunOptions),
             ],
           }),
           ...(native && tocOptions.pageNumbers !== false

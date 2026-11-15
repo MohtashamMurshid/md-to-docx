@@ -138,7 +138,8 @@ class TexMathParser {
       throw new MathParseError("Expected math token");
     }
 
-    const character = this.source[this.position];
+    // In range: guarded by the length check above.
+    const character = this.source[this.position]!;
     if (character === "\\") {
       return this.parseCommand();
     }

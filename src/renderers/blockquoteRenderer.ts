@@ -26,10 +26,13 @@ export interface BlockquoteParagraphStyle {
       color: string;
     };
   };
+  // `shading` and `alignment` are always present, possibly as `undefined`:
+  // callers spread this object over paragraph options, and an explicit
+  // `undefined` alignment intentionally clears an earlier alignment.
   shading?: {
     fill: string;
-  };
-  alignment?: (typeof AlignmentType)[keyof typeof AlignmentType];
+  } | undefined;
+  alignment?: (typeof AlignmentType)[keyof typeof AlignmentType] | undefined;
   bidirectional: boolean;
 }
 

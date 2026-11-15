@@ -14,7 +14,7 @@ import {
   Bookmark,
   SimpleField,
 } from "docx";
-import type { IParagraphOptions, ParagraphChild } from "docx";
+import type { IParagraphOptions, IRunOptions, ParagraphChild } from "docx";
 import type {
   DocxDocumentModel,
   DocxBlockNode,
@@ -33,6 +33,7 @@ import {
   blockquoteParagraphStyle,
   resolveCalloutStyle,
 } from "./renderers/blockquoteRenderer.js";
+import type { BlockquoteParagraphStyle } from "./renderers/blockquoteRenderer.js";
 import { processComment } from "./renderers/commentRenderer.js";
 import {
   processImage,
@@ -78,14 +79,14 @@ interface RenderContext {
   quoteLevel?: number;
   inFootnote?: boolean;
   inList?: boolean;
-  calloutType?: DocxCalloutType;
+  calloutType?: DocxCalloutType | undefined;
 }
 
 interface ListMarkerContext {
   isOrdered: boolean;
   level: number;
   sequenceId: number | undefined;
-  taskChecked?: boolean;
+  taskChecked?: boolean | undefined;
 }
 
 const TASK_MARKERS = {
@@ -103,6 +104,64 @@ const SAFE_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
  * safe scheme; targets the URL parser rejects outright fail closed because
  * Word may still treat the raw string as an active hyperlink.
  */
+/** The style's run font, omitted when the style sets none. */
+function fontOption(style: Style): Pick<IRunOptions, "font"> {
+  const font = resolveFontFamily(style);
+  return font !== undefined ? { font } : {};
+}
+
+/** The style's run language, omitted when the style sets none. */
+function languageOption(style: Style): Pick<IRunOptions, "language"> {
+  const language = runLanguage(style);
+  return language ? { language } : {};
+}
+
+/**
+ * Blockquote paragraph options without the unset `shading` and `alignment`
+ * values, which docx's option types do not accept as `undefined`.
+ */
+function quoteParagraphOptions(
+  quoteStyle: BlockquoteParagraphStyle | undefined,
+): Partial<IParagraphOptions> {
+  if (!quoteStyle) {
+    return {};
+  }
+  const { shading, alignment, ...rest } = quoteStyle;
+  return {
+    ...rest,
+    ...(shading !== undefined ? { shading } : {}),
+    ...(alignment !== undefined ? { alignment } : {}),
+  };
+}
+
+/** Bold, italic, and strike run options for a text node, omitting unset ones. */
+function emphasisOptions(
+  node: DocxTextNode,
+  overrides: InlineOverrides,
+): Pick<IRunOptions, "bold" | "italics" | "strike"> {
+  const bold = overrides.forceBold || node.bold;
+  const italics = overrides.forceItalic || node.italic;
+  return {
+    ...(bold !== undefined ? { bold } : {}),
+    ...(italics !== undefined ? { italics } : {}),
+    ...(node.strikethrough !== undefined ? { strike: node.strikethrough } : {}),
+  };
+}
+
+/**
+ * Checks the discriminant of a block result from third-party plugin code.
+ * Other fields are read as the plugin contract declares them; a malformed
+ * result throws inside the plugin render try-block and follows failureMode.
+ */
+function isPluginBlockResult(value: unknown): value is PluginBlockResult {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "type" in value &&
+    typeof value.type === "string"
+  );
+}
+
 function isSafeLinkUrl(url: string): boolean {
   let protocol: string;
   try {
@@ -172,8 +231,8 @@ export async function modelToDocx(
   // Full-width tables are sized in twips so docx emits a plain integer width.
   // Defaults to A4 portrait content width (page 11906 - default 1080 margins).
   const tableWidthTwips = renderOptions.tableWidthTwips ?? 9746;
-  const mermaidFallbackCodeParagraphs = new WeakSet<object>();
-  const pluginCodeParagraphs = new WeakSet<object>();
+  const mermaidFallbackCodeParagraphs = new WeakSet();
+  const pluginCodeParagraphs = new WeakSet();
 
   // Track numbering sequences for nested lists
   let maxSequenceId = 0;
@@ -181,7 +240,7 @@ export async function modelToDocx(
     count: 0,
   };
 
-  const headingAnchors = renderOptions.headingAnchors ?? {
+  const headingAnchors: HeadingAnchorRegistry = renderOptions.headingAnchors ?? {
     anchors: new Map(),
     counts: new Map(),
   };
@@ -199,20 +258,22 @@ export async function modelToDocx(
     overrides: InlineOverrides = {},
   ): TextRun {
     if (node.code) {
-      return processInlineCode(node.value, style, { size: overrides.size });
+      return processInlineCode(
+        node.value,
+        style,
+        overrides.size !== undefined ? { size: overrides.size } : {},
+      );
     }
 
     return new TextRun({
       text: node.value,
-      bold: overrides.forceBold || node.bold,
-      italics: overrides.forceItalic || node.italic,
-      strike: node.strikethrough,
-      underline: node.underline ? { type: "single" } : undefined,
+      ...emphasisOptions(node, overrides),
+      ...(node.underline ? { underline: { type: "single" } } : {}),
       color: overrides.color || (node.link ? "0000FF" : "000000"),
       size: overrides.size || style.paragraphSize || 24,
-      font: resolveFontFamily(style),
+      ...fontOption(style),
       rightToLeft: style.direction === "RTL",
-      language: runLanguage(style),
+      ...languageOption(style),
     });
   }
 
@@ -238,7 +299,7 @@ export async function modelToDocx(
 
     options.onWarning?.({
       code: "UNSUPPORTED_MATH",
-      message: parsed.reason ?? "Unsupported math expression",
+      message: parsed.reason,
       source: value,
     });
     return textRunFromNode(unsupportedMathText(value, block));
@@ -294,7 +355,8 @@ export async function modelToDocx(
         pendingLinks.push({ link, fragment, source: node.link });
         out.push(link);
       } else if (node.link && !isSafeLinkUrl(node.link)) {
-        out.push(textRunFromNode({ ...node, link: undefined }, overrides));
+        const { link: _unsafeLink, ...plainNode } = node;
+        out.push(textRunFromNode(plainNode, overrides));
       } else if (node.link) {
         out.push(
           new ExternalHyperlink({
@@ -303,13 +365,11 @@ export async function modelToDocx(
                 text: node.value,
                 color: "0000FF",
                 underline: { type: "single" },
-                bold: overrides.forceBold || node.bold,
-                italics: overrides.forceItalic || node.italic,
-                strike: node.strikethrough,
+                ...emphasisOptions(node, overrides),
                 size: overrides.size || style.paragraphSize || 24,
-                font: resolveFontFamily(style),
+                ...fontOption(style),
                 rightToLeft: style.direction === "RTL",
-                language: runLanguage(style),
+                ...languageOption(style),
               }),
             ],
             link: node.link,
@@ -344,13 +404,13 @@ export async function modelToDocx(
         after: style.paragraphSpacing,
         line: style.lineSpacing * 240,
       },
-      alignment,
-      indent:
-        style.paragraphAlignment === "JUSTIFIED"
-          ? { left: 0, right: 0 }
-          : undefined,
+      // A blockquote's alignment replaces this one, even when it is unset.
+      ...(quoteStyle ? {} : { alignment }),
+      ...(style.paragraphAlignment === "JUSTIFIED"
+        ? { indent: { left: 0, right: 0 } }
+        : {}),
       bidirectional: style.direction === "RTL",
-      ...quoteStyle,
+      ...quoteParagraphOptions(quoteStyle),
     });
   }
 
@@ -457,7 +517,7 @@ export async function modelToDocx(
         size: widths?.reduce((a, b) => a + b, 0) ?? tableWidthTwips,
         type: WidthType.DXA,
       },
-      columnWidths: widths,
+      ...(widths !== undefined ? { columnWidths: widths } : {}),
       layout:
         style.tableLayout === "fixed" || widths
           ? TableLayoutType.FIXED
@@ -555,7 +615,7 @@ export async function modelToDocx(
         after: style.paragraphSpacing / 2,
       },
       bidirectional: style.direction === "RTL",
-      ...quoteStyle,
+      ...quoteParagraphOptions(quoteStyle),
     };
 
     if (isOrdered) {
@@ -593,7 +653,7 @@ export async function modelToDocx(
         left: 720 * (level + 1),
       },
       bidirectional: style.direction === "RTL",
-      ...quoteStyle,
+      ...quoteParagraphOptions(quoteStyle),
     });
   }
 
@@ -782,15 +842,17 @@ export async function modelToDocx(
                 text: `Comment: ${node.value}`,
                 italics: true,
                 color: "666666",
-                font: resolveFontFamily(style),
-                language: runLanguage(style),
+                ...fontOption(style),
+                ...languageOption(style),
                 rightToLeft: style.direction === "RTL",
-              }),
+              } satisfies IRunOptions),
             ],
-            ...blockquoteParagraphStyle(
-              style,
-              context.quoteLevel,
-              context.calloutType,
+            ...quoteParagraphOptions(
+              blockquoteParagraphStyle(
+                style,
+                context.quoteLevel,
+                context.calloutType,
+              ),
             ),
           }),
         ];
@@ -808,7 +870,9 @@ export async function modelToDocx(
               context.calloutType,
             )
           : undefined;
-        return [processHorizontalRule(style, quoteStyle)];
+        return [
+          processHorizontalRule(style, quoteParagraphOptions(quoteStyle)),
+        ];
       }
 
       case "tocPlaceholder": {
@@ -824,7 +888,7 @@ export async function modelToDocx(
 
   async function renderBlockquote(
     node: Extract<DocxBlockNode, { type: "blockquote" }>,
-    listLevel: number,
+    _listLevel: number,
     context: RenderContext,
   ): Promise<(Paragraph | Table)[]> {
     throwIfAborted(options.signal);
@@ -947,7 +1011,7 @@ export async function modelToDocx(
       if (child.type === "list") {
         // Nested list - render recursively
         const nestedParagraphs = await renderList(
-          child as DocxListNode,
+          child,
           level + 1,
           listContext,
         );
@@ -1026,10 +1090,12 @@ export async function modelToDocx(
     if (context.quoteLevel) {
       options = {
         ...options,
-        ...blockquoteParagraphStyle(
-          style,
-          context.quoteLevel,
-          context.calloutType,
+        ...quoteParagraphOptions(
+          blockquoteParagraphStyle(
+            style,
+            context.quoteLevel,
+            context.calloutType,
+          ),
         ),
       };
     }
@@ -1105,7 +1171,7 @@ export async function modelToDocx(
             ]
           : []),
         processHorizontalRule(style, {
-          ...quoteStyle,
+          ...quoteParagraphOptions(quoteStyle),
           indent: { left: quoteIndent + 720 * (listLevel + 1) },
         }),
       ];
@@ -1170,9 +1236,9 @@ export async function modelToDocx(
           text: `[Image could not be loaded: ${alt}]`,
           italics: true,
           color: "FF0000",
-          language: runLanguage(style),
+          ...languageOption(style),
           rightToLeft: style.direction === "RTL",
-        }),
+        } satisfies IRunOptions),
       ],
       alignment: AlignmentType.CENTER,
       bidirectional: style.direction === "RTL",
@@ -1189,9 +1255,9 @@ export async function modelToDocx(
           text: "[Chart could not be loaded: image limit reached]",
           italics: true,
           color: "FF0000",
-          language: runLanguage(style),
+          ...languageOption(style),
           rightToLeft: style.direction === "RTL",
-        }),
+        } satisfies IRunOptions),
       ],
       alignment: AlignmentType.CENTER,
       bidirectional: style.direction === "RTL",
@@ -1314,10 +1380,10 @@ export async function modelToDocx(
           text: "[Mermaid diagram could not be rendered]",
           italics: true,
           color: "FF0000",
-          font: resolveFontFamily(style),
+          ...fontOption(style),
           rightToLeft: style.direction === "RTL",
-          language: runLanguage(style),
-        }),
+          ...languageOption(style),
+        } satisfies IRunOptions),
       ],
       alignment: AlignmentType.CENTER,
       bidirectional: style.direction === "RTL",
@@ -1469,17 +1535,28 @@ export async function modelToDocx(
   function pluginInlineNodes(
     content: PluginInlineContent | readonly PluginInlineContent[],
   ): DocxInlineNode[] {
-    const values = Array.isArray(content) ? content : [content];
+    // Plugin results come from third-party code, so check each value.
+    const candidate: unknown = content;
+    const values: readonly unknown[] = Array.isArray(candidate)
+      ? candidate
+      : [candidate];
     return values.map((value) => {
       if (typeof value === "string") {
         return { type: "text", value };
       }
-      if (!value || value.type !== "text" || typeof value.value !== "string") {
+      if (
+        !value ||
+        typeof value !== "object" ||
+        !("type" in value) ||
+        value.type !== "text" ||
+        !("value" in value) ||
+        typeof value.value !== "string"
+      ) {
         throw new Error(
           "Plugin inline content must be text or a text descriptor",
         );
       }
-      return { ...value, type: "text" };
+      return { ...value, type: "text", value: value.value };
     });
   }
 
@@ -1489,12 +1566,8 @@ export async function modelToDocx(
     return pluginInlineNodes(content).length;
   }
 
-  function pluginResultElementCount(result: PluginBlockResult): number {
-    if (
-      !result ||
-      typeof result !== "object" ||
-      typeof result.type !== "string"
-    ) {
+  function pluginResultElementCount(result: unknown): number {
+    if (!isPluginBlockResult(result)) {
       throw new Error("Plugin returned an invalid block result");
     }
     switch (result.type) {
@@ -1612,17 +1685,13 @@ export async function modelToDocx(
   }
 
   async function renderPluginBlockResult(
-    result: PluginBlockResult,
+    result: unknown,
     node: Extract<DocxBlockNode, { type: "pluginBlock" }>,
     listLevel: number,
     context: RenderContext,
     listMarker?: ListMarkerContext,
   ): Promise<(Paragraph | Table)[]> {
-    if (
-      !result ||
-      typeof result !== "object" ||
-      typeof result.type !== "string"
-    ) {
+    if (!isPluginBlockResult(result)) {
       throw new Error("Plugin returned an invalid block result");
     }
 
@@ -1654,10 +1723,12 @@ export async function modelToDocx(
         {
           altText: result.alt || "Plugin image",
           data: result.data,
-          contentType: result.contentType,
+          ...(result.contentType !== undefined
+            ? { contentType: result.contentType }
+            : {}),
           source: result.source || `${node.handler.pluginName} plugin image`,
-          widthHint: result.width,
-          heightHint: result.height,
+          ...(result.width !== undefined ? { widthHint: result.width } : {}),
+          ...(result.height !== undefined ? { heightHint: result.height } : {}),
           maxImageBytes: imageHandling.maxImageBytes,
           paragraphOptions,
           signal: options.signal,
@@ -1706,25 +1777,24 @@ export async function modelToDocx(
       semanticNode = {
         type: "codeBlock",
         value: result.value,
-        language: result.language,
+        ...(result.language !== undefined ? { language: result.language } : {}),
       };
-    } else if (result.type === "table") {
+    } else {
+      // Only "table" remains: pluginResultElementCount has already rejected
+      // every unsupported result type before any block is rendered.
       if (context.inList) {
         throw new Error("Plugin table results are not supported inside lists");
       }
-      semanticNode = {
+      const tableNode: Extract<DocxBlockNode, { type: "table" }> = {
         type: "table",
         headers: result.headers.map(pluginInlineNodes),
         rows: result.rows.map((row) => row.map(pluginInlineNodes)),
-        align: result.align ? [...result.align] : undefined,
+        ...(result.align ? { align: [...result.align] } : {}),
       };
+      semanticNode = tableNode;
       if (context.inFootnote) {
-        return tableFootnoteFallbackParagraphs(semanticNode);
+        return tableFootnoteFallbackParagraphs(tableNode);
       }
-    } else {
-      throw new Error(
-        `Unsupported plugin result type: ${(result as { type: string }).type}`,
-      );
     }
 
     const rendered = await renderBlockNodeWithListMarker(
@@ -1781,7 +1851,8 @@ export async function modelToDocx(
         ? { language: node.source.language }
         : { nodeType: node.source.nodeType };
     try {
-      const result = await runtime.render(
+      // Third-party renderer output: validated block by block below.
+      const result: unknown = await runtime.render(
         node.handler,
         node.source.kind === "fence"
           ? {
@@ -1813,8 +1884,10 @@ export async function modelToDocx(
       if (result === null || result === undefined) {
         throw new Error("Plugin renderer returned no result");
       }
-      const blocks = Array.isArray(result) ? result : [result];
-      const additionalElements = blocks.reduce(
+      const blocks: readonly unknown[] = Array.isArray(result)
+        ? result
+        : [result];
+      const additionalElements = blocks.reduce<number>(
         (count, block) => count + pluginResultElementCount(block),
         0,
       );
@@ -1885,15 +1958,15 @@ export async function modelToDocx(
         restoreCoreState();
         return pluginFallback(node, listLevel, context, listMarker);
       }
-      throw pluginConversionError(
-        `Plugin "${node.handler.pluginName}" ${node.handler.kind} renderer failed: ${
+      throw pluginConversionError({
+        message: `Plugin "${node.handler.pluginName}" ${node.handler.kind} renderer failed: ${
           error instanceof Error ? error.message : "Unknown error"
         }`,
-        node.handler,
+        reference: node.handler,
         section,
-        detail,
-        error,
-      );
+        extra: detail,
+        originalError: error,
+      });
     }
   }
 

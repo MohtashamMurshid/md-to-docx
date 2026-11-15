@@ -1,0 +1,21 @@
+{
+  "$schema": "./node_modules/fallow/schema.json",
+  "ignoreDependencies": [
+    "conventional-changelog-conventionalcommits",
+    "next",
+    "react",
+    "react-dom"
+  ],
+  "duplicates": {
+    "mode": "weak",
+    "near": true,
+    "ignoredClones": [
+      "dup:4143b1d8:2"
+    ]
+  },
+  "health": {
+    "maxCognitive": 15,
+    "maxCyclomatic": 20,
+    "maxCrap": 30
+  }
+}

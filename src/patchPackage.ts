@@ -1,4 +1,3 @@
-import { repairFootnoteImages } from "./packageRepairs.js";
 import JSZip from "jszip";
 import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
 import type {
@@ -88,7 +87,6 @@ export async function mergePatchPackage(
 ): Promise<Uint8Array> {
   throwIfAborted(options.signal);
   const donor = await JSZip.loadAsync(donorBytes);
-  await repairFootnoteImages(donor);
   const documents = new Map<string, XmlDocument>();
   for (const [name, file] of Object.entries(base.files))
     if (!file.dir && (name.endsWith(".xml") || name.endsWith(".rels")))
@@ -199,7 +197,7 @@ export async function mergePatchPackage(
           element.setAttributeNS(
             R,
             `r:${attr}`,
-            prefix + element.getAttributeNS(R, attr),
+            prefix + String(element.getAttributeNS(R, attr)),
           );
     }
   }
@@ -211,7 +209,7 @@ export async function mergePatchPackage(
     for (const rel of elements(relationships, "Relationship", REL)) {
       const type = rel.getAttribute("Type") ?? "";
       if (!type.endsWith("/image") && !type.endsWith("/hyperlink")) continue;
-      rel.setAttribute("Id", prefix + rel.getAttribute("Id"));
+      rel.setAttribute("Id", prefix + String(rel.getAttribute("Id")));
       if (rel.getAttribute("TargetMode") !== "External") {
         const target = rel.getAttribute("Target")!;
         const media = donor.file(`word/${target}`);
@@ -259,13 +257,14 @@ export async function mergePatchPackage(
     }
     documents.set(key, relationships);
   }
-  for (const [part, child, id] of [
+  const mergedParts: [part: string, child: string, id: string][] = [
     ["numbering", "abstractNum", "abstractNumId"],
     ["numbering", "num", "numId"],
     ["footnotes", "footnote", "id"],
     ["comments", "comment", "id"],
     ["styles", "style", "styleId"],
-  ]) {
+  ];
+  for (const [part, child, id] of mergedParts) {
     const source = donorDocuments.get(`word/${part}.xml`);
     if (!source) continue;
     const target = documents.get(`word/${part}.xml`) ?? empty(part);
@@ -293,7 +292,7 @@ export async function mergePatchPackage(
   const fragments = new Map<string, XmlElement[]>();
   let current: string | undefined;
   const donorMain = donorDocuments.get("word/document.xml")!;
-  for (const child of Array.from(elements(donorMain, "body")[0].childNodes)) {
+  for (const child of Array.from(elements(donorMain, "body")[0]!.childNodes)) {
     if (child.nodeType !== 1) continue;
     const element = child as XmlElement;
     const text = elements(element, "t")
@@ -301,7 +300,8 @@ export async function mergePatchPackage(
       .join("");
     const marker = markers.indexOf(text);
     if (marker !== -1) {
-      current = names[marker];
+      // `markers` and `names` are built from the same patch entries.
+      current = names[marker]!;
       fragments.set(current, []);
       continue;
     }
@@ -465,8 +465,8 @@ export async function mergePatchPackage(
           element.getAttributeNS(W, "instr") ?? "",
         );
         if (match) {
-          const count = (counts.get(match[1]) ?? 0) + 1;
-          counts.set(match[1], count);
+          const count = (counts.get(match[1]!) ?? 0) + 1;
+          counts.set(match[1]!, count);
           const value = elements(element, "t")[0];
           if (value) value.textContent = String(count);
         }
@@ -490,9 +490,9 @@ export async function mergePatchPackage(
       const match = /^\s*(?:REF|NOTEREF)\s+(\S+)/.exec(
         field.getAttributeNS(W, "instr") ?? "",
       );
-      if (match && referenceValues.has(match[1])) {
+      if (match && referenceValues.has(match[1]!)) {
         const value = elements(field, "t")[0];
-        if (value) value.textContent = referenceValues.get(match[1])!;
+        if (value) value.textContent = referenceValues.get(match[1]!)!;
       }
     }
   // Bookmark numeric IDs must be unique, including repeated placeholder copies.

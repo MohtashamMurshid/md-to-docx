@@ -26,6 +26,35 @@ export interface RichTableAst extends Node {
   children: { type: "richTableRow"; children: RichTableAstCell[] }[];
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isUnknownArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
+}
+
+function isColumnWidthList(value: unknown): value is number[] {
+  return (
+    isUnknownArray(value) &&
+    value.every(
+      (v) => typeof v === "number" && Number.isInteger(v) && v > 0 && v <= 31680,
+    )
+  );
+}
+
+function readCellSpan(span: unknown): number | undefined {
+  if (
+    span !== undefined &&
+    (typeof span !== "number" ||
+      !Number.isInteger(span) ||
+      span < 1 ||
+      span > 1000)
+  )
+    throw new MarkdownConversionError("Invalid table cell span");
+  return span;
+}
+
 /** Expand before element counting so fenced cell Markdown participates in budgets. */
 export async function expandRichTables(
   root: Root,
@@ -36,7 +65,8 @@ export async function expandRichTables(
   const visit = async (parent: { children: Node[] }): Promise<void> => {
     for (let index = 0; index < parent.children.length; index++) {
       throwIfAborted(signal);
-      let node = parent.children[index];
+      // Bounded by the loop condition.
+      let node = parent.children[index]!;
       if (
         node.type === "code" &&
         (node as { lang?: string }).lang?.toLowerCase() === "table"
@@ -45,63 +75,60 @@ export async function expandRichTables(
           throw new MarkdownConversionError(
             "Rich table nesting limit exceeded",
           );
-        let definition: RichTableDefinition;
+        // Fence JSON is untrusted user input: parse as unknown and narrow.
+        let definition: unknown;
         try {
           definition = JSON.parse((node as Code).value);
         } catch {
           throw new MarkdownConversionError("Invalid table fence JSON");
         }
+        if (!isRecord(definition))
+          throw new MarkdownConversionError(
+            "Table fence requires rows and optional headers arrays",
+          );
+        const { rows, headers, columnWidths } = definition;
         if (
-          !definition ||
-          !Array.isArray(definition.rows) ||
-          !definition.rows.length ||
-          definition.rows.length > 10000 ||
-          (definition.headers !== undefined &&
-            !Array.isArray(definition.headers))
+          !isUnknownArray(rows) ||
+          !rows.length ||
+          rows.length > 10000 ||
+          (headers !== undefined && !isUnknownArray(headers))
         )
           throw new MarkdownConversionError(
             "Table fence requires rows and optional headers arrays",
           );
         if (
-          definition.columnWidths &&
-          (!Array.isArray(definition.columnWidths) ||
-            definition.columnWidths.some(
-              (v) => !Number.isInteger(v) || v <= 0 || v > 31680,
-            ))
+          columnWidths !== undefined &&
+          columnWidths !== null &&
+          !isColumnWidthList(columnWidths)
         )
           throw new MarkdownConversionError("Invalid table column widths");
         const table: RichTableAst = {
           type: "richTable",
-          header: !!definition.headers?.length,
-          columnWidths: definition.columnWidths,
+          header: !!headers?.length,
+          ...(columnWidths !== undefined && columnWidths !== null
+            ? { columnWidths }
+            : {}),
           children: [],
         };
-        for (const row of [
-          ...(definition.headers?.length ? [definition.headers] : []),
-          ...definition.rows,
-        ]) {
-          if (!Array.isArray(row) || row.length > 1000)
+        for (const row of [...(headers?.length ? [headers] : []), ...rows]) {
+          if (!isUnknownArray(row) || row.length > 1000)
             throw new MarkdownConversionError("Invalid table row");
           const cells: RichTableAstCell[] = [];
           for (const input of row) {
-            const cell =
+            const cell: unknown =
               typeof input === "string" ? { markdown: input } : input;
-            if (!cell || typeof cell.markdown !== "string")
+            if (!isRecord(cell) || typeof cell.markdown !== "string")
               throw new MarkdownConversionError(
                 "Table cells require markdown text",
               );
-            for (const span of [cell.columnSpan, cell.rowSpan])
-              if (
-                span !== undefined &&
-                (!Number.isInteger(span) || span < 1 || span > 1000)
-              )
-                throw new MarkdownConversionError("Invalid table cell span");
+            const columnSpan = readCellSpan(cell.columnSpan);
+            const rowSpan = readCellSpan(cell.rowSpan);
             const content = await parseMarkdownToAst(cell.markdown, math);
             await expandRichTables(content, math, signal, depth + 1);
             cells.push({
               type: "richTableCell",
-              columnSpan: cell.columnSpan,
-              rowSpan: cell.rowSpan,
+              ...(columnSpan !== undefined ? { columnSpan } : {}),
+              ...(rowSpan !== undefined ? { rowSpan } : {}),
               children: content.children,
             });
           }

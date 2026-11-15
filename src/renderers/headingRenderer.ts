@@ -80,7 +80,7 @@ export function processHeading(
         headingLevel === 1 ? style.headingSpacing * 2 : style.headingSpacing,
       after: style.headingSpacing / 2,
     },
-    alignment,
+    ...(alignment !== undefined ? { alignment } : {}),
     style: `Heading${headingLevel}`,
     bidirectional: style.direction === "RTL",
   });

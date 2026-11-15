@@ -1,0 +1,425 @@
+{
+  "kind": "health",
+  "finding_counts": {
+    "src/cli.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/crossReferences.ts": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/index.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 2
+      }
+    },
+    "src/markdownAst.ts": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/mdastToDocxModel.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "complexity_high": {
+        "count": 2
+      },
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "src/metadata.ts": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/modelToDocx.ts": {
+      "complexity_critical": {
+        "count": 2
+      },
+      "complexity_high": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 4
+      },
+      "crap_critical": {
+        "count": 2
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/patchPackage.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/pluginRuntime.ts": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/referenceDocx.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 3
+      }
+    },
+    "src/renderers/imageRenderer.ts": {
+      "complexity_critical": {
+        "count": 3
+      },
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 3
+      }
+    },
+    "src/richTables.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "src/sectionBuilder.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/utils/secureImageFetch.node.ts": {
+      "complexity_moderate": {
+        "count": 2
+      },
+      "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/validation.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 3
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "tests/sections.test.ts": {
+      "crap_high": {
+        "count": 1
+      }
+    }
+  },
+  "identity_finding_counts": {
+    "src/cli.ts\u0000convert": {
+      "complexity_high": {
+        "count": 1
+      }
+    },
+    "src/cli.ts\u0000parseCliArgs": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/crossReferences.ts\u0000<arrow>": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/index.ts\u0000downloadDocx": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/index.ts\u0000parseToDocxOptions": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/index.ts\u0000patchMarkdownInDocxWithOutput": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/markdownAst.ts\u0000applyTextReplacements": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/mdastToDocxModel.ts\u0000mdastToDocxModel": {
+      "complexity_high": {
+        "count": 1
+      }
+    },
+    "src/mdastToDocxModel.ts\u0000processCodeBlock": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/mdastToDocxModel.ts\u0000processInlineNodes": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "src/mdastToDocxModel.ts\u0000processList": {
+      "complexity_high": {
+        "count": 1
+      }
+    },
+    "src/metadata.ts\u0000writeCustomProperties": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/modelToDocx.ts\u0000prepareInlineImages": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/modelToDocx.ts\u0000renderBlockNode": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/modelToDocx.ts\u0000renderInlineNodes": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/modelToDocx.ts\u0000renderListItem": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/modelToDocx.ts\u0000renderPluginBlockResult": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/modelToDocx.ts\u0000renderPluginNode": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "src/modelToDocx.ts\u0000tableFromNode": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "src/patchPackage.ts\u0000loadPatchPackage": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/patchPackage.ts\u0000mergePatchPackage": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "src/patchPackage.ts\u0000repeatedFragments": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/pluginRuntime.ts\u0000<arrow>": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/referenceDocx.ts\u0000<arrow>": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/referenceDocx.ts\u0000adoptSectionPresentation": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/referenceDocx.ts\u0000importReferencePartGraph": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/referenceDocx.ts\u0000resolveStyleMap": {
+      "complexity_high": {
+        "count": 1
+      }
+    },
+    "src/renderers/imageRenderer.ts\u0000detectImageType": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "src/renderers/imageRenderer.ts\u0000processImage": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "src/renderers/imageRenderer.ts\u0000processImageData": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/renderers/imageRenderer.ts\u0000readIntrinsicDimensions": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "src/richTables.ts\u0000visit": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "src/sectionBuilder.ts\u0000mergeSectionConfig": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/utils/secureImageFetch.node.ts\u0000ipv6HextetsToIpv4": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/utils/secureImageFetch.node.ts\u0000isPrivateIPv4": {
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/utils/secureImageFetch.node.ts\u0000isPrivateIPv6": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/utils/secureImageFetch.node.ts\u0000readResponseBytes": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/validation.ts\u0000validateCaptionOptionsInput": {
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "src/validation.ts\u0000validateSectionConfigInput": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "src/validation.ts\u0000validateStyleInput": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "src/validation.ts\u0000validateTocOptionsInput": {
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "tests/sections.test.ts\u0000it(\"applies template and section-level advan...\")": {
+      "crap_high": {
+        "count": 1
+      }
+    }
+  },
+  "runtime_coverage_findings": [],
+  "target_keys": [
+    "src/renderers/imageRenderer.ts:complexity",
+    "src/index.ts:complexity",
+    "src/cli.ts:complexity",
+    "src/modelToDocx.ts:complexity",
+    "src/mdastToDocxModel.ts:complexity",
+    "src/validation.ts:complexity",
+    "src/richTables.ts:complexity",
+    "src/patchPackage.ts:complexity",
+    "tests/image-security.test.ts:hidden coupling",
+    "tests/rendering.test.ts:hidden coupling",
+    "src/referenceDocx.ts:complexity"
+  ]
+}

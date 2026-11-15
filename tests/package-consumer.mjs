@@ -2,23 +2,10 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { createPackFixture, packAndExtract, repoRoot } from "./pack-helpers.mjs";
 
-const repoRoot = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  ".."
-);
-const tempRoot = fs.mkdtempSync(
-  path.join(repoRoot, "node_modules", ".package-consumer-")
-);
-const packDir = path.join(tempRoot, "pack");
-const consumerDir = path.join(tempRoot, "consumer");
-const packageDir = path.join(
-  consumerDir,
-  "node_modules",
-  "@mohtasham",
-  "md-to-docx"
-);
+const fixture = createPackFixture(".package-consumer-", "consumer");
+const { tempRoot, projectDir: consumerDir } = fixture;
 
 function run(command, args, options = {}) {
   execFileSync(command, args, {
@@ -33,17 +20,7 @@ function writeJson(filePath, value) {
 }
 
 try {
-  fs.mkdirSync(packDir, { recursive: true });
-  fs.mkdirSync(packageDir, { recursive: true });
-
-  const tarballName = execFileSync(
-    "npm",
-    ["pack", "--ignore-scripts", "--pack-destination", packDir, "--silent"],
-    { cwd: repoRoot, encoding: "utf8" }
-  ).trim();
-  const tarballPath = path.join(packDir, tarballName);
-
-  run("tar", ["-xzf", tarballPath, "-C", packageDir, "--strip-components=1"]);
+  packAndExtract(fixture);
 
   writeJson(path.join(consumerDir, "package.json"), {
     type: "module",

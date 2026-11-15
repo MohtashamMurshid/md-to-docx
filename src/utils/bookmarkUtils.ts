@@ -33,7 +33,7 @@ export function crossReferenceBookmarkId(identifier: string): string {
 }
 
 /** GitHub-style heading fragments, including Unicode and duplicate suffixes. */
-export function headingSlug(text: string): string {
+function headingSlug(text: string): string {
   return text
     .toLowerCase()
     .trim()

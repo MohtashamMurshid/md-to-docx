@@ -27,15 +27,29 @@ md-to-docx input.md output.docx
 md-to-docx input.md output.docx --options options.json
 md-to-docx input.md output.docx -o options.json
 md-to-docx --help
+
+# Pipes, batch, watch, local assets
+cat report.md | md-to-docx - report.docx
+md-to-docx report.md - > report.docx
+md-to-docx --batch ./markdown ./word
+md-to-docx report.md report.docx --watch
+md-to-docx report.md report.docx --base-dir ./assets
+
+# Reference DOCX workflows
+md-to-docx report.md report.docx --reference corporate.docx
+md-to-docx corporate.docx report.docx --patches patches.json
 ```
 
 CLI contract:
-- Required positional args: `<input.md> <output.docx>`
-- Optional options file: `--options <options.json>` or `-o <options.json>`
-- Options JSON can include the same shapes as the API: `style`, `template`, `sections`, and `textReplacements`
+- Required positional args: `<input.md> <output.docx>`. Use `-` for stdin or stdout; status and warnings go to stderr when stdout carries the DOCX.
+- Optional options file: `--options <options.json>` or `-o <options.json>`. It takes the same shape as the API `Options`, such as `style`, `template`, `sections` and `textReplacements`. The CLI never loads executable plugins from JSON.
+- `--reference <reference.docx>`: a new document that adopts the reference document's styles.
+- `--patches <patches.json>`: the first positional argument is a template DOCX. `patches.json` maps placeholder names to Markdown strings or `{ "markdown": "...", "style": { ... } }` objects. It cannot be combined with `--reference`, `--batch` or stdin.
+- `--base-dir <directory>`: local image paths resolve relative to this directory instead of the Markdown file's. Paths and symlinks must stay inside it.
+- `--batch <input-directory> <output-directory>`: converts `.md` files recursively and keeps relative directories. It exits nonzero after processing the remaining files if any failed.
+- `--watch`: rebuilds when inputs, options, reference files or local assets change. Ctrl+C stops it. `--watch` and `--batch` need file paths, not `-`.
 - Help flags: `-h` or `--help`
 - On success, expect: `DOCX created at: <absolute-path>`
-- Reference DOCX modes require binary input and are programmatic APIs, not CLI flags.
 
 ## Programmatic Mode
 

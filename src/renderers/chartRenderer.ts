@@ -1,4 +1,3 @@
-import { AlignmentType, Paragraph, TextRun } from "docx";
 import type { IParagraphOptions, ParagraphChild } from "docx";
 import {
   ChartBlockDefinition,
@@ -10,20 +9,17 @@ import {
 import { MarkdownConversionError } from "../errors.js";
 import { throwIfAborted } from "../processingLimits.js";
 import type { AccessibilityOptions } from "../types.js";
+import { assertImageAltPolicy, validateImageText } from "../accessibility.js";
 import {
-  assertImageAltPolicy,
-  runLanguage,
-  validateImageText,
-} from "../accessibility.js";
-import { resolveFontFamily } from "../utils/styleUtils.js";
-import { processImage } from "./imageRenderer.js";
+  createRenderFailureParagraph,
+  processImage,
+} from "./imageRenderer.js";
 import type { ProcessImageResult } from "./imageRenderer.js";
 
 const DEFAULT_CHART_WIDTH = 640;
 const DEFAULT_CHART_HEIGHT = 360;
 const DEFAULT_MAX_CHART_WIDTH = 2000;
 const DEFAULT_MAX_CHART_HEIGHT = 2000;
-const CHART_LANGUAGES = new Set(["chart", "chartjs"]);
 const SUPPORTED_TYPES: ChartBlockType[] = ["bar", "line", "pie", "doughnut"];
 const DEFAULT_COLORS = [
   "4E79A7",
@@ -116,7 +112,7 @@ class Raster {
     const sy = y < endY ? 1 : -1;
     let error = dx + dy;
 
-    while (true) {
+    for (;;) {
       this.setPixel(x, y, color);
       this.setPixel(x + 1, y, color);
       this.setPixel(x, y + 1, color);
@@ -134,11 +130,7 @@ class Raster {
   }
 }
 
-export function isChartFenceLanguage(language: string | undefined): boolean {
-  return CHART_LANGUAGES.has((language || "").toLowerCase());
-}
-
-export function resolveChartRenderingOptions(
+function resolveChartRenderingOptions(
   options?: ChartRenderingOptions,
 ): ResolvedChartRenderingOptions {
   return {
@@ -229,23 +221,13 @@ export async function processChartBlock(
     return {
       embedded: false,
       paragraphs: [
-        new Paragraph({
-          ...paragraphOptions,
-          children: [
-            new TextRun({
-              text: `[Chart could not be rendered: ${
-                error instanceof Error ? error.message : String(error)
-              }]`,
-              italics: true,
-              color: "FF0000",
-              font: resolveFontFamily(style),
-              language: runLanguage(style),
-              rightToLeft: style.direction === "RTL",
-            }),
-          ],
-          alignment: AlignmentType.CENTER,
-          bidirectional: style.direction === "RTL",
-        }),
+        createRenderFailureParagraph(
+          `[Chart could not be rendered: ${
+            error instanceof Error ? error.message : String(error)
+          }]`,
+          style,
+          paragraphOptions,
+        ),
       ],
     };
   }
@@ -271,7 +253,12 @@ async function renderChart(
   );
 
   const rendered = options.renderer
-    ? await options.renderer({ definition, width, height, signal })
+    ? await options.renderer({
+        definition,
+        width,
+        height,
+        ...(signal !== undefined ? { signal } : {}),
+      })
     : renderBuiltInChart(definition, width, height);
   throwIfAborted(signal);
 
@@ -284,38 +271,58 @@ async function renderChart(
   return { definition, width, height, dataUrl };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isUnknownArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
+}
+
 function parseChartDefinition(value: string): ChartBlockDefinition {
   let parsed: unknown;
   try {
     parsed = JSON.parse(value);
   } catch (error) {
     throw new Error(
-      `expected chart JSON (${error instanceof Error ? error.message : error})`,
+      `expected chart JSON (${error instanceof Error ? error.message : String(error)})`,
     );
   }
 
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+  assertChartBlockDefinition(parsed);
+  return parsed;
+}
+
+/**
+ * Chart JSON comes from user Markdown, so it is validated as `unknown`.
+ * Only the fields the built-in renderer depends on are checked; the remaining
+ * optional fields are read defensively where they are used.
+ */
+function assertChartBlockDefinition(
+  parsed: unknown,
+): asserts parsed is ChartBlockDefinition {
+  if (!isRecord(parsed) || Array.isArray(parsed)) {
     throw new Error("chart definition must be a JSON object");
   }
 
-  const candidate = parsed as ChartBlockDefinition;
-  if (!SUPPORTED_TYPES.includes(candidate.type)) {
+  const type = parsed.type;
+  if (!SUPPORTED_TYPES.some((supported) => supported === type)) {
     throw new Error(
       `chart type must be one of ${SUPPORTED_TYPES.join(", ")}`,
     );
   }
 
+  const data = parsed.data;
   if (
-    !candidate.data ||
-    typeof candidate.data !== "object" ||
-    !Array.isArray(candidate.data.datasets) ||
-    candidate.data.datasets.length === 0
+    !isRecord(data) ||
+    !isUnknownArray(data.datasets) ||
+    data.datasets.length === 0
   ) {
     throw new Error("chart data.datasets must contain at least one dataset");
   }
 
-  candidate.data.datasets.forEach((dataset, index) => {
-    if (!dataset || typeof dataset !== "object" || !Array.isArray(dataset.data)) {
+  data.datasets.forEach((dataset, index) => {
+    if (!isRecord(dataset) || !isUnknownArray(dataset.data)) {
       throw new Error(`chart data.datasets[${index}].data must be an array`);
     }
     if (
@@ -331,14 +338,12 @@ function parseChartDefinition(value: string): ChartBlockDefinition {
   });
 
   if (
-    candidate.data.labels !== undefined &&
-    (!Array.isArray(candidate.data.labels) ||
-      candidate.data.labels.some((label) => typeof label !== "string"))
+    data.labels !== undefined &&
+    (!isUnknownArray(data.labels) ||
+      data.labels.some((label) => typeof label !== "string"))
   ) {
     throw new Error("chart data.labels must be an array of strings");
   }
-
-  return candidate;
 }
 
 function resolveDimension(
@@ -376,7 +381,19 @@ function renderBuiltInChart(
   return pngBytesToDataUrl(encodePng(raster.width, raster.height, raster.pixels));
 }
 
-function renderBarChart(raster: Raster, definition: ChartBlockDefinition): void {
+interface CartesianChartLayout {
+  plot: { left: number; top: number; width: number; height: number };
+  datasets: ChartBlockDefinition["data"]["datasets"];
+  seriesLength: number;
+  min: number;
+  max: number;
+}
+
+/** Shared bar/line setup: plot area, value range and axes. */
+function prepareCartesianChart(
+  raster: Raster,
+  definition: ChartBlockDefinition,
+): CartesianChartLayout {
   const plot = getPlotArea(raster);
   const datasets = definition.data.datasets;
   const seriesLength = Math.max(...datasets.map((dataset) => dataset.data.length));
@@ -384,6 +401,14 @@ function renderBarChart(raster: Raster, definition: ChartBlockDefinition): void 
   const { min, max } = valueRange(values);
 
   drawAxes(raster, plot);
+  return { plot, datasets, seriesLength, min, max };
+}
+
+function renderBarChart(raster: Raster, definition: ChartBlockDefinition): void {
+  const { plot, datasets, seriesLength, min, max } = prepareCartesianChart(
+    raster,
+    definition,
+  );
   const groupWidth = plot.width / Math.max(seriesLength, 1);
   const barWidth = Math.max(2, (groupWidth * 0.72) / datasets.length);
 
@@ -410,18 +435,16 @@ function renderBarChart(raster: Raster, definition: ChartBlockDefinition): void 
 }
 
 function renderLineChart(raster: Raster, definition: ChartBlockDefinition): void {
-  const plot = getPlotArea(raster);
-  const datasets = definition.data.datasets;
-  const seriesLength = Math.max(...datasets.map((dataset) => dataset.data.length));
-  const values = datasets.flatMap((dataset) => dataset.data);
-  const { min, max } = valueRange(values);
-
-  drawAxes(raster, plot);
+  const { plot, datasets, seriesLength, min, max } = prepareCartesianChart(
+    raster,
+    definition,
+  );
   datasets.forEach((dataset, datasetIndex) => {
     const color = colorForDataset(dataset.borderColor, datasetIndex, 0);
     dataset.data.forEach((value, valueIndex) => {
       if (valueIndex === 0) return;
-      const previous = dataset.data[valueIndex - 1];
+      // valueIndex >= 1 here, so the previous index is in range.
+      const previous = dataset.data[valueIndex - 1]!;
       raster.line(
         scaleX(valueIndex - 1, seriesLength, plot),
         scaleY(previous, min, max, plot),
@@ -434,7 +457,8 @@ function renderLineChart(raster: Raster, definition: ChartBlockDefinition): void
 }
 
 function renderPieChart(raster: Raster, definition: ChartBlockDefinition): void {
-  const dataset = definition.data.datasets[0];
+  // parseChartDefinition guarantees at least one dataset.
+  const dataset = definition.data.datasets[0]!;
   const values = dataset.data.map((value) => Math.max(0, value));
   const total = values.reduce((sum, value) => sum + value, 0);
   if (total <= 0) {
@@ -455,7 +479,7 @@ function renderPieChart(raster: Raster, definition: ChartBlockDefinition): void 
       valueIndex,
     );
     if (angle >= Math.PI * 2 - Number.EPSILON) {
-      fillAnnulus(raster, centerX, centerY, radius, innerRadius, color);
+      fillRing(raster, centerX, centerY, radius, innerRadius, color);
     } else {
       fillArc(
         raster,
@@ -531,15 +555,18 @@ function scaleY(
   return plot.top + plot.height - ((value - min) / (max - min)) * plot.height;
 }
 
-function fillArc(
+/**
+ * Paint every pixel whose distance from the center lies in
+ * [innerRadius, radius], optionally restricted by `includePixel(dx, dy)`.
+ */
+function fillRing(
   raster: Raster,
   centerX: number,
   centerY: number,
   radius: number,
   innerRadius: number,
-  start: number,
-  end: number,
   color: string,
+  includePixel?: (dx: number, dy: number) => boolean,
 ): void {
   const minX = Math.floor(centerX - radius);
   const maxX = Math.ceil(centerX + radius);
@@ -552,37 +579,30 @@ function fillArc(
       const dy = y - centerY;
       const distance = Math.sqrt(dx * dx + dy * dy);
       if (distance > radius || distance < innerRadius) continue;
-      const angle = normalizeAngle(Math.atan2(dy, dx));
-      if (angleInRange(angle, normalizeAngle(start), normalizeAngle(end))) {
+      if (includePixel === undefined || includePixel(dx, dy)) {
         raster.setPixel(x, y, color);
       }
     }
   }
 }
 
-function fillAnnulus(
+function fillArc(
   raster: Raster,
   centerX: number,
   centerY: number,
   radius: number,
   innerRadius: number,
+  start: number,
+  end: number,
   color: string,
 ): void {
-  const minX = Math.floor(centerX - radius);
-  const maxX = Math.ceil(centerX + radius);
-  const minY = Math.floor(centerY - radius);
-  const maxY = Math.ceil(centerY + radius);
-
-  for (let y = minY; y <= maxY; y++) {
-    for (let x = minX; x <= maxX; x++) {
-      const dx = x - centerX;
-      const dy = y - centerY;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-      if (distance <= radius && distance >= innerRadius) {
-        raster.setPixel(x, y, color);
-      }
-    }
-  }
+  fillRing(raster, centerX, centerY, radius, innerRadius, color, (dx, dy) =>
+    angleInRange(
+      normalizeAngle(Math.atan2(dy, dx)),
+      normalizeAngle(start),
+      normalizeAngle(end),
+    ),
+  );
 }
 
 function angleInRange(angle: number, start: number, end: number): boolean {
@@ -605,19 +625,19 @@ function colorForDataset(
   if (Array.isArray(color)) {
     return (
       normalizeColor(color[valueIndex]) ||
-      DEFAULT_COLORS[valueIndex % DEFAULT_COLORS.length]
+      DEFAULT_COLORS[valueIndex % DEFAULT_COLORS.length]!
     );
   }
   return (
     normalizeColor(color) ||
-    DEFAULT_COLORS[datasetIndex % DEFAULT_COLORS.length]
+    DEFAULT_COLORS[datasetIndex % DEFAULT_COLORS.length]!
   );
 }
 
 function normalizeColor(color: string | undefined): string | undefined {
   if (!color) return undefined;
   const match = color.trim().match(/^#?([0-9a-f]{6})$/i);
-  return match ? match[1].toUpperCase() : undefined;
+  return match ? match[1]!.toUpperCase() : undefined;
 }
 
 function parseColor(color: string): [number, number, number] {

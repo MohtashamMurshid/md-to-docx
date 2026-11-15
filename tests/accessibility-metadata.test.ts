@@ -10,11 +10,11 @@ import {
   patchMarkdownInDocxToBuffer,
 } from "../src/index.js";
 import { applyDocumentMetadata } from "../src/metadata.js";
-import { getDocumentXml, getZip } from "./helpers.js";
+import { at, getDocumentXml, getZip } from "./helpers.js";
 
 const ONE_PX_PNG =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAGgwJ/vk9yBgAAAABJRU5ErkJggg==";
-const ONE_PX_PNG_BYTES = Buffer.from(ONE_PX_PNG.split(",")[1], "base64");
+const ONE_PX_PNG_BYTES = Buffer.from(at(ONE_PX_PNG.split(","), 1), "base64");
 
 async function zipFromBuffer(buffer: Buffer | ArrayBuffer): Promise<JSZip> {
   return JSZip.loadAsync(buffer);
@@ -205,7 +205,7 @@ describe("drawing accessibility properties", () => {
       new Response(new Uint8Array(ONE_PX_PNG_BYTES), {
         status: 200,
         headers: { "content-type": "image/png" },
-      }) as never,
+      }),
     );
     const xml = await getDocumentXml(
       await convertMarkdownToDocx(

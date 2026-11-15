@@ -1,6 +1,6 @@
 import type { InputDataType } from "docx";
 import type { PhrasingContent } from "mdast";
-import type { MarkdownDocxPlugin, PluginOptions } from "./pluginTypes.js";
+import type { AnyMarkdownDocxPlugin, PluginOptions } from "./pluginTypes.js";
 
 export interface Style {
   titleSize: number;
@@ -148,18 +148,18 @@ export interface HeaderFooterGroup {
 }
 
 export interface SectionPageMargins {
-  top?: number;
-  right?: number;
-  bottom?: number;
-  left?: number;
-  header?: number;
-  footer?: number;
-  gutter?: number;
+  top?: number | undefined;
+  right?: number | undefined;
+  bottom?: number | undefined;
+  left?: number | undefined;
+  header?: number | undefined;
+  footer?: number | undefined;
+  gutter?: number | undefined;
 }
 
 export interface SectionPageSize {
-  width?: number;
-  height?: number;
+  width?: number | undefined;
+  height?: number | undefined;
   orientation?: "PORTRAIT" | "LANDSCAPE";
 }
 
@@ -315,7 +315,7 @@ export interface Options {
    */
   captions?: CaptionOptions;
   /** Trusted programmatic renderer plugins. Functions cannot be loaded from CLI JSON. */
-  plugins?: readonly MarkdownDocxPlugin<any>[];
+  plugins?: readonly AnyMarkdownDocxPlugin[];
   /** Deterministic conflict handling for overlapping plugin handlers. */
   pluginOptions?: PluginOptions;
 }
@@ -528,7 +528,7 @@ export interface PatchMarkdownOptions {
    */
   chartRendering?: ChartRenderingOptions;
   /** Trusted programmatic renderer plugins used for every placeholder patch. */
-  plugins?: readonly MarkdownDocxPlugin<any>[];
+  plugins?: readonly AnyMarkdownDocxPlugin[];
   pluginOptions?: PluginOptions;
   /**
    * Optional maximum markdown input length per patch.
@@ -576,7 +576,7 @@ export interface ConversionWarning {
     | "UNSUPPORTED_CONTENT";
   message: string;
   source?: string;
-  sectionIndex?: number;
+  sectionIndex?: number | undefined;
 }
 
 export interface TocOptions {
@@ -612,7 +612,7 @@ export interface RemoteImageHandlingOptions {
    * case-insensitively. When provided, the list fails closed: an empty array
    * denies every host. Omit the option to allow any public host.
    */
-  allowedHosts?: string[];
+  allowedHosts?: string[] | undefined;
 }
 
 export interface DataUrlImageHandlingOptions {
@@ -629,12 +629,14 @@ export interface ImageAsset {
 
 export interface ImageHandlingOptions {
   /** Trusted resolver for local, browser, authenticated, or virtual assets. */
-  resolve?: (
-    source: string,
-    context: { signal?: AbortSignal; maxBytes: number },
-  ) => ImageAsset | null | undefined | Promise<ImageAsset | null | undefined>;
+  resolve?:
+    | ((
+        source: string,
+        context: { signal?: AbortSignal | undefined; maxBytes: number },
+      ) => ImageAsset | null | undefined | Promise<ImageAsset | null | undefined>)
+    | undefined;
   /** Node only. Local paths must remain inside this directory after symlink resolution. */
-  baseDirectory?: string;
+  baseDirectory?: string | undefined;
   remote?: RemoteImageHandlingOptions;
   dataUrls?: DataUrlImageHandlingOptions;
   /**
@@ -725,11 +727,11 @@ export interface MermaidRenderInput {
   /**
    * Optional mdast code fence metadata.
    */
-  meta?: string;
+  meta?: string | undefined;
   /**
    * Abort signal from the conversion options, when provided.
    */
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
 }
 
 export interface MermaidRenderResult {

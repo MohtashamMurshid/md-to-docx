@@ -10,7 +10,7 @@ import { runLanguage } from "../accessibility.js";
  * prefix). Users can override any subset of these via
  * `Options.codeHighlighting.theme`.
  */
-export const DEFAULT_CODE_HIGHLIGHT_THEME: CodeHighlightTheme = {
+const DEFAULT_CODE_HIGHLIGHT_THEME: CodeHighlightTheme = {
   default: "24292E",
   background: "FFFFFF",
   border: "D0D7DE",
@@ -128,9 +128,9 @@ function getAliasMap(): Map<string, string> {
   }
 
   aliasMap = new Map();
-  const lookup = common as Record<string, CommonGrammar>;
-  for (const canonical of Object.keys(lookup)) {
-    const probe = createLowlight({ [canonical]: lookup[canonical] });
+  const lookup = common;
+  for (const [canonical, grammar] of Object.entries(lookup)) {
+    const probe = createLowlight({ [canonical]: grammar });
     aliasMap.set(canonical, canonical);
     for (const registered of probe.listLanguages()) {
       aliasMap.set(registered, canonical);
@@ -197,7 +197,7 @@ export function canonicalLanguageName(name: string): string | null {
  * grammar; unknown names are tolerated and simply not registered, in
  * which case callers must fall back to plain rendering.
  */
-export function getLowlightInstance(languages?: string[]): LowlightInstance {
+function getLowlightInstance(languages?: string[]): LowlightInstance {
   if (!languages || languages.length === 0) {
     let instance = instanceCache.get("__common__");
     if (!instance) {
@@ -210,7 +210,7 @@ export function getLowlightInstance(languages?: string[]): LowlightInstance {
   // Canonicalize before hashing so ["js"] and ["javascript"] share a
   // single cached instance and both end up highlighting the same
   // fences. Duplicates after canonicalization are also collapsed.
-  const lookup = common as Record<string, CommonGrammar>;
+  const lookup = common;
   const canonicalSet = new Set<string>();
   const boundedLanguages = languages.slice(0, MAX_LANGUAGE_WHITELIST_SIZE);
   for (const name of new Set(boundedLanguages)) {
@@ -228,7 +228,11 @@ export function getLowlightInstance(languages?: string[]): LowlightInstance {
 
   const grammars: Record<string, CommonGrammar> = {};
   for (const canonical of canonicalSet) {
-    grammars[canonical] = lookup[canonical];
+    // canonicalLanguageName only returns names present in `common`.
+    const grammar = lookup[canonical];
+    if (grammar) {
+      grammars[canonical] = grammar;
+    }
   }
   instance = createLowlight(grammars);
   instanceCache.set(key, instance);
@@ -259,7 +263,8 @@ function colorForClassStack(
   theme: CodeHighlightTheme
 ): string | undefined {
   for (let i = classStack.length - 1; i >= 0; i--) {
-    const raw = classStack[i];
+    // Bounded by the loop condition.
+    const raw = classStack[i]!;
     const normalized = raw.startsWith("hljs-") ? raw.slice(5) : raw;
     const direct = theme[normalized];
     if (typeof direct === "string") {
@@ -307,9 +312,12 @@ function pushTextRuns(
   }
   const size = style.codeBlockSize || 20;
   const rtl = style.direction === "RTL";
+  const language = runLanguage(style);
+  const languageOption = language ? { language } : {};
   const parts = text.split("\n");
   for (let i = 0; i < parts.length; i++) {
-    const segment = parts[i];
+    // Bounded by the loop condition.
+    const segment = parts[i]!;
     if (segment.length > 0) {
       const leadingSpaces = segment.match(/^\s*/)?.[0].length || 0;
       const processed =
@@ -321,7 +329,7 @@ function pushTextRuns(
           size,
           color,
           rightToLeft: rtl,
-          language: runLanguage(style),
+          ...languageOption,
         })
       );
     }
@@ -333,20 +341,22 @@ function pushTextRuns(
           size,
           break: 1,
           rightToLeft: rtl,
-          language: runLanguage(style),
+          ...languageOption,
         })
       );
     }
   }
 }
 
-function walkHast(
-  nodes: RootContent[],
-  classStack: string[],
-  theme: CodeHighlightTheme,
-  style: Style,
-  out: TextRun[]
-): void {
+interface HastWalkContext {
+  classStack: string[];
+  theme: CodeHighlightTheme;
+  style: Style;
+  out: TextRun[];
+}
+
+function walkHast(nodes: RootContent[], context: HastWalkContext): void {
+  const { classStack, theme, style, out } = context;
   for (const node of nodes) {
     if (node.type === "text") {
       const color =
@@ -360,7 +370,7 @@ function walkHast(
     if (node.type === "element") {
       const classes = extractClassNames(node);
       classStack.push(...classes);
-      walkHast(node.children as RootContent[], classStack, theme, style, out);
+      walkHast(node.children, context);
       for (let i = 0; i < classes.length; i++) {
         classStack.pop();
       }
@@ -391,7 +401,7 @@ export function tokenizeToRuns(
     const tree: Root = lowlight.highlight(language, code);
     const theme = resolveTheme(options.theme);
     const runs: TextRun[] = [];
-    walkHast(tree.children, [], theme, style, runs);
+    walkHast(tree.children, { classStack: [], theme, style, out: runs });
     return runs;
   } catch {
     return null;

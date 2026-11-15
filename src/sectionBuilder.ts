@@ -19,10 +19,12 @@ import {
   HeaderFooterSlot,
   Options,
   SectionConfig,
+  SectionPageMargins,
   SectionPageNumberDisplay,
   SectionTemplate,
   Style,
 } from "./types.js";
+import type { IPageMarginAttributes } from "docx";
 import { resolveFontFamily } from "./utils/styleUtils.js";
 import { runLanguage } from "./accessibility.js";
 
@@ -63,11 +65,31 @@ export function getSectionContentWidthTwips(config: SectionConfig): number {
   const displayedWidth =
     orientation === PageOrientation.LANDSCAPE ? height : width;
 
-  const margins = { ...defaultSectionMargins, ...(config.page?.margin || {}) };
+  // Typed as optional: reference DOCX layouts and JS callers can carry
+  // explicitly undefined margins that override the defaults.
+  const margins: SectionPageMargins = {
+    ...defaultSectionMargins,
+    ...(config.page?.margin || {}),
+  };
   const left = margins.left ?? defaultSectionMargins.left;
   const right = margins.right ?? defaultSectionMargins.right;
 
   return Math.max(1, Math.floor(displayedWidth - left - right));
+}
+
+/**
+ * docx leaves out a margin attribute whose value is undefined, and reference
+ * DOCX layouts carry explicitly undefined margins that override the defaults.
+ * docx's type has no `| undefined`, so the merged margins are typed here, at
+ * the one place they cross into docx.
+ */
+function docxPageMargins(
+  margin: SectionPageMargins | undefined,
+): IPageMarginAttributes {
+  return {
+    ...defaultSectionMargins,
+    ...(margin || {}),
+  } as IPageMarginAttributes;
 }
 
 export interface ResolvedSectionInput {
@@ -83,7 +105,7 @@ export function normalizeStyleInput(
     return style;
   }
 
-  const fontFamily = style.fontFamily || style.fontFamilly;
+  const fontFamily = resolveFontFamily(style);
   if (!fontFamily) {
     return style;
   }
@@ -134,20 +156,18 @@ function mergeHeaderFooterGroup(
     return undefined;
   }
 
-  const mergedGroup: HeaderFooterGroup = {
-    default: mergeHeaderFooterSlot(
-      templateGroup?.default,
-      sectionGroup?.default,
-    ),
-    first: mergeHeaderFooterSlot(templateGroup?.first, sectionGroup?.first),
-    even: mergeHeaderFooterSlot(templateGroup?.even, sectionGroup?.even),
-  };
+  const mergedGroup: HeaderFooterGroup = {};
+  for (const channel of HEADER_FOOTER_CHANNELS) {
+    const slot = mergeHeaderFooterSlot(
+      templateGroup?.[channel],
+      sectionGroup?.[channel],
+    );
+    if (slot !== undefined) {
+      mergedGroup[channel] = slot;
+    }
+  }
 
-  if (
-    mergedGroup.default === undefined &&
-    mergedGroup.first === undefined &&
-    mergedGroup.even === undefined
-  ) {
+  if (Object.keys(mergedGroup).length === 0) {
     return undefined;
   }
 
@@ -245,23 +265,49 @@ function resolveAlignment(
   return AlignmentType[resolved];
 }
 
+type SectionTypeValue = (typeof SectionType)[keyof typeof SectionType];
+type NumberFormatValue = (typeof NumberFormat)[keyof typeof NumberFormat];
+type PageNumberSeparatorValue =
+  (typeof PageNumberSeparator)[keyof typeof PageNumberSeparator];
+
+// Lookup tables use Map (not object indexing) so inherited keys such as
+// "toString" passed by untyped JS callers resolve to undefined.
+const SECTION_TYPES: ReadonlyMap<string, SectionTypeValue> = new Map([
+  ["NEXT_PAGE", SectionType.NEXT_PAGE],
+  ["NEXT_COLUMN", SectionType.NEXT_COLUMN],
+  ["CONTINUOUS", SectionType.CONTINUOUS],
+  ["EVEN_PAGE", SectionType.EVEN_PAGE],
+  ["ODD_PAGE", SectionType.ODD_PAGE],
+]);
+
+const PAGE_NUMBER_FORMATS: ReadonlyMap<string, NumberFormatValue> = new Map([
+  ["decimal", NumberFormat.DECIMAL],
+  ["upperRoman", NumberFormat.UPPER_ROMAN],
+  ["lowerRoman", NumberFormat.LOWER_ROMAN],
+  ["upperLetter", NumberFormat.UPPER_LETTER],
+  ["lowerLetter", NumberFormat.LOWER_LETTER],
+]);
+
+const PAGE_NUMBER_SEPARATORS: ReadonlyMap<string, PageNumberSeparatorValue> =
+  new Map([
+    ["hyphen", PageNumberSeparator.HYPHEN],
+    ["period", PageNumberSeparator.PERIOD],
+    ["colon", PageNumberSeparator.COLON],
+    ["emDash", PageNumberSeparator.EM_DASH],
+    ["endash", PageNumberSeparator.EN_DASH],
+  ]);
+
+function lookupOption<V>(
+  table: ReadonlyMap<string, V>,
+  key: string | undefined,
+): V | undefined {
+  return key === undefined ? undefined : table.get(key);
+}
+
 function resolveSectionType(
   sectionType: SectionConfig["type"] | undefined,
-): (typeof SectionType)[keyof typeof SectionType] | undefined {
-  switch (sectionType) {
-    case "NEXT_PAGE":
-      return SectionType.NEXT_PAGE;
-    case "NEXT_COLUMN":
-      return SectionType.NEXT_COLUMN;
-    case "CONTINUOUS":
-      return SectionType.CONTINUOUS;
-    case "EVEN_PAGE":
-      return SectionType.EVEN_PAGE;
-    case "ODD_PAGE":
-      return SectionType.ODD_PAGE;
-    default:
-      return undefined;
-  }
+): SectionTypeValue | undefined {
+  return lookupOption(SECTION_TYPES, sectionType);
 }
 
 function resolvePageOrientation(
@@ -274,45 +320,19 @@ function resolvePageOrientation(
 
 function resolvePageNumberFormat(
   formatType: ResolvedPageNumbering["formatType"] | undefined,
-): (typeof NumberFormat)[keyof typeof NumberFormat] | undefined {
-  switch (formatType) {
-    case "decimal":
-      return NumberFormat.DECIMAL;
-    case "upperRoman":
-      return NumberFormat.UPPER_ROMAN;
-    case "lowerRoman":
-      return NumberFormat.LOWER_ROMAN;
-    case "upperLetter":
-      return NumberFormat.UPPER_LETTER;
-    case "lowerLetter":
-      return NumberFormat.LOWER_LETTER;
-    default:
-      return undefined;
-  }
+): NumberFormatValue | undefined {
+  return lookupOption(PAGE_NUMBER_FORMATS, formatType);
 }
 
 function resolvePageNumberSeparator(
   separator: ResolvedPageNumbering["separator"] | undefined,
-): (typeof PageNumberSeparator)[keyof typeof PageNumberSeparator] | undefined {
-  switch (separator) {
-    case "hyphen":
-      return PageNumberSeparator.HYPHEN;
-    case "period":
-      return PageNumberSeparator.PERIOD;
-    case "colon":
-      return PageNumberSeparator.COLON;
-    case "emDash":
-      return PageNumberSeparator.EM_DASH;
-    case "endash":
-      return PageNumberSeparator.EN_DASH;
-    default:
-      return undefined;
-  }
+): PageNumberSeparatorValue | undefined {
+  return lookupOption(PAGE_NUMBER_SEPARATORS, separator);
 }
 
 function buildPageNumberChildren(
   display: SectionPageNumberDisplay,
-): (string | (typeof PageNumber)[keyof typeof PageNumber])[] {
+): string[] {
   switch (display) {
     case "current":
       return [PageNumber.CURRENT];
@@ -334,8 +354,7 @@ function createHeaderFooterParagraph(
 ): Paragraph {
   const display = slot.pageNumberDisplay ?? fallbackDisplay;
   const alignment = resolveAlignment(slot.alignment, fallbackAlignment);
-  const runChildren: (string | (typeof PageNumber)[keyof typeof PageNumber])[] =
-    [];
+  const runChildren: string[] = [];
   const text = slot.text || "";
 
   if (text.length > 0) {
@@ -351,6 +370,9 @@ function createHeaderFooterParagraph(
     runChildren.push("");
   }
 
+  const font = resolveFontFamily(style);
+  const language = runLanguage(style);
+
   return new Paragraph({
     alignment,
     bidirectional: style.direction === "RTL",
@@ -358,9 +380,9 @@ function createHeaderFooterParagraph(
       new TextRun({
         children: runChildren,
         size: style.paragraphSize || 24,
-        font: resolveFontFamily(style),
+        ...(font !== undefined ? { font } : {}),
         rightToLeft: style.direction === "RTL",
-        language: runLanguage(style),
+        ...(language !== undefined ? { language } : {}),
       }),
     ],
   });
@@ -390,10 +412,10 @@ function createHeaderFromSlot(
 function createFooterFromSlot(
   slot: HeaderFooterSlot | undefined,
   style: Style,
-  defaultDisplay: SectionPageNumberDisplay,
-  defaultAlignment: AlignmentOption,
+  defaults: { display: SectionPageNumberDisplay; alignment: AlignmentOption },
   rich: (Paragraph | Table)[] = [],
 ): Footer | undefined {
+  const { display: defaultDisplay, alignment: defaultAlignment } = defaults;
   if (slot === undefined || slot === null) {
     return undefined;
   }
@@ -460,8 +482,7 @@ export function buildFooters(
         alignment: defaultAlignment,
       },
       style,
-      defaultDisplay,
-      defaultAlignment,
+      { display: defaultDisplay, alignment: defaultAlignment },
     );
     return autoFooter ? { default: autoFooter } : undefined;
   }
@@ -471,8 +492,7 @@ export function buildFooters(
     const footer = createFooterFromSlot(
       group[channel],
       style,
-      defaultDisplay,
-      defaultAlignment,
+      { display: defaultDisplay, alignment: defaultAlignment },
       rich.get(group[channel] ?? null),
     );
     if (footer) {
@@ -514,10 +534,7 @@ export function buildSectionProperties(
 
   return {
     page: {
-      margin: {
-        ...defaultSectionMargins,
-        ...(sectionConfig.page?.margin || {}),
-      },
+      margin: docxPageMargins(sectionConfig.page?.margin),
       size: pageSize,
       ...(hasPageNumberOptions ? { pageNumbers: pageNumberOptions } : {}),
     },

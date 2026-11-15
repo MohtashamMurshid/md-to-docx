@@ -163,7 +163,10 @@ function skillProblems() {
 
 /** Every rule eslint.config.js turns off or relaxes names a reason in docs/DECISIONS.md. */
 function lintExceptionProblems() {
-  const config = read("eslint.config.js");
+  // Comments can sit between a severity and its options; match the code alone.
+  const config = read("eslint.config.js")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/[^\n]*/g, "");
   const decisions = fs.existsSync(path.join(root, "docs/DECISIONS.md"))
     ? read("docs/DECISIONS.md")
     : "";

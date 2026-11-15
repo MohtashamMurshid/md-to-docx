@@ -70,8 +70,12 @@ async function resolveVerifiedAddresses(
   return addresses;
 }
 
+/**
+ * `tlsServerName` is undefined for IP-literal hosts: SNI may not carry an IP
+ * address (RFC 6066), and the certificate is then checked against the IP.
+ */
 function buildPinnedHttpsAgent(
-  tlsServerName: string,
+  tlsServerName: string | undefined,
   connectAddress: string,
   port: number
 ): Agent {
@@ -81,11 +85,14 @@ function buildPinnedHttpsAgent(
       connector(
         {
           ...opts,
+          // The socket connects to `hostname`. undici derives the TLS server
+          // name from `host` and recognizes an IPv6 address only in brackets.
           hostname: connectAddress,
-          host: connectAddress,
+          host:
+            isIP(connectAddress) === 6 ? `[${connectAddress}]` : connectAddress,
           port: String(port),
           protocol: "https:",
-          servername: tlsServerName,
+          ...(tlsServerName === undefined ? {} : { servername: tlsServerName }),
         },
         callback
       );
@@ -105,16 +112,20 @@ async function preparePinnedAgent(
 ): Promise<Agent> {
   enforceRemoteHttpsPolicy(url, options);
 
-  const literalFamily = isIP(url.hostname);
+  // `URL` keeps the brackets around an IPv6 literal (`[::1]`), which `isIP`
+  // and the connector do not accept.
+  const host = url.hostname.replace(/^\[|\]$/g, "");
+  const literalFamily = isIP(host);
   const port = Number(url.port) || 443;
-  const tlsServerName = url.hostname;
 
   if (literalFamily !== 0) {
-    if (isBlockedIpAddress(url.hostname)) {
+    if (isBlockedIpAddress(host)) {
       throw new Error("Remote image host resolves to a blocked network address");
     }
-    return buildPinnedHttpsAgent(tlsServerName, url.hostname, port);
+    return buildPinnedHttpsAgent(undefined, host, port);
   }
+
+  const tlsServerName = url.hostname;
 
   const addresses = await resolveVerifiedAddresses(url.hostname, dnsTimeoutMs);
   const [pick] = addresses;

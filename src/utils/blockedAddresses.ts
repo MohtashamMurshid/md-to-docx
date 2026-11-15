@@ -1,4 +1,4 @@
-import { isIP } from "node:net";
+import { BlockList, isIP } from "node:net";
 
 /**
  * Private-network classification for the remote image fetcher's SSRF policy.
@@ -6,132 +6,96 @@ import { isIP } from "node:net";
  * connection is made to it.
  */
 
-interface Ipv4Network {
-  firstOctet: number;
-  secondOctetMin: number;
-  secondOctetMax: number;
-}
+/**
+ * Blocked IPv4 ranges, matched exactly, as are the IPv6 forms that carry an
+ * IPv4 address.
+ */
+const BLOCKED_IPV4_CIDRS: readonly (readonly [string, number])[] = [
+  ["0.0.0.0", 8], // "this network"
+  ["10.0.0.0", 8], // private
+  ["100.64.0.0", 10], // carrier-grade NAT
+  ["127.0.0.0", 8], // loopback
+  ["169.254.0.0", 16], // link-local, including cloud metadata endpoints
+  ["172.16.0.0", 12], // private
+  ["192.0.0.0", 24], // IETF protocol assignments
+  ["192.0.2.0", 24], // documentation (TEST-NET-1)
+  ["192.88.99.0", 24], // 6to4 relay anycast, deprecated
+  ["192.168.0.0", 16], // private
+  ["198.18.0.0", 15], // benchmarking
+  ["198.51.100.0", 24], // documentation (TEST-NET-2)
+  ["203.0.113.0", 24], // documentation (TEST-NET-3)
+  ["224.0.0.0", 3], // multicast and reserved, including broadcast
+];
+
+/** Global unicast: the only IPv6 space that holds public hosts. */
+const GLOBAL_UNICAST: readonly [string, number] = ["2000::", 3];
+
+/** Parts of global unicast that never reach a public host directly. */
+const BLOCKED_GLOBAL_UNICAST: readonly (readonly [string, number])[] = [
+  ["2001::", 32], // Teredo tunnels, which reach arbitrary IPv4 hosts
+  ["2001:2::", 48], // benchmarking
+  ["2001:10::", 28], // ORCHID, deprecated
+  ["2001:20::", 28], // ORCHIDv2
+  ["2001:db8::", 32], // documentation
+  ["3fff::", 20], // documentation (RFC 9637)
+];
 
 /**
- * Parses a CIDR block no longer than /16, so a block is matched on the first
- * two octets alone. A /8 says nothing about the second octet, so it matches
- * any second octet the parser accepted, in range or not.
+ * IPv6 forms that carry an IPv4 address in their last 32 bits, accepted only
+ * when that IPv4 address is public: IPv4-mapped addresses, and the NAT64
+ * well-known prefix that DNS64 resolvers return on IPv6-only networks.
  */
-function parseIpv4Network(cidr: string): Ipv4Network {
-  const [address, prefix] = cidr.split("/");
-  const [firstOctet, secondOctet] = address!.split(".").map(Number);
-  const prefixLength = Number(prefix);
-  const wholeSecondOctet = prefixLength <= 8;
-  return {
-    firstOctet: firstOctet!,
-    secondOctetMin: wholeSecondOctet ? -Infinity : secondOctet!,
-    secondOctetMax: wholeSecondOctet
-      ? Infinity
-      : secondOctet! + 2 ** (16 - prefixLength) - 1,
-  };
+const IPV4_CARRIERS: readonly (readonly [string, number])[] = [
+  ["::ffff:0:0", 96],
+  ["64:ff9b::", 96],
+];
+
+function ipv4Hextets(address: string): [string, string] {
+  const [a = 0, b = 0, c = 0, d = 0] = address.split(".").map(Number);
+  return [((a << 8) | b).toString(16), ((c << 8) | d).toString(16)];
 }
 
-const BLOCKED_IPV4_NETWORKS: readonly Ipv4Network[] = [
-  "0.0.0.0/8", // "this network"
-  "10.0.0.0/8", // private
-  "100.64.0.0/10", // carrier-grade NAT
-  "127.0.0.0/8", // loopback
-  "169.254.0.0/16", // link-local, including cloud metadata endpoints
-  "172.16.0.0/12", // private
-  "192.168.0.0/16", // private
-  "198.18.0.0/15", // benchmarking
-].map(parseIpv4Network);
-
-/**
- * 224.0.0.0/4 (multicast) and 240.0.0.0/4 (reserved, including broadcast).
- * Any first octet from here up is blocked, out-of-range values included.
- */
-const FIRST_MULTICAST_OCTET = 224;
-
-function inIpv4Network(
-  network: Ipv4Network,
-  firstOctet: number,
-  secondOctet: number,
-): boolean {
-  return (
-    firstOctet === network.firstOctet &&
-    secondOctet >= network.secondOctetMin &&
-    secondOctet <= network.secondOctetMax
-  );
+function blockList(
+  networks: Iterable<readonly [string, number]>,
+  family: "ipv4" | "ipv6" = "ipv6",
+): BlockList {
+  const list = new BlockList();
+  for (const [network, prefix] of networks) {
+    list.addSubnet(network, prefix, family);
+  }
+  return list;
 }
 
-/** Anything that is not four integer parts fails closed. */
+const BLOCKED_IPV4 = blockList(BLOCKED_IPV4_CIDRS, "ipv4");
+
 function isPrivateIPv4(address: string): boolean {
-  const octets = address.split(".").map((part) => Number(part));
-  if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part))) {
-    return true;
+  return BLOCKED_IPV4.check(address, "ipv4");
+}
+
+/** Each blocked IPv4 range, as it appears inside every IPv4-carrying form. */
+function* embeddedBlockedIpv4(): Generator<readonly [string, number]> {
+  for (const [network, prefix] of BLOCKED_IPV4_CIDRS) {
+    const [high, low] = ipv4Hextets(network);
+    yield [`::ffff:${high}:${low}`, 96 + prefix];
+    yield [`64:ff9b::${high}:${low}`, 96 + prefix];
+    yield [`2002:${high}:${low}::`, 16 + prefix]; // 6to4
   }
-  const firstOctet = octets[0]!;
-  const secondOctet = octets[1]!;
-  return (
-    firstOctet >= FIRST_MULTICAST_OCTET ||
-    BLOCKED_IPV4_NETWORKS.some((network) =>
-      inIpv4Network(network, firstOctet, secondOctet),
-    )
-  );
 }
 
-/** Parses one hextet; undefined unless it is a number in [0, 0xffff]. */
-function parseHextet(hex: string): number | undefined {
-  const value = parseInt(hex, 16);
-  return value >= 0 && value <= 0xffff ? value : undefined;
-}
+// BlockList matches addresses numerically, so every spelling of an address
+// (`::1`, `0:0:0:0:0:0:0:1`, `::ffff:127.0.0.1`, `::ffff:7f00:1`) gets one answer.
+const PUBLIC_IPV6 = blockList([GLOBAL_UNICAST, ...IPV4_CARRIERS]);
+const BLOCKED_IPV6 = blockList([
+  ...BLOCKED_GLOBAL_UNICAST,
+  ...embeddedBlockedIpv4(),
+]);
 
-function ipv6HextetsToIpv4(hiHex: string, loHex: string): string | undefined {
-  const hi = parseHextet(hiHex);
-  const lo = parseHextet(loHex);
-  if (hi === undefined || lo === undefined) {
-    return undefined;
-  }
-  return `${(hi >> 8) & 255}.${hi & 255}.${(lo >> 8) & 255}.${lo & 255}`;
-}
-
-/**
- * True when `address` is IPv4-in-IPv6 (RFC 4291 §2.5.5.2): 80 zero bits + 16
- * bits 0xffff + 32-bit IPv4 encoded as dotted decimal or final two hextets.
- */
-function ipv4EmbeddedInIpv4MappedAddress(address: string): string | undefined {
-  const n = address.toLowerCase().split("%")[0]!;
-
-  const dotted = n.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (dotted) return dotted[1]!;
-
-  const hexTail = n.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-  if (hexTail) return ipv6HextetsToIpv4(hexTail[1]!, hexTail[2]!);
-
-  const hexLong = n.match(
-    /^(?:0:){5}ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/
-  );
-  if (hexLong) return ipv6HextetsToIpv4(hexLong[1]!, hexLong[2]!);
-
-  return undefined;
-}
-
-/** Unspecified (::/128) and loopback (::1/128), in canonical form. */
-const BLOCKED_IPV6_ADDRESSES: ReadonlySet<string> = new Set(["::", "::1"]);
-
-/**
- * Matched as text prefixes of the lowercased address, as resolvers print it:
- * fe80::/10 link-local (as `fe80:`), fc00::/7 unique-local (as `fc` and `fd`)
- * and ff00::/8 multicast (as `ff`).
- */
-const BLOCKED_IPV6_PREFIXES: readonly string[] = ["fe80:", "fc", "fd", "ff"];
-
+/** Blocked unless it is global unicast, or carries a public IPv4 address. */
 function isPrivateIPv6(address: string): boolean {
-  const normalized = address.toLowerCase().split("%")[0]!;
-  const mappedV4 = ipv4EmbeddedInIpv4MappedAddress(normalized);
-  if (mappedV4) {
-    return isPrivateIPv4(mappedV4);
-  }
-
+  const [withoutZone = ""] = address.split("%");
   return (
-    BLOCKED_IPV6_ADDRESSES.has(normalized) ||
-    BLOCKED_IPV6_PREFIXES.some((prefix) => normalized.startsWith(prefix))
+    !PUBLIC_IPV6.check(withoutZone, "ipv6") ||
+    BLOCKED_IPV6.check(withoutZone, "ipv6")
   );
 }
 

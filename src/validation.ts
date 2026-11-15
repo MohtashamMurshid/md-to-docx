@@ -12,6 +12,7 @@ import {
   SectionPageNumberDisplay,
   SectionPageNumbering,
   SectionPageSize,
+  TaskListOptions,
   TocOptions,
   TocTabLeader,
 } from "./types.js";
@@ -224,6 +225,15 @@ const FOOTNOTE_RULES: readonly AnyFieldRule<FootnoteOptions>[] = [
     message: "Invalid footnotes.placement: Must be footnotes or endnotes",
     invalid: isNotOneOf(["footnotes", "endnotes"]),
     context: valueContext("placement"),
+  },
+];
+
+const TASK_LIST_RULES: readonly AnyFieldRule<TaskListOptions>[] = [
+  {
+    key: "checkboxes",
+    message: "Invalid taskLists.checkboxes: Must be text or content-control",
+    invalid: isNotOneOf(["text", "content-control"]),
+    context: valueContext("checkboxes"),
   },
 ];
 
@@ -712,6 +722,7 @@ export function validateInput(markdown: string, options: Options): void {
   validateMathRenderingInput(options.mathRendering);
   validateCaptionOptionsInput(options.captions);
   checkOptionObject(options.footnotes, "footnotes", FOOTNOTE_RULES);
+  checkOptionObject(options.taskLists, "taskLists", TASK_LIST_RULES);
   validateImageHandlingInput(options.imageHandling);
   validateChartRenderingInput(options.chartRendering);
   validateMermaidRenderingInput(options.mermaidRendering);

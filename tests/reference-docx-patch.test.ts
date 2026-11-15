@@ -201,6 +201,22 @@ Hello **team**.
     ).rejects.toThrow(expected);
   });
 
+  it("patches task boxes in as Word checkbox content controls", async () => {
+    const output = await patchMarkdownInDocxToBuffer(
+      await createTemplateWithPlaceholders(["body"]),
+      { body: "- [ ] open\n- [x] done" },
+      { taskLists: { checkboxes: "content-control" } },
+    );
+    const document = await (await JSZip.loadAsync(output))
+      .file("word/document.xml")!
+      .async("string");
+
+    expect(document).toMatch(/<w:document\b[^>]*\bxmlns:w14="/);
+    expect(
+      Array.from(document.matchAll(/<w14:checked w14:val="([01])"\/>/g), (m) => m[1]),
+    ).toEqual(["0", "1"]);
+  });
+
   it("merges numbering for ordered lists", async () => {
     const output = await patchMarkdownInDocxToBuffer(
       fs.readFileSync(fixturePath),

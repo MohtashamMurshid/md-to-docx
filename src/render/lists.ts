@@ -1,4 +1,4 @@
-import { Paragraph } from "docx";
+import { CheckBox, Paragraph } from "docx";
 import type { IParagraphOptions, ISpacingProperties, ParagraphChild } from "docx";
 import type {
   DocxBlockNode,
@@ -34,6 +34,30 @@ function listItemSize(env: RenderEnv): number {
   return env.style.listItemSize || 24;
 }
 
+/**
+ * Inline content led by its task box. A text box is one more text node; a
+ * Word checkbox control (`taskLists.checkboxes`) is a run of its own, with
+ * the space after it rendered as text so it takes the item's size.
+ */
+function taskItemChildren(
+  env: RenderEnv,
+  checked: boolean,
+  nodes: DocxInlineNode[],
+): ParagraphChild[] {
+  const size = listItemSize(env);
+  if (env.options.taskLists?.checkboxes !== "content-control") {
+    return renderInlineNodes(env, [taskMarkerText(checked), ...nodes], {
+      size,
+    });
+  }
+  return [
+    new CheckBox({ checked }),
+    ...renderInlineNodes(env, [{ type: "text", value: " " }, ...nodes], {
+      size,
+    }),
+  ];
+}
+
 function listSpacing(env: RenderEnv): ISpacingProperties {
   return {
     before: env.style.paragraphSpacing / 2,
@@ -62,13 +86,10 @@ export function listParagraph(
   marker: ListMarkerContext,
   context: RenderContext = {},
 ): Paragraph {
-  const children = renderInlineNodes(
-    env,
+  const children =
     marker.taskChecked === undefined
-      ? nodes
-      : [taskMarkerText(marker.taskChecked), ...nodes],
-    { size: listItemSize(env) },
-  );
+      ? renderInlineNodes(env, nodes, { size: listItemSize(env) })
+      : taskItemChildren(env, marker.taskChecked, nodes);
   const base = {
     children,
     spacing: listSpacing(env),
@@ -122,9 +143,7 @@ export function taskMarkerChildren(
   marker?: ListMarkerContext,
 ): ParagraphChild[] {
   if (marker?.taskChecked === undefined) return [];
-  return renderInlineNodes(env, [taskMarkerText(marker.taskChecked)], {
-    size: listItemSize(env),
-  });
+  return taskItemChildren(env, marker.taskChecked, []);
 }
 
 async function renderListItemChild(

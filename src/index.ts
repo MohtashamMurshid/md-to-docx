@@ -270,6 +270,8 @@ export {
   SectionTemplate,
   Style,
   TableData,
+  TaskListCheckboxStyle,
+  TaskListOptions,
   TextReplacement,
   TextReplacementFunction,
   TextReplacementFunctionResult,

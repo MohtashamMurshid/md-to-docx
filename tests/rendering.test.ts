@@ -734,6 +734,29 @@ Interrupting paragraph.
     expect(numberingMarkerCount(xml)).toBe(1);
   });
 
+  it("renders task boxes as Word checkbox content controls that keep their state", async () => {
+    const markdown = `- [ ] Open\n- [x] Done\n  - [ ] ![task image](${ONE_PX_PNG})`;
+    const xml = await render(markdown, {
+      taskLists: { checkboxes: "content-control" },
+    });
+    const paragraphs = xml.match(/<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>/g) ?? [];
+
+    expect(
+      Array.from(xml.matchAll(/<w14:checked w14:val="([01])"\/>/g), (m) => m[1]),
+    ).toEqual(["0", "1", "0"]);
+    expect(
+      Array.from(xml.matchAll(/<w:sym w:char="(\w+)"/g), (m) => m[1]),
+    ).toEqual(["2610", "2612", "2610"]);
+    expect(xml).not.toMatch(/[☐☒]/);
+    expect(
+      paragraphs.find((paragraph) => paragraph.includes("<w:drawing>")),
+    ).toContain("<w14:checkbox>");
+    expect(numberingMarkerCount(xml)).toBe(3);
+    expect(
+      await render(markdown, { taskLists: { checkboxes: "text" } }),
+    ).toBe(await render(markdown));
+  });
+
   it("keeps ordinary ordered and unordered list rendering unchanged", async () => {
     const xml = await render(`- ordinary bullet
 - **formatted** bullet
@@ -1439,6 +1462,17 @@ describe("Rendering: error cases", () => {
       label: "footnotes that are not an object",
       options: { footnotes: "endnotes" },
       expected: "Invalid footnotes: Must be an object",
+    },
+    {
+      label: "an unknown task checkbox style",
+      options: { taskLists: { checkboxes: "box" } },
+      expected:
+        "Invalid taskLists.checkboxes: Must be text or content-control",
+    },
+    {
+      label: "taskLists that are not an object",
+      options: { taskLists: ["content-control"] },
+      expected: "Invalid taskLists: Must be an object",
     },
   ])("rejects $label", async ({ options, expected }) => {
     // Plain-JS and JSON callers can pass any shape.

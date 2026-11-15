@@ -1,23 +1,6 @@
 {
   "kind": "health",
   "finding_counts": {
-    "src/modelToDocx.ts": {
-      "complexity_critical": {
-        "count": 2
-      },
-      "complexity_high": {
-        "count": 1
-      },
-      "complexity_moderate": {
-        "count": 4
-      },
-      "crap_critical": {
-        "count": 2
-      },
-      "crap_high": {
-        "count": 1
-      }
-    },
     "src/renderers/imageRenderer.ts": {
       "complexity_critical": {
         "count": 3
@@ -42,50 +25,6 @@
     }
   },
   "identity_finding_counts": {
-    "src/modelToDocx.ts\u0000prepareInlineImages": {
-      "complexity_moderate": {
-        "count": 1
-      }
-    },
-    "src/modelToDocx.ts\u0000renderBlockNode": {
-      "complexity_moderate": {
-        "count": 1
-      }
-    },
-    "src/modelToDocx.ts\u0000renderInlineNodes": {
-      "complexity_moderate": {
-        "count": 1
-      }
-    },
-    "src/modelToDocx.ts\u0000renderListItem": {
-      "complexity_moderate": {
-        "count": 1
-      }
-    },
-    "src/modelToDocx.ts\u0000renderPluginBlockResult": {
-      "complexity_high": {
-        "count": 1
-      },
-      "crap_high": {
-        "count": 1
-      }
-    },
-    "src/modelToDocx.ts\u0000renderPluginNode": {
-      "complexity_critical": {
-        "count": 1
-      },
-      "crap_critical": {
-        "count": 1
-      }
-    },
-    "src/modelToDocx.ts\u0000tableFromNode": {
-      "complexity_critical": {
-        "count": 1
-      },
-      "crap_critical": {
-        "count": 1
-      }
-    },
     "src/renderers/imageRenderer.ts\u0000detectImageType": {
       "complexity_critical": {
         "count": 1
@@ -142,7 +81,6 @@
   "runtime_coverage_findings": [],
   "target_keys": [
     "src/renderers/imageRenderer.ts:complexity",
-    "src/modelToDocx.ts:complexity",
     "tests/image-security.test.ts:hidden coupling",
     "tests/rendering.test.ts:hidden coupling"
   ]

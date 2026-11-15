@@ -511,3 +511,34 @@ const answer = 42;
     }
   });
 });
+
+describe("reference DOCX drawing IDs", () => {
+  const PNG =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAGgwJ/vk9yBgAAAABJRU5ErkJggg==";
+
+  it("keeps drawing IDs unique when the reference header brings its own", async () => {
+    const reference = await convertMarkdownToBuffer("Reference body", {
+      template: {
+        headers: { default: { markdown: `![Logo](${PNG})` } },
+      },
+    });
+    const output = await convertMarkdownWithReferenceDocxToBuffer(
+      `![One](${PNG})\n\n![Two](${PNG})`,
+      reference,
+    );
+
+    const zip = await JSZip.loadAsync(output);
+    const ids: string[] = [];
+    for (const name of Object.keys(zip.files).filter((file) =>
+      /^word\/.+\.xml$/.test(file),
+    )) {
+      const xml = await zip.file(name)!.async("string");
+      for (const match of xml.matchAll(/<wp:docPr\b[^>]*\bid="([^"]+)"/g)) {
+        ids.push(match[1]!);
+      }
+    }
+
+    expect(ids.length).toBeGreaterThanOrEqual(3);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+});

@@ -1,6 +1,7 @@
 import JSZip from "jszip";
 import { DOMParser } from "@xmldom/xmldom";
 import { MarkdownConversionError } from "./errors.js";
+import { renumberProcessWideIds } from "./packageRepairs.js";
 import { yieldToAbortSignal } from "./processingLimits.js";
 import type {
   Options,
@@ -1507,6 +1508,10 @@ export async function applyReferenceDocxPresentation(
     outputZip.file("word/numbering.xml", numbering.xml);
     outputZip.file("word/_rels/document.xml.rels", relationshipsXml);
     outputZip.file("[Content_Types].xml", contentTypesXml);
+    // Imported headers, footers and nested parts keep the reference's own
+    // drawing and bookmark IDs; renumber across the whole package so none
+    // collides with the generated body's.
+    await renumberProcessWideIds(outputZip);
 
     throwIfReferenceAborted(signal);
     const output = await outputZip.generateAsync({

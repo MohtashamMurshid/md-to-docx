@@ -1,3 +1,9 @@
+## [4.3.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.2.0...v4.3.0) (2026-11-15)
+
+### Features
+
+* **charts:** render chart fences as native, editable Word charts ([#107](https://github.com/MohtashamMurshid/md-to-docx/issues/107)) ([6f653f9](https://github.com/MohtashamMurshid/md-to-docx/commit/6f653f97cf421b1476fe185b4ffb48f1b2f5f990))
+
 ## [4.2.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.1.0...v4.2.0) (2026-11-15)
 
 ### Features

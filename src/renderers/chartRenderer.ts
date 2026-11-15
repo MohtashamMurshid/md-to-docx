@@ -51,6 +51,16 @@ interface ChartRenderData {
   dataUrl: string;
 }
 
+interface Point {
+  x: number;
+  y: number;
+}
+
+interface Rect extends Point {
+  width: number;
+  height: number;
+}
+
 class Raster {
   readonly pixels: Uint8Array;
 
@@ -83,11 +93,11 @@ class Raster {
     this.pixels[index + 3] = 255;
   }
 
-  fillRect(x: number, y: number, width: number, height: number, color: string) {
-    const x0 = clamp(Math.floor(x), 0, this.width);
-    const y0 = clamp(Math.floor(y), 0, this.height);
-    const x1 = clamp(Math.ceil(x + width), 0, this.width);
-    const y1 = clamp(Math.ceil(y + height), 0, this.height);
+  fillRect(rect: Rect, color: string) {
+    const x0 = clamp(Math.floor(rect.x), 0, this.width);
+    const y0 = clamp(Math.floor(rect.y), 0, this.height);
+    const x1 = clamp(Math.ceil(rect.x + rect.width), 0, this.width);
+    const y1 = clamp(Math.ceil(rect.y + rect.height), 0, this.height);
     const [r, g, b] = parseColor(color);
 
     for (let py = y0; py < y1; py++) {
@@ -101,11 +111,11 @@ class Raster {
     }
   }
 
-  line(x0: number, y0: number, x1: number, y1: number, color: string): void {
-    let x = Math.round(x0);
-    let y = Math.round(y0);
-    const endX = Math.round(x1);
-    const endY = Math.round(y1);
+  line(from: Point, to: Point, color: string): void {
+    let x = Math.round(from.x);
+    let y = Math.round(from.y);
+    const endX = Math.round(to.x);
+    const endY = Math.round(to.y);
     const dx = Math.abs(endX - x);
     const sx = x < endX ? 1 : -1;
     const dy = -Math.abs(endY - y);
@@ -168,17 +178,26 @@ export function validateChartAccessibility(
   }
 }
 
+export interface ProcessChartBlockInput {
+  /** The chart block's JSON source. */
+  value: string;
+  chartRendering?: ChartRenderingOptions | undefined;
+  imageHandling?: ImageHandlingOptions | undefined;
+  /** Defaults to `{}`. */
+  paragraphOptions?: Partial<IParagraphOptions> | undefined;
+  signal?: AbortSignal | undefined;
+  accessibility?: AccessibilityOptions | undefined;
+  /** Runs placed before the chart image, used for task markers in list items. */
+  prefixChildren?: readonly ParagraphChild[] | undefined;
+}
+
 export async function processChartBlock(
-  value: string,
+  input: ProcessChartBlockInput,
   style: Style,
-  chartRendering: ChartRenderingOptions | undefined,
-  imageHandling: ImageHandlingOptions | undefined,
-  paragraphOptions: Partial<IParagraphOptions> = {},
-  signal?: AbortSignal,
-  accessibility?: AccessibilityOptions,
-  prefixChildren?: readonly ParagraphChild[],
 ): Promise<ProcessImageResult> {
-  const resolved = resolveChartRenderingOptions(chartRendering);
+  const { value, imageHandling, signal } = input;
+  const paragraphOptions = input.paragraphOptions ?? {};
+  const resolved = resolveChartRenderingOptions(input.chartRendering);
 
   try {
     throwIfAborted(signal);
@@ -186,23 +205,25 @@ export async function processChartBlock(
     const explicitAlt = definition.alt ?? "";
     const title = definition.options?.plugins?.title?.text;
     validateImageText(explicitAlt, title, "chart image");
-    assertImageAltPolicy(explicitAlt, accessibility, "chart block");
+    assertImageAltPolicy(explicitAlt, input.accessibility, "chart block");
     const chart = await renderChart(definition, resolved, signal);
     const sizedDataUrl = `${chart.dataUrl}#${chart.width}x${chart.height}`;
     const alt = chart.definition.alt || chart.definition.type;
     const result = await processImage(
-      alt,
-      sizedDataUrl,
-      style,
       {
-        ...imageHandling,
-        dataUrls: { ...imageHandling?.dataUrls, enabled: true },
+        altText: alt,
+        url: sizedDataUrl,
+        imageHandling: {
+          ...imageHandling,
+          dataUrls: { ...imageHandling?.dataUrls, enabled: true },
+        },
+        paragraphOptions,
+        signal,
+        preserveAltText: true,
+        title,
+        prefixChildren: input.prefixChildren,
       },
-      paragraphOptions,
-      signal,
-      true,
-      title,
-      prefixChildren,
+      style,
     );
     return result;
   } catch (error) {
@@ -424,10 +445,7 @@ function renderBarChart(raster: Raster, definition: ChartBlockDefinition): void 
       const y = Math.min(zeroY, valueY);
       const height = Math.max(1, Math.abs(zeroY - valueY));
       raster.fillRect(
-        x,
-        y,
-        Math.max(1, barWidth - 2),
-        height,
+        { x, y, width: Math.max(1, barWidth - 2), height },
         colorForDataset(dataset.backgroundColor, datasetIndex, valueIndex),
       );
     });
@@ -446,10 +464,14 @@ function renderLineChart(raster: Raster, definition: ChartBlockDefinition): void
       // valueIndex >= 1 here, so the previous index is in range.
       const previous = dataset.data[valueIndex - 1]!;
       raster.line(
-        scaleX(valueIndex - 1, seriesLength, plot),
-        scaleY(previous, min, max, plot),
-        scaleX(valueIndex, seriesLength, plot),
-        scaleY(value, min, max, plot),
+        {
+          x: scaleX(valueIndex - 1, seriesLength, plot),
+          y: scaleY(previous, min, max, plot),
+        },
+        {
+          x: scaleX(valueIndex, seriesLength, plot),
+          y: scaleY(value, min, max, plot),
+        },
         color,
       );
     });
@@ -465,10 +487,13 @@ function renderPieChart(raster: Raster, definition: ChartBlockDefinition): void 
     throw new Error("pie and doughnut charts require a positive total");
   }
 
-  const centerX = raster.width / 2;
-  const centerY = raster.height / 2;
   const radius = Math.max(1, Math.min(raster.width, raster.height) * 0.38);
-  const innerRadius = definition.type === "doughnut" ? radius * 0.52 : 0;
+  const ring: Ring = {
+    centerX: raster.width / 2,
+    centerY: raster.height / 2,
+    radius,
+    innerRadius: definition.type === "doughnut" ? radius * 0.52 : 0,
+  };
   let start = -Math.PI / 2;
 
   values.forEach((value, valueIndex) => {
@@ -479,18 +504,9 @@ function renderPieChart(raster: Raster, definition: ChartBlockDefinition): void 
       valueIndex,
     );
     if (angle >= Math.PI * 2 - Number.EPSILON) {
-      fillRing(raster, centerX, centerY, radius, innerRadius, color);
+      fillRing(raster, ring, color);
     } else {
-      fillArc(
-        raster,
-        centerX,
-        centerY,
-        radius,
-        innerRadius,
-        start,
-        start + angle,
-        color,
-      );
+      fillArc(raster, ring, { start, end: start + angle }, color);
     }
     start += angle;
   });
@@ -501,11 +517,12 @@ function drawAxes(
   plot: { left: number; top: number; width: number; height: number },
 ): void {
   const bottom = plot.top + plot.height;
-  raster.line(plot.left, plot.top, plot.left, bottom, "4B5563");
-  raster.line(plot.left, bottom, plot.left + plot.width, bottom, "4B5563");
+  const right = plot.left + plot.width;
+  raster.line({ x: plot.left, y: plot.top }, { x: plot.left, y: bottom }, "4B5563");
+  raster.line({ x: plot.left, y: bottom }, { x: right, y: bottom }, "4B5563");
   for (let i = 1; i <= 4; i++) {
     const y = plot.top + (plot.height / 5) * i;
-    raster.line(plot.left, y, plot.left + plot.width, y, "E5E7EB");
+    raster.line({ x: plot.left, y }, { x: right, y }, "E5E7EB");
   }
 }
 
@@ -555,16 +572,20 @@ function scaleY(
   return plot.top + plot.height - ((value - min) / (max - min)) * plot.height;
 }
 
+interface Ring {
+  centerX: number;
+  centerY: number;
+  radius: number;
+  innerRadius: number;
+}
+
 /**
  * Paint every pixel whose distance from the center lies in
  * [innerRadius, radius], optionally restricted by `includePixel(dx, dy)`.
  */
 function fillRing(
   raster: Raster,
-  centerX: number,
-  centerY: number,
-  radius: number,
-  innerRadius: number,
+  { centerX, centerY, radius, innerRadius }: Ring,
   color: string,
   includePixel?: (dx: number, dy: number) => boolean,
 ): void {
@@ -588,15 +609,11 @@ function fillRing(
 
 function fillArc(
   raster: Raster,
-  centerX: number,
-  centerY: number,
-  radius: number,
-  innerRadius: number,
-  start: number,
-  end: number,
+  ring: Ring,
+  { start, end }: { start: number; end: number },
   color: string,
 ): void {
-  fillRing(raster, centerX, centerY, radius, innerRadius, color, (dx, dy) =>
+  fillRing(raster, ring, color, (dx, dy) =>
     angleInRange(
       normalizeAngle(Math.atan2(dy, dx)),
       normalizeAngle(start),

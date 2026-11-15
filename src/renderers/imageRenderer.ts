@@ -1,14 +1,10 @@
-import { readLocalAsset } from "#image-assets";
 import { normalizeImage } from "../utils/normalizeImage.js";
 import { Paragraph, TextRun, AlignmentType, ImageRun } from "docx";
 import type { IRunOptions } from "docx";
 import type { IParagraphOptions, ParagraphChild } from "docx";
 import { ImageHandlingOptions, Style } from "../types.js";
 import { resolveFontFamily } from "../utils/styleUtils.js";
-import {
-  fetchRemoteImage,
-  resolveImageHandlingOptions,
-} from "#secure-image-fetch";
+import { resolveImageHandlingOptions } from "#secure-image-fetch";
 import { MarkdownConversionError } from "../errors.js";
 import { throwIfAborted } from "../processingLimits.js";
 import {
@@ -16,6 +12,12 @@ import {
   runLanguage,
   validateImageText,
 } from "../accessibility.js";
+import {
+  computeImageDimensions,
+  detectImageType,
+  readIntrinsicDimensions,
+} from "./imageFormat.js";
+import { loadImage, parseImageReference } from "./imageSource.js";
 
 export { resolveImageHandlingOptions } from "#secure-image-fetch";
 
@@ -47,163 +49,6 @@ export function createRenderFailureParagraph(
   });
 }
 
-/**
- * Upper bound for rendered image dimensions in pixels. Hints come from
- * attacker-controllable URL fragments (e.g. `img.png#99999999999x9`) and
- * intrinsic sizes from untrusted image headers; unbounded values produce
- * EMU numbers that Word rejects as a corrupt document.
- */
-const MAX_IMAGE_DIMENSION = 10_000;
-
-function clampImageDimension(value: number): number {
-  return Math.min(Math.max(1, Math.round(value)), MAX_IMAGE_DIMENSION);
-}
-
-/**
- * Computes output image dimensions preserving aspect ratio.
- * - If both hints provided, uses them directly.
- * - If one hint provided and intrinsic aspect known, computes the other.
- * - Falls back to intrinsic width capped to 400, or default width 200.
- * Results are clamped to [1, MAX_IMAGE_DIMENSION].
- */
-function computeImageDimensions(
-  widthHint: number | undefined,
-  heightHint: number | undefined,
-  intrinsicWidth: number | undefined,
-  intrinsicHeight: number | undefined,
-): { width: number; height?: number } {
-  let outWidth: number;
-  let outHeight: number | undefined;
-  const aspect =
-    intrinsicWidth && intrinsicHeight
-      ? intrinsicWidth / intrinsicHeight
-      : undefined;
-
-  if (widthHint && heightHint) {
-    outWidth = widthHint;
-    outHeight = heightHint;
-  } else if (widthHint && aspect) {
-    outWidth = widthHint;
-    outHeight = Math.max(1, Math.round(widthHint / aspect));
-  } else if (heightHint && aspect) {
-    outHeight = heightHint;
-    outWidth = Math.max(1, Math.round(heightHint * aspect));
-  } else if (intrinsicWidth) {
-    outWidth = Math.min(intrinsicWidth, 400);
-    if (aspect) outHeight = Math.max(1, Math.round(outWidth / aspect));
-  } else {
-    outWidth = 200;
-  }
-
-  return {
-    width: clampImageDimension(outWidth),
-    ...(outHeight === undefined
-      ? {}
-      : { height: clampImageDimension(outHeight) }),
-  };
-}
-
-// Callers bound-check the buffer before reading, so these indexes are in range.
-function readUint16BE(buf: Uint8Array, offset: number): number {
-  return (buf[offset]! << 8) | buf[offset + 1]!;
-}
-
-function readUint32BE(buf: Uint8Array, offset: number): number {
-  return (
-    ((buf[offset]! << 24) |
-      (buf[offset + 1]! << 16) |
-      (buf[offset + 2]! << 8) |
-      buf[offset + 3]!) >>>
-    0
-  );
-}
-
-function readIntrinsicDimensions(
-  imageType: "png" | "jpg" | "gif",
-  bytes: Uint8Array,
-): { width?: number; height?: number } {
-  let width: number | undefined;
-  let height: number | undefined;
-
-  if (imageType === "png" && bytes.length >= 24) {
-    const isPng =
-      bytes[0] === 0x89 &&
-      bytes[1] === 0x50 &&
-      bytes[2] === 0x4e &&
-      bytes[3] === 0x47;
-    if (isPng) {
-      width = readUint32BE(bytes, 16);
-      height = readUint32BE(bytes, 20);
-    }
-  } else if (imageType === "jpg") {
-    let offset = 2;
-    while (offset + 9 < bytes.length) {
-      if (bytes[offset] !== 0xff) break;
-      const marker = bytes[offset + 1];
-      const length = readUint16BE(bytes, offset + 2);
-      if (marker === 0xc0 || marker === 0xc2) {
-        height = readUint16BE(bytes, offset + 5);
-        width = readUint16BE(bytes, offset + 7);
-        break;
-      }
-      offset += 2 + length;
-    }
-  } else if (imageType === "gif" && bytes.length >= 10) {
-    // In range: guarded by the length check above.
-    width = bytes[6]! | (bytes[7]! << 8);
-    height = bytes[8]! | (bytes[9]! << 8);
-  }
-
-  return {
-    ...(width !== undefined ? { width } : {}),
-    ...(height !== undefined ? { height } : {}),
-  };
-}
-
-function detectImageType(
-  bytes: Uint8Array,
-  contentType: string,
-  imageUrl: string,
-): "png" | "jpg" | "gif" {
-  const isPng =
-    bytes.length >= 8 &&
-    bytes[0] === 0x89 &&
-    bytes[1] === 0x50 &&
-    bytes[2] === 0x4e &&
-    bytes[3] === 0x47 &&
-    bytes[4] === 0x0d &&
-    bytes[5] === 0x0a &&
-    bytes[6] === 0x1a &&
-    bytes[7] === 0x0a;
-  const isJpg =
-    bytes.length >= 3 &&
-    bytes[0] === 0xff &&
-    bytes[1] === 0xd8 &&
-    bytes[2] === 0xff;
-  const isGif =
-    bytes.length >= 6 &&
-    ((bytes[0] === 0x47 &&
-      bytes[1] === 0x49 &&
-      bytes[2] === 0x46 &&
-      bytes[3] === 0x38 &&
-      bytes[4] === 0x37 &&
-      bytes[5] === 0x61) ||
-      (bytes[0] === 0x47 &&
-        bytes[1] === 0x49 &&
-        bytes[2] === 0x46 &&
-        bytes[3] === 0x38 &&
-        bytes[4] === 0x39 &&
-        bytes[5] === 0x61));
-
-  if (isPng) return "png";
-  if (isJpg) return "jpg";
-  if (isGif) return "gif";
-
-  throw new Error(
-    `Unsupported or invalid image data (${contentType || imageUrl})`,
-  );
-}
-
 export interface ProcessImageResult {
   run?: ImageRun;
   reason?: string;
@@ -229,17 +74,7 @@ export interface ProcessImageDataInput {
   prefixChildren?: readonly ParagraphChild[] | undefined;
 }
 
-/**
- * Embeds already-rendered raster bytes, applying the same type detection and
- * dimension rules used by Markdown image URLs/data URLs.
- */
-export function processImageData(
-  input: ProcessImageDataInput,
-  style: Style,
-): ProcessImageResult {
-  throwIfAborted(input.signal);
-  validateImageText(input.altText, input.title, "embedded image");
-
+function imageDataBytes(input: ProcessImageDataInput): Uint8Array {
   const bytes =
     input.data instanceof Uint8Array
       ? input.data
@@ -254,7 +89,25 @@ export function processImageData(
   ) {
     throw new Error("Image exceeds maximum size");
   }
+  return bytes;
+}
 
+/** docx expects Buffer in Node.js, Uint8Array in browsers. */
+function docxImageData(
+  data: ProcessImageDataInput["data"],
+  bytes: Uint8Array,
+): Uint8Array | Buffer {
+  return typeof Buffer !== "undefined" && !(data instanceof Buffer)
+    ? Buffer.from(bytes)
+    : data instanceof Uint8Array
+      ? data
+      : Buffer.from(bytes);
+}
+
+function createImageRun(
+  input: ProcessImageDataInput,
+  bytes: Uint8Array,
+): ImageRun {
   const imageType = detectImageType(
     bytes,
     input.contentType || "",
@@ -270,34 +123,36 @@ export function processImageData(
     intrinsicHeight,
   );
 
-  // docx expects Buffer in Node.js, Uint8Array in browsers.
-  const imageData =
-    typeof Buffer !== "undefined" && !(input.data instanceof Buffer)
-      ? Buffer.from(bytes)
-      : input.data instanceof Uint8Array
-        ? input.data
-        : Buffer.from(bytes);
-
   const finalHeight =
     outHeight || (outWidth ? Math.round(outWidth * 0.75) : 200);
 
-  const run = new ImageRun({
-            data: imageData,
-            transformation: {
-              width: outWidth,
-              height: finalHeight,
-            },
-            type: imageType,
-            ...(input.preserveAltText !== false
-              ? {
-                  altText: drawingAltText(
-                    input.altText,
-                    input.title,
-                    "Image",
-                  ),
-                }
-              : {}),
-          });
+  return new ImageRun({
+    data: docxImageData(input.data, bytes),
+    transformation: {
+      width: outWidth,
+      height: finalHeight,
+    },
+    type: imageType,
+    ...(input.preserveAltText !== false
+      ? {
+          altText: drawingAltText(input.altText, input.title, "Image"),
+        }
+      : {}),
+  });
+}
+
+/**
+ * Embeds already-rendered raster bytes, applying the same type detection and
+ * dimension rules used by Markdown image URLs/data URLs.
+ */
+export function processImageData(
+  input: ProcessImageDataInput,
+  style: Style,
+): ProcessImageResult {
+  throwIfAborted(input.signal);
+  validateImageText(input.altText, input.title, "embedded image");
+
+  const run = createImageRun(input, imageDataBytes(input));
   return {
     embedded: true,
     run,
@@ -320,132 +175,50 @@ export function processImageData(
   };
 }
 
+export interface ProcessImageInput {
+  altText: string;
+  /** Image URL, data URL or local path, optionally with a `#WxH` size fragment. */
+  url: string;
+  imageHandling?: ImageHandlingOptions | undefined;
+  /** Defaults to `{}`. */
+  paragraphOptions?: Partial<IParagraphOptions> | undefined;
+  signal?: AbortSignal | undefined;
+  /** Preserve image alt text in Word drawing properties. Defaults to true. */
+  preserveAltText?: boolean | undefined;
+  title?: string | undefined;
+  /** Runs placed before the image, used for task markers in list items. */
+  prefixChildren?: readonly ParagraphChild[] | undefined;
+}
+
 /**
  * Processes an image and returns paragraphs plus whether a raster was embedded.
  */
 export async function processImage(
-  altText: string,
-  imageUrl: string,
+  input: ProcessImageInput,
   style: Style,
-  imageHandling?: ImageHandlingOptions,
-  paragraphOptions: Partial<IParagraphOptions> = {},
-  signal?: AbortSignal,
-  preserveAltText = true,
-  title?: string,
-  prefixChildren?: readonly ParagraphChild[],
 ): Promise<ProcessImageResult> {
+  const { altText, signal } = input;
+  const paragraphOptions = input.paragraphOptions ?? {};
   try {
     throwIfAborted(signal);
-    const resolvedImageHandling = resolveImageHandlingOptions(imageHandling);
-    let widthHint: number | undefined;
-    let heightHint: number | undefined;
-    let urlWithoutFragment = imageUrl;
-
-    const hashIndex = imageUrl.indexOf("#");
-    if (hashIndex >= 0) {
-      const fragment = imageUrl.substring(hashIndex + 1);
-      urlWithoutFragment = imageUrl.substring(0, hashIndex);
-
-      const wxh = fragment.match(/^(\d+)x(\d+)$/);
-      if (wxh) {
-        // Both groups are mandatory in the pattern.
-        widthHint = parseInt(wxh[1]!, 10);
-        heightHint = parseInt(wxh[2]!, 10);
-      } else {
-        const params = new URLSearchParams(fragment.replace(/&amp;/g, "&"));
-        const w = params.get("w") || params.get("width");
-        const h = params.get("h") || params.get("height");
-        if (w && /^\d+$/.test(w)) widthHint = parseInt(w, 10);
-        if (h && /^\d+$/.test(h)) heightHint = parseInt(h, 10);
-      }
-    }
-
-    let data: Uint8Array | Buffer;
-    let contentType = "";
-    let urlForTypeDetection = imageUrl;
-
-    const resolved = await resolvedImageHandling.resolve?.(urlWithoutFragment, { ...(signal !== undefined ? { signal } : {}), maxBytes: resolvedImageHandling.maxImageBytes });
-    if (resolved) {
-      data = resolved.data instanceof Uint8Array ? resolved.data : new Uint8Array(resolved.data);
-      contentType = resolved.contentType ?? "";
-    } else if (resolvedImageHandling.baseDirectory && !/^[a-z][a-z\d+.-]*:/i.test(urlWithoutFragment)) {
-      data = await readLocalAsset(urlWithoutFragment, resolvedImageHandling.baseDirectory, resolvedImageHandling.maxImageBytes, signal);
-    } else if (/^data:/i.test(urlWithoutFragment)) {
-      throwIfAborted(signal);
-      if (!resolvedImageHandling.dataUrls.enabled) {
-        throw new Error("Data URL images are disabled");
-      }
-      const match = urlWithoutFragment.match(/^data:([^;,]*)(;base64)?,(.*)$/i);
-      if (!match) {
-        throw new Error(
-          `Invalid data URL for image: ${urlWithoutFragment.substring(0, 100)}...`,
-        );
-      }
-      contentType = match[1] || "";
-      const isBase64 = !!match[2];
-      // Group 3 is mandatory in the pattern.
-      const dataPart = match[3]!;
-      const estimatedBytes = isBase64
-        ? Math.floor((dataPart.replace(/\s/g, "").length * 3) / 4)
-        : decodeURIComponent(dataPart).length;
-      if (estimatedBytes > resolvedImageHandling.maxImageBytes) {
-        throw new Error("Data URL image exceeds maximum size");
-      }
-
-      try {
-        const binary = isBase64
-          ? typeof Buffer !== "undefined"
-            ? Buffer.from(dataPart, "base64")
-            : Uint8Array.from(atob(dataPart), (c) => c.charCodeAt(0))
-          : typeof Buffer !== "undefined"
-            ? Buffer.from(decodeURIComponent(dataPart))
-            : new TextEncoder().encode(decodeURIComponent(dataPart));
-        data = binary;
-
-        if (data.length === 0) {
-          throw new Error("Data URL produced empty image data");
-        }
-        if (data.length > resolvedImageHandling.maxImageBytes) {
-          throw new Error("Data URL image exceeds maximum size");
-        }
-        throwIfAborted(signal);
-      } catch (error) {
-        if (error instanceof MarkdownConversionError) {
-          throw error;
-        }
-        throw new Error(
-          `Failed to decode data URL: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-    } else {
-      const remoteImage = await fetchRemoteImage(
-        urlWithoutFragment,
-        resolvedImageHandling,
-        signal,
-      );
-      data =
-        typeof Buffer !== "undefined"
-          ? Buffer.from(remoteImage.bytes)
-          : remoteImage.bytes;
-      contentType = remoteImage.contentType;
-      urlForTypeDetection = remoteImage.finalUrl;
-    }
-
-    data = await normalizeImage(data, resolvedImageHandling.maxImageBytes, signal);
+    const handling = resolveImageHandlingOptions(input.imageHandling);
+    const { url, widthHint, heightHint } = parseImageReference(input.url);
+    const image = await loadImage(url, handling, signal);
+    const data = await normalizeImage(image.data, handling.maxImageBytes, signal);
     return processImageData(
       {
         altText,
-        title,
+        title: input.title,
         data,
-        contentType,
-        source: urlForTypeDetection,
+        contentType: image.contentType,
+        source: image.finalUrl ?? input.url,
         widthHint,
         heightHint,
-        maxImageBytes: resolvedImageHandling.maxImageBytes,
+        maxImageBytes: handling.maxImageBytes,
         paragraphOptions,
         signal,
-        preserveAltText,
-        prefixChildren,
+        preserveAltText: input.preserveAltText ?? true,
+        prefixChildren: input.prefixChildren,
       },
       style,
     );

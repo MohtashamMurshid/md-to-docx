@@ -153,13 +153,10 @@ export async function renderMarkdownContent(
   );
   const pluginElementCounter = { count: elementCount };
 
-  const model = mdastToDocxModel(
-    ast,
-    style,
-    options,
-    renderOptions.crossReferences,
-    renderOptions.pluginRuntime,
-  );
+  const model = mdastToDocxModel(ast, options, {
+    crossReferences: renderOptions.crossReferences,
+    pluginRuntime: renderOptions.pluginRuntime,
+  });
   renderOptions.validateModel?.(model);
   throwIfAborted(options.signal);
 

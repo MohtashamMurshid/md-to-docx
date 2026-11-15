@@ -47,7 +47,7 @@ People and agents follow the same rules. Before opening an issue or a PR, read [
 
 - `npm run ci` runs everything CI runs, in CI's order. Before each commit, run at least `npm run guardrails`, `npm run lint`, `npm run typecheck`, and the tests for what you touched.
 - `npm run fallow` fails on dead files, exports and dependencies, on any clone group, and on any function above cognitive complexity 15, cyclomatic complexity 20 or CRAP 30. CRAP uses coverage from `npm run test:coverage`, so run that first. Extract shared code instead of copying it. Only reviewed data tables go in `duplicates.ignoredClones`.
-- `fallow-baselines/health.json` lists the complexity that existed when fallow was adopted, one entry per function. Never add entries. A refactor deletes the entries for its functions, and once every function in a file passes, it also removes that file from the `max-depth` / `max-params` override in `eslint.config.js`.
+- There is no complexity baseline: every function passes the thresholds and lint caps, so a new finding fails CI. Split or simplify the function; never raise a threshold or add a file-level lint override without a DECISIONS row.
 - Lint caps nesting at depth 3 and parameters at 4. Use an options object instead of a fifth parameter.
 
 ## Releases

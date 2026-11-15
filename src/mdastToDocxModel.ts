@@ -1,7 +1,7 @@
 import type { Root, RootContent } from "mdast";
 import { resolveMarkdownReferences } from "./markdownAst.js";
 import type { DocxBlockNode, DocxDocumentModel } from "./docxModel.js";
-import type { Style, Options } from "./types.js";
+import type { Options } from "./types.js";
 import {
   captionAt,
   bindCrossReferenceCaptions,
@@ -22,11 +22,11 @@ import { createFootnoteState } from "./mdastModel/footnotes.js";
 import { processReferencedFootnotes } from "./mdastModel/footnoteDefinitions.js";
 import { processInlineNodes } from "./mdastModel/inline.js";
 
-/** Optional collaborators, after the positional root, style and options. */
-type ConversionServices = [
-  crossReferences?: CrossReferenceRegistry | undefined,
-  pluginRuntime?: PluginRuntime | undefined,
-];
+/** Collaborators the conversion consults when the document uses them. */
+interface ConversionServices {
+  crossReferences?: CrossReferenceRegistry | undefined;
+  pluginRuntime?: PluginRuntime | undefined;
+}
 
 /** What one top-level child contributes, and how many root children it used. */
 interface RootStep {
@@ -108,9 +108,8 @@ function convertRootChild(
  */
 export function mdastToDocxModel(
   root: Root,
-  _style: Style,
   options: Options,
-  ...[crossReferences, pluginRuntime]: ConversionServices
+  { crossReferences, pluginRuntime }: ConversionServices = {},
 ): DocxDocumentModel {
   resolveMarkdownReferences(root);
   bindCrossReferenceCaptions(crossReferences, root);

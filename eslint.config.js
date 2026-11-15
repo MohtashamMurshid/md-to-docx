@@ -59,19 +59,6 @@ export default [
     },
   },
   {
-    // The complexity refactor series removes a file from this list once its
-    // functions pass fallow's thresholds and these two rules
-    // (docs/DECISIONS.md, "Complexity baseline").
-    files: [
-      "src/renderers/chartRenderer.ts",
-      "src/renderers/imageRenderer.ts",
-    ],
-    rules: {
-      "max-depth": "off",
-      "max-params": "off",
-    },
-  },
-  {
     // Public plugin hook types keep `Root | void` so hooks written as
     // `() => {}` or annotated `: Root | void` stay assignable (docs/DECISIONS.md).
     files: ["src/pluginTypes.ts"],

@@ -1,4 +1,7 @@
-import { resolveMarkdownReferences } from "./markdownAst.js";
+import {
+  collectFirstNodesByKey,
+  resolveMarkdownReferences,
+} from "./markdownAst.js";
 import type { RichTableAst } from "./richTables.js";
 import type {
   Root,
@@ -10,14 +13,8 @@ import type {
   Blockquote,
   Image,
   Table,
-  TableRow,
   TableCell,
-  Text,
-  Emphasis,
-  Strong,
-  InlineCode,
-  Link,
-  Delete,
+  PhrasingContent,
   FootnoteDefinition,
   FootnoteReference,
 } from "mdast";
@@ -44,7 +41,6 @@ interface ProcessOptions {
 }
 
 type MathBlock = { value?: string };
-type InlineMath = { value?: string };
 
 const GITHUB_CALLOUT_MARKER =
   /^\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*(?:\r?\n[ \t]*)?/i;
@@ -59,12 +55,22 @@ function classifyHtmlNode(value: string): DocxBlockNode | null {
     /^\s*<!--\s*COMMENT:\s*([\s\S]*?)\s*(?:-->\s*|$)/,
   );
   if (commentMatch) {
-    return { type: "comment", value: commentMatch[1].trim() };
+    // Group 1 is mandatory in the pattern, so it is always present on a match.
+    return { type: "comment", value: commentMatch[1]!.trim() };
   }
   if (value.includes("pagebreak")) {
     return { type: "pageBreak" };
   }
   return null;
+}
+
+/** Plugin-provided inline nodes may carry a non-string `value`. */
+function stringifyNodeValue(value: unknown): string {
+  return String(value);
+}
+
+function isParagraphNode(node: Node): node is Paragraph {
+  return node.type === "paragraph";
 }
 
 function stripGithubCalloutMarker(
@@ -80,7 +86,8 @@ function stripGithubCalloutMarker(
     return null;
   }
 
-  const calloutType = markerMatch[1].toLowerCase() as DocxCalloutType;
+  // Group 1 is mandatory in the pattern, so it is always present on a match.
+  const calloutType = markerMatch[1]!.toLowerCase() as DocxCalloutType;
   const remainingValue = firstChild.value.slice(markerMatch[0].length);
   const children = [
     ...(remainingValue.length > 0
@@ -115,23 +122,15 @@ export function mdastToDocxModel(
   resolveMarkdownReferences(root);
   bindCrossReferenceCaptions(crossReferences, root);
   const children: DocxBlockNode[] = [];
-  const footnoteDefinitions = new Map<string, FootnoteDefinition>();
+  const footnoteDefinitions = collectFirstNodesByKey<FootnoteDefinition>(
+    root,
+    "footnoteDefinition",
+    (definition) => normalizeFootnoteIdentifier(definition.identifier),
+  );
   const referencedFootnoteIds = new Map<string, number>();
   const footnoteReferenceCounts = new Map<string, number>();
   let numberedListSequenceId = 0;
   const listSequenceMap = new Map<List, number>();
-
-  function collectFootnotes(node: Node): void {
-    if (node.type === "footnoteDefinition") {
-      const definition = node as FootnoteDefinition;
-      const identifier = normalizeFootnoteIdentifier(definition.identifier);
-      if (!footnoteDefinitions.has(identifier))
-        footnoteDefinitions.set(identifier, definition);
-    }
-    if ("children" in node)
-      for (const child of node.children as Node[]) collectFootnotes(child);
-  }
-  collectFootnotes(root);
 
   function normalizeFootnoteIdentifier(identifier: string): string {
     return identifier.trim().toLowerCase();
@@ -179,8 +178,10 @@ export function mdastToDocxModel(
         const rows = table.children.map((row) =>
           row.children.map((cell) => ({
             type: "tableCell" as const,
-            columnSpan: cell.columnSpan,
-            rowSpan: cell.rowSpan,
+            ...(cell.columnSpan !== undefined
+              ? { columnSpan: cell.columnSpan }
+              : {}),
+            ...(cell.rowSpan !== undefined ? { rowSpan: cell.rowSpan } : {}),
             children: cell.children.flatMap((child) => {
               const result = processNode(child, options);
               return result ? (Array.isArray(result) ? result : [result]) : [];
@@ -191,7 +192,9 @@ export function mdastToDocxModel(
           type: "table",
           headers: table.header ? rows.shift()! : [],
           rows,
-          columnWidths: table.columnWidths,
+          ...(table.columnWidths !== undefined
+            ? { columnWidths: table.columnWidths }
+            : {}),
         };
       }
       case "table":
@@ -272,15 +275,12 @@ export function mdastToDocxModel(
     options: ProcessOptions = {},
   ): DocxBlockNode | DocxBlockNode[] {
     // If the paragraph consists of a single image, treat it as a block image
-    if (
-      paragraph.children.length === 1 &&
-      (paragraph.children[0] as any).type === "image"
-    ) {
-      const img = paragraph.children[0] as Image;
+    const [img] = paragraph.children;
+    if (paragraph.children.length === 1 && img?.type === "image") {
       return {
         type: "image",
         alt: img.alt || "",
-        title: img.title || undefined,
+        ...(img.title ? { title: img.title } : {}),
         url: img.url || "",
       };
     }
@@ -311,13 +311,10 @@ export function mdastToDocxModel(
       for (const child of item.children) {
         if (child.type === "list") {
           // Nested list - process recursively
-          const nestedList = processList(child as List, options);
-          if (nestedList) {
-            itemChildren.push(nestedList);
-          }
+          itemChildren.push(processList(child, options));
         } else if (child.type === "paragraph") {
           const processedParagraph = processParagraph(
-            child as Paragraph,
+            child,
             options,
           );
           if (Array.isArray(processedParagraph)) {
@@ -349,16 +346,17 @@ export function mdastToDocxModel(
       listItems.push({
         type: "listItem",
         children: itemChildren,
-        checked: typeof item.checked === "boolean" ? item.checked : undefined,
+        ...(typeof item.checked === "boolean" ? { checked: item.checked } : {}),
       });
     }
 
+    const sequenceId = list.ordered ? listSequenceMap.get(list) : undefined;
     return {
       type: "list",
       ordered: list.ordered || false,
       start: list.start ?? 1,
       children: listItems,
-      sequenceId: list.ordered ? listSequenceMap.get(list) : undefined,
+      ...(sequenceId !== undefined ? { sequenceId } : {}),
     };
   }
 
@@ -373,7 +371,7 @@ export function mdastToDocxModel(
       return {
         type: "mermaidBlock",
         value: code.value || "",
-        meta: code.meta || undefined,
+        ...(code.meta ? { meta: code.meta } : {}),
       };
     }
 
@@ -383,7 +381,7 @@ export function mdastToDocxModel(
     ) {
       return {
         type: "chartBlock",
-        language,
+        ...(language !== undefined ? { language } : {}),
         value: code.value || "",
       };
     }
@@ -398,7 +396,7 @@ export function mdastToDocxModel(
             kind: "fence",
             language: normalizedLanguage,
             value: code.value || "",
-            meta: code.meta || undefined,
+            ...(code.meta ? { meta: code.meta } : {}),
           },
           children: [],
           fallbackText: code.value || "",
@@ -408,7 +406,7 @@ export function mdastToDocxModel(
 
     return {
       type: "codeBlock",
-      language,
+      ...(language !== undefined ? { language } : {}),
       value: code.value || "",
     };
   }
@@ -428,7 +426,7 @@ export function mdastToDocxModel(
     const firstChild = blockquote.children[0];
     const callout =
       firstChild?.type === "paragraph"
-        ? stripGithubCalloutMarker(firstChild as Paragraph)
+        ? stripGithubCalloutMarker(firstChild)
         : null;
     const blockquoteChildren = callout
       ? [
@@ -450,7 +448,7 @@ export function mdastToDocxModel(
     return {
       type: "blockquote",
       children,
-      calloutType: callout?.calloutType,
+      ...(callout ? { calloutType: callout.calloutType } : {}),
     };
   }
 
@@ -458,7 +456,7 @@ export function mdastToDocxModel(
     return {
       type: "image",
       alt: image.alt || "",
-      title: image.title || undefined,
+      ...(image.title ? { title: image.title } : {}),
       url: image.url || "",
     };
   }
@@ -471,17 +469,18 @@ export function mdastToDocxModel(
     const rows: DocxInlineNode[][][] = [];
 
     if (table.children.length > 0) {
-      const headerRow = table.children[0] as TableRow;
+      // Guarded by the length check above.
+      const headerRow = table.children[0]!;
       for (const cell of headerRow.children) {
-        headers.push(extractRichTextFromTableCell(cell as TableCell, options));
+        headers.push(extractRichTextFromTableCell(cell, options));
       }
 
       for (let i = 1; i < table.children.length; i++) {
-        const row = table.children[i] as TableRow;
+        const row = table.children[i]!;
         const rowData: DocxInlineNode[][] = [];
         for (const cell of row.children) {
           rowData.push(
-            extractRichTextFromTableCell(cell as TableCell, options),
+            extractRichTextFromTableCell(cell, options),
           );
         }
         while (rowData.length < headers.length) rowData.push([]);
@@ -493,7 +492,7 @@ export function mdastToDocxModel(
       type: "table",
       headers,
       rows,
-      align: table.align || undefined,
+      ...(table.align ? { align: table.align } : {}),
     };
   }
 
@@ -502,9 +501,12 @@ export function mdastToDocxModel(
     options: ProcessOptions = {},
   ): DocxInlineNode[] {
     const nodes: DocxInlineNode[] = [];
-    for (const child of cell.children as any[]) {
-      if (child.type === "paragraph") {
-        nodes.push(...processInlineNodes(child.children, options));
+    for (const child of cell.children) {
+      // mdast types cells as phrasing-only, but plugin AST transforms may
+      // still place paragraphs inside them.
+      const cellChild: Node = child;
+      if (isParagraphNode(cellChild)) {
+        nodes.push(...processInlineNodes(cellChild.children, options));
       } else {
         nodes.push(...processInlineNodes([child], options));
       }
@@ -513,7 +515,7 @@ export function mdastToDocxModel(
   }
 
   function processInlineNodes(
-    nodes: any[],
+    nodes: readonly PhrasingContent[],
     options: ProcessOptions = {},
   ): DocxInlineNode[] {
     const result: DocxInlineNode[] = [];
@@ -541,12 +543,13 @@ export function mdastToDocxModel(
       const referencePattern = /\[@((?:fig|tbl):[^\]\s]+)\]/g;
       let cursor = 0;
       for (const match of value.matchAll(referencePattern)) {
-        const matchIndex = match.index ?? 0;
+        const matchIndex = match.index;
         if (matchIndex > cursor) {
           pushTextWithUnderline(value.slice(cursor, matchIndex));
         }
 
-        const identifier = match[1];
+        // Group 1 is mandatory in the pattern, so it is always present.
+        const identifier = match[1]!;
         const definition = resolveCrossReference(crossReferences, identifier);
         if (definition) {
           result.push({
@@ -568,11 +571,11 @@ export function mdastToDocxModel(
     for (const node of nodes) {
       switch (node.type) {
         case "text":
-          pushTextAndCrossReferences((node as Text).value);
+          pushTextAndCrossReferences(node.value);
           break;
         case "emphasis": {
           const emphasisChildren = processInlineNodes(
-            (node as Emphasis).children,
+            node.children,
             options,
           );
           for (const child of emphasisChildren) {
@@ -584,7 +587,7 @@ export function mdastToDocxModel(
         }
         case "strong": {
           const strongChildren = processInlineNodes(
-            (node as Strong).children,
+            node.children,
             options,
           );
           for (const child of strongChildren) {
@@ -596,7 +599,7 @@ export function mdastToDocxModel(
         }
         case "delete": {
           const strikeChildren = processInlineNodes(
-            (node as Delete).children,
+            node.children,
             options,
           );
           for (const child of strikeChildren) {
@@ -606,48 +609,51 @@ export function mdastToDocxModel(
           }
           break;
         }
-        case "image":
+        case "image": {
+          const title = node.title ?? undefined;
           result.push({
             type: "inlineImage",
             url: node.url,
             alt: node.alt ?? "",
-            title: node.title ?? undefined,
+            ...(title !== undefined ? { title } : {}),
           });
           break;
+        }
         case "inlineCode":
           result.push({
             type: "text",
-            value: (node as InlineCode).value,
+            value: node.value,
             code: true,
           });
           break;
         case "link": {
           const previous = result[result.length - 1];
+          const [linkText] = node.children;
           if (
             previous?.type === "text" &&
             /\[[^\]]+\]\($/.test(previous.value) &&
-            (node as Link).children.length === 1 &&
-            (node as Link).children[0].type === "text" &&
-            ((node as Link).children[0] as Text).value === (node as Link).url
+            node.children.length === 1 &&
+            linkText?.type === "text" &&
+            linkText.value === node.url
           ) {
-            previous.value += (node as Link).url;
+            previous.value += node.url;
             break;
           }
           const linkChildren = processInlineNodes(
-            (node as Link).children,
+            node.children,
             options,
           );
           for (const child of linkChildren) {
             result.push(
               child.type === "text"
-                ? { ...child, link: (node as Link).url }
+                ? { ...child, link: node.url }
                 : child,
             );
           }
           break;
         }
         case "footnoteReference": {
-          const footnoteReference = node as FootnoteReference;
+          const footnoteReference = node;
           const normalizedIdentifier = normalizeFootnoteIdentifier(
             footnoteReference.identifier,
           );
@@ -676,7 +682,7 @@ export function mdastToDocxModel(
         case "inlineMath":
           result.push({
             type: "mathInline",
-            value: String((node as InlineMath).value || ""),
+            value: node.value || "",
           });
           break;
         case "break":
@@ -685,14 +691,17 @@ export function mdastToDocxModel(
             value: "\n",
           });
           break;
-        default:
+        default: {
           // Unknown inline node - try to extract text
-          if ((node as any).value) {
+          const unknownNode: Node = node;
+          const value = "value" in unknownNode ? unknownNode.value : undefined;
+          if (value) {
             result.push({
               type: "text",
-              value: String((node as any).value),
+              value: stringifyNodeValue(value),
             });
           }
+        }
       }
     }
 
@@ -748,15 +757,16 @@ export function mdastToDocxModel(
 
   // Process root children
   for (let childIndex = 0; childIndex < root.children.length; childIndex++) {
-    const child = root.children[childIndex];
+    // Bounded by the loop condition.
+    const child = root.children[childIndex]!;
     const resolvedCaption = captionAt(crossReferences, root, childIndex);
     // Handle special cases for TOC and page breaks
     if (child.type === "paragraph") {
-      const para = child as Paragraph;
+      const para = child;
       // Check if paragraph contains only text nodes
       const textContent = para.children
         .filter((c) => c.type === "text")
-        .map((c) => (c as Text).value)
+        .map((c) => (c).value)
         .join("")
         .trim();
       if (textContent === "[TOC]") {

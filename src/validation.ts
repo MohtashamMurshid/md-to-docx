@@ -184,16 +184,18 @@ function validateStyleInput(
   );
 
   if (style.calloutStyles !== undefined) {
+    // Read as unknown: styles may come from untyped JS or CLI JSON.
+    const calloutStyles: unknown = style.calloutStyles;
     if (
-      typeof style.calloutStyles !== "object" ||
-      style.calloutStyles === null ||
-      Array.isArray(style.calloutStyles)
+      typeof calloutStyles !== "object" ||
+      calloutStyles === null ||
+      Array.isArray(calloutStyles)
     ) {
       throw new MarkdownConversionError(
         "Invalid calloutStyles: Must be an object",
         {
           styleContext,
-          calloutStyles: style.calloutStyles,
+          calloutStyles,
         },
       );
     }
@@ -207,10 +209,11 @@ function validateStyleInput(
           { styleContext, calloutType },
         );
       }
+      const calloutStyleValue: unknown = calloutStyle;
       if (
-        typeof calloutStyle !== "object" ||
-        calloutStyle === null ||
-        Array.isArray(calloutStyle)
+        typeof calloutStyleValue !== "object" ||
+        calloutStyleValue === null ||
+        Array.isArray(calloutStyleValue)
       ) {
         throw new MarkdownConversionError(
           `Invalid calloutStyles.${calloutType}: Must be an object`,
@@ -300,14 +303,15 @@ function validateMathRenderingInput(
     );
   }
 
+  const unsupported: unknown = mathRendering.unsupported;
   if (
-    mathRendering.unsupported !== undefined &&
-    mathRendering.unsupported !== "text" &&
-    mathRendering.unsupported !== "throw"
+    unsupported !== undefined &&
+    unsupported !== "text" &&
+    unsupported !== "throw"
   ) {
     throw new MarkdownConversionError(
       'Invalid mathRendering.unsupported: Must be "text" or "throw"',
-      { unsupported: mathRendering.unsupported },
+      { unsupported },
     );
   }
 }
@@ -337,7 +341,12 @@ function validateCaptionOptionsInput(
     ["figurePlacement", captions.figurePlacement],
     ["tablePlacement", captions.tablePlacement],
   ] as const) {
-    if (value !== undefined && value !== "above" && value !== "below") {
+    const placement: unknown = value;
+    if (
+      placement !== undefined &&
+      placement !== "above" &&
+      placement !== "below"
+    ) {
       throw new MarkdownConversionError(
         `Invalid captions.${name}: Must be above or below`,
       );
@@ -375,10 +384,11 @@ function validateCaptionOptionsInput(
       "Invalid captions.size: Must be between 8 and 144 half-points",
     );
   }
+  const failureMode: unknown = captions.failureMode;
   if (
-    captions.failureMode !== undefined &&
-    captions.failureMode !== "preserve" &&
-    captions.failureMode !== "throw"
+    failureMode !== undefined &&
+    failureMode !== "preserve" &&
+    failureMode !== "throw"
   ) {
     throw new MarkdownConversionError(
       "Invalid captions.failureMode: Must be preserve or throw",
@@ -535,7 +545,7 @@ function validateSectionConfigInput(
 
   const margins = config.page?.margin;
   if (margins) {
-    const marginEntries = Object.entries(margins);
+    const marginEntries: [string, unknown][] = Object.entries(margins);
     marginEntries.forEach(([name, value]) => {
       if (value === undefined) {
         return;
@@ -677,10 +687,12 @@ function validateChartRenderingInput(
     "chartRendering.maxHeight",
   );
 
+  const invalidDefinitionBehavior: unknown =
+    chartRendering.invalidDefinitionBehavior;
   if (
-    chartRendering.invalidDefinitionBehavior !== undefined &&
-    chartRendering.invalidDefinitionBehavior !== "placeholder" &&
-    chartRendering.invalidDefinitionBehavior !== "throw"
+    invalidDefinitionBehavior !== undefined &&
+    invalidDefinitionBehavior !== "placeholder" &&
+    invalidDefinitionBehavior !== "throw"
   ) {
     throw new MarkdownConversionError(
       "Invalid chartRendering.invalidDefinitionBehavior: must be placeholder or throw",
@@ -729,13 +741,18 @@ function validateProcessingLimitsInput(options: Options): void {
   validatePositiveIntegerOption(options.maxInputLength, "maxInputLength");
   validatePositiveIntegerOption(options.maxElements, "maxElements");
 
+  // Read as unknown: options may come from untyped JS callers.
+  const signal: unknown = options.signal;
   if (
-    options.signal !== undefined &&
-    (options.signal === null ||
-      typeof options.signal !== "object" ||
-      typeof options.signal.aborted !== "boolean" ||
-      typeof options.signal.addEventListener !== "function" ||
-      typeof options.signal.removeEventListener !== "function")
+    signal !== undefined &&
+    (signal === null ||
+      typeof signal !== "object" ||
+      !("aborted" in signal) ||
+      typeof signal.aborted !== "boolean" ||
+      !("addEventListener" in signal) ||
+      typeof signal.addEventListener !== "function" ||
+      !("removeEventListener" in signal) ||
+      typeof signal.removeEventListener !== "function")
   ) {
     throw new MarkdownConversionError("Invalid signal: Must be an AbortSignal");
   }
@@ -813,21 +830,24 @@ export function validateInput(markdown: string, options: Options): void {
       );
     }
 
-    options.sections.forEach((section, index) => {
-      if (!section || typeof section.markdown !== "string") {
-        throw new MarkdownConversionError(
-          "Invalid section markdown: each section must provide a markdown string",
-          { sectionIndex: index },
-        );
-      }
+    // Entries may be null or undefined when sections come from untyped JS.
+    options.sections.forEach(
+      (section: DocumentSection | null | undefined, index) => {
+        if (!section || typeof section.markdown !== "string") {
+          throw new MarkdownConversionError(
+            "Invalid section markdown: each section must provide a markdown string",
+            { sectionIndex: index },
+          );
+        }
 
-      const normalizedSection = normalizeSectionConfig(
-        section,
-      ) as DocumentSection;
-      validateSectionConfigInput(
-        normalizedSection,
-        `options.sections[${index}]`,
-      );
-    });
+        const normalizedSection = normalizeSectionConfig(
+          section,
+        ) as DocumentSection;
+        validateSectionConfigInput(
+          normalizedSection,
+          `options.sections[${index}]`,
+        );
+      },
+    );
   }
 }

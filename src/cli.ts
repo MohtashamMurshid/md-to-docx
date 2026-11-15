@@ -8,7 +8,7 @@ import {
   convertMarkdownWithReferenceDocxToBuffer,
   patchMarkdownInDocxToBuffer,
 } from "./index.js";
-import type { Options, ReferenceDocxGenerationOptions } from "./types.js";
+import type { ReferenceDocxGenerationOptions } from "./types.js";
 
 export interface CliOutput {
   log: (message: string) => void;
@@ -58,16 +58,17 @@ function parseCliArgs(args: string[]): CliArgs | undefined {
   };
   const positional: string[] = [];
   for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
+    const arg = args[i]!;
     if (arg === "--batch" || arg === "--watch") {
       result[arg.slice(2) as "batch" | "watch"] = true;
       continue;
     }
-    if (values[arg]) {
+    const key = values[arg];
+    if (key) {
       const value = args[++i];
       if (!value || value.startsWith("-"))
         throw new Error(`Missing value for ${arg}`);
-      result[values[arg]] = value;
+      result[key] = value;
     } else if (arg.startsWith("-") && arg !== "-")
       throw new Error(`Unknown argument: ${arg}`);
     else positional.push(arg);
@@ -76,7 +77,8 @@ function parseCliArgs(args: string[]): CliArgs | undefined {
     throw new Error(
       "Expected exactly 2 positional arguments: <input.md> <output.docx>",
     );
-  [result.input, result.output] = positional;
+  result.input = positional[0]!;
+  result.output = positional[1]!;
   if (
     result.patches &&
     (result.reference || result.batch || result.input === "-")
@@ -112,7 +114,7 @@ async function readOptionsFile(
     throw new Error(
       "Plugins are trusted executable code and cannot be loaded from CLI JSON",
     );
-  return parsed as Options;
+  return parsed;
 }
 async function collectFiles(directory: string): Promise<string[]> {
   const out: string[] = [];
@@ -127,12 +129,21 @@ async function collectFiles(directory: string): Promise<string[]> {
 }
 async function standardInput(): Promise<string> {
   const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
+  for await (const chunk of process.stdin) {
+    // Stdin yields Buffers (or strings once an encoding is set).
+    const data: unknown = chunk;
+    chunks.push(
+      data instanceof Uint8Array ? Buffer.from(data) : Buffer.from(String(data)),
+    );
+  }
   return Buffer.concat(chunks).toString("utf8");
 }
 async function standardOutput(data: Buffer): Promise<void> {
   await new Promise<void>((resolve, reject) =>
-    process.stdout.write(data, (error) => (error ? reject(error) : resolve())),
+    process.stdout.write(data, (error) => {
+      if (error) reject(error);
+      else resolve();
+    }),
   );
 }
 async function atomicWrite(file: string, data: Buffer): Promise<void> {
@@ -182,12 +193,14 @@ export async function runCli(
               options.imageHandling?.baseDirectory ??
               (input === "-" ? process.cwd() : path.dirname(input)),
           );
+          // The caller's signal always replaces any `signal` key from JSON.
+          const { signal: _jsonSignal, ...jsonOptions } = options;
           const conversionOptions = {
-            ...options,
-            signal,
+            ...jsonOptions,
+            ...(signal ? { signal } : {}),
             imageHandling: { ...options.imageHandling, baseDirectory },
             onWarning: (warning: { code: string; message: string }) =>
-              output.error(`[${warning.code}] ${warning.message}`),
+              { output.error(`[${warning.code}] ${warning.message}`); },
           };
           let buffer: Buffer;
           if (parsed.patches) {
@@ -254,6 +267,8 @@ export async function runCli(
     let dirty = false;
     let running = false;
     let closed = false;
+    // Read through a function: `stop` can close the watcher during an await.
+    const isClosed = (): boolean => closed;
     const watchers = new Map<string, ReturnType<typeof watch>>();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const refresh = async (): Promise<void> => {
@@ -267,12 +282,12 @@ export async function runCli(
           const watcher = watch(directory, (_event, filename) => {
             if (
               filename &&
-              /\.(docx|tmp)$/i.test(filename.toString()) &&
+              /\.(docx|tmp)$/i.test(filename) &&
               ![parsed.reference, parsed.patches, parsed.input].some(
                 (file) =>
                   file &&
                   path.resolve(file) ===
-                    path.join(directory, filename.toString()),
+                    path.join(directory, filename),
               )
             )
               return;
@@ -283,7 +298,7 @@ export async function runCli(
             }, 100);
           });
           watcher.on("error", (error) =>
-            output.error(`Watch error: ${error.message}`),
+            { output.error(`Watch error: ${error.message}`); },
           );
           watchers.set(directory, watcher);
         }
@@ -299,7 +314,7 @@ export async function runCli(
       if (running || closed) return;
       running = true;
       try {
-        while (dirty && !closed) {
+        while (dirty && !isClosed()) {
           dirty = false;
           try {
             await convert();
@@ -331,7 +346,7 @@ export async function runCli(
       if (signal?.aborted) stop();
       else
         void refresh()
-          .then(() => report("Watching for changes..."))
+          .then(() => { report("Watching for changes..."); })
           .catch(reject);
     });
     await finishRun;
@@ -372,12 +387,12 @@ export async function isDirectCliInvocation(
 const currentFilePath = fileURLToPath(import.meta.url);
 const invokedFilePath = process.argv[1] ? path.resolve(process.argv[1]) : "";
 
-isDirectCliInvocation(invokedFilePath, currentFilePath).then((isDirect) => {
-  if (!isDirect) {
-    return;
-  }
+void isDirectCliInvocation(invokedFilePath, currentFilePath).then(
+  async (isDirect) => {
+    if (!isDirect) {
+      return;
+    }
 
-  runCli(process.argv.slice(2)).then((exitCode) => {
-    process.exitCode = exitCode;
-  });
-});
+    process.exitCode = await runCli(process.argv.slice(2));
+  },
+);

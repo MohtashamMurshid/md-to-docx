@@ -20,6 +20,7 @@ import {
   type ConversionWarning,
 } from "../src/index.js";
 import { runCli } from "../src/cli.js";
+import { at } from "./helpers.js";
 
 const PNG =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
@@ -58,9 +59,9 @@ describe("Markdown fidelity", () => {
       "5. outer\n\n   3. inner\n\nEnd.\n\n0. zero",
     );
     expect(
-      options.numbering!.config.map((item) => item.levels[0].start),
+      options.numbering!.config.map((item) => at(item.levels, 0).start),
     ).toEqual([5, 3, 0]);
-    expect(options.numbering!.config[1].levels[1]).toMatchObject({
+    expect(at(at(options.numbering!.config, 1).levels, 1)).toMatchObject({
       level: 1,
       start: 3,
       text: "%2.",
@@ -121,7 +122,7 @@ describe("Markdown fidelity", () => {
       );
       const links = Array.from(slot.getElementsByTagNameNS(W, "hyperlink"));
       expect(links).toHaveLength(1);
-      expect(links[0].getAttributeNS(W, "anchor")).toBe(
+      expect(at(links, 0).getAttributeNS(W, "anchor")).toBe(
         bookmarks[part.includes("header") ? 1 : 2],
       );
     }
@@ -156,11 +157,11 @@ describe("Images and diagnostics", () => {
     const outside = await temp();
     await fs.writeFile(
       path.join(dir, "pixel.png"),
-      Buffer.from(PNG.split(",")[1], "base64"),
+      Buffer.from(at(PNG.split(","), 1), "base64"),
     );
     await fs.writeFile(
       path.join(outside, "secret.png"),
-      Buffer.from(PNG.split(",")[1], "base64"),
+      Buffer.from(at(PNG.split(","), 1), "base64"),
     );
     await fs.symlink(
       path.join(outside, "secret.png"),
@@ -180,7 +181,7 @@ describe("Images and diagnostics", () => {
     expect(warnings).toEqual([
       expect.objectContaining({ code: "IMAGE_FALLBACK", source: "escape.png" }),
     ]);
-    expect(warnings[0].message).toContain("escapes");
+    expect(at(warnings, 0).message).toContain("escapes");
   });
   it("resolves trusted browser/virtual assets and preserves inline placement", async () => {
     const warnings: ConversionWarning[] = [];
@@ -189,7 +190,7 @@ describe("Images and diagnostics", () => {
         imageHandling: {
           resolve: (source) =>
             source === "asset:pixel"
-              ? { data: Buffer.from(PNG.split(",")[1], "base64") }
+              ? { data: Buffer.from(at(PNG.split(","), 1), "base64") }
               : null,
         },
         onWarning: (warning) => warnings.push(warning),
@@ -201,7 +202,7 @@ describe("Images and diagnostics", () => {
       paragraphs.some(
         (p) =>
           p.textContent?.includes("Before ") &&
-          p.textContent?.includes(" after.") &&
+          p.textContent.includes(" after.") &&
           p.getElementsByTagNameNS(W, "drawing").length === 1,
       ),
     ).toBe(true);
@@ -249,7 +250,7 @@ describe("Images and diagnostics", () => {
       }),
     );
     expect(text).not.toContain("<w:drawing>");
-    expect(warnings[0].message).toContain("SVG");
+    expect(at(warnings, 0).message).toContain("SVG");
   });
   it("shares image limits across inline content and rich headers", async () => {
     const warnings: ConversionWarning[] = [];
@@ -379,21 +380,22 @@ describe("CLI workflows", () => {
     const code = await runCli(["-", "-"], {
       log: (m) => logs.push(m),
       error: () => {},
-      readStdin: async () => "# Piped",
-      writeStdout: async (buffer) => {
+      readStdin: () => Promise.resolve("# Piped"),
+      writeStdout: (buffer) => {
         bytes.push(buffer);
+        return Promise.resolve();
       },
     });
     expect(code).toBe(0);
     expect(logs).toHaveLength(0);
-    expect((await unpack(bytes[0])).text).toContain("Piped");
+    expect((await unpack(at(bytes, 0))).text).toContain("Piped");
   });
   it("converts nested batches and resolves images relative to each input", async () => {
     const dir = await temp();
     await fs.mkdir(path.join(dir, "input", "nested"), { recursive: true });
     await fs.writeFile(
       path.join(dir, "input", "nested", "pixel.png"),
-      Buffer.from(PNG.split(",")[1], "base64"),
+      Buffer.from(at(PNG.split(","), 1), "base64"),
     );
     await fs.writeFile(
       path.join(dir, "input", "nested", "one.md"),
@@ -464,8 +466,33 @@ describe("CLI workflows", () => {
     );
     try {
       await ready;
-      await fs.writeFile(md, "# After");
-      await changed;
+      // macOS's FSEvents can drop a change made just after a watcher starts,
+      // so keep editing until the rebuild is seen.
+      // A failed write stops the wait at once, and every write settles before
+      // cleanup removes the directory.
+      let failWrite!: (error: unknown) => void;
+      const writeFailed = new Promise<never>((_, reject) => {
+        failWrite = reject;
+      });
+      void writeFailed.catch(() => undefined);
+      const writes: Promise<void>[] = [];
+      const edit = (): void => {
+        const write = fs.writeFile(md, "# After");
+        void write.catch(failWrite);
+        writes.push(write);
+      };
+      edit();
+      const retry = setInterval(edit, 250);
+      const waitError = await Promise.race([changed, writeFailed]).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      clearInterval(retry);
+      const failed = (await Promise.allSettled(writes)).find(
+        (result) => result.status === "rejected",
+      );
+      expect(failed?.reason).toBeUndefined();
+      expect(waitError).toBeUndefined();
       expect((await unpack(await fs.readFile(out))).text).toContain("After");
     } finally {
       controller.abort();
@@ -510,7 +537,7 @@ describe("Patch package integration", () => {
     );
     expect(new Set(ids).size).toBe(2);
     for (const id of ids)
-      expect(footnotes).toContain(`<w:footnote w:id="${id}"`);
+      expect(footnotes).toContain(`<w:footnote w:id="${String(id)}"`);
     expect(footnotes).toContain("Existing note");
     expect(footnotes).toContain("<w:drawing>");
     expect(
@@ -599,18 +626,20 @@ describe("Repeated patches and package integrity", () => {
         const definition = definitions.find(
           (node) => node.getAttributeNS(W, "numId") === id,
         )!;
-        const abstractId = definition
-          .getElementsByTagNameNS(W, "abstractNumId")[0]
-          .getAttributeNS(W, "val");
+        const abstractId = at(
+          definition.getElementsByTagNameNS(W, "abstractNumId"),
+          0,
+        ).getAttributeNS(W, "val");
         const abstract = Array.from(
           numbering.getElementsByTagNameNS(W, "abstractNum"),
         ).find(
           (node) => node.getAttributeNS(W, "abstractNumId") === abstractId,
         )!;
         expect(
-          abstract
-            .getElementsByTagNameNS(W, "start")[0]
-            .getAttributeNS(W, "val"),
+          at(abstract.getElementsByTagNameNS(W, "start"), 0).getAttributeNS(
+            W,
+            "val",
+          ),
         ).toBe(String(start));
       }
     }
@@ -644,7 +673,7 @@ describe("Repeated patches and package integrity", () => {
     expect(new Set(ids).size).toBe(2);
     const footnotes = await zip.file("word/footnotes.xml")!.async("string");
     for (const id of ids)
-      expect(footnotes).toContain(`<w:footnote w:id="${id}"`);
+      expect(footnotes).toContain(`<w:footnote w:id="${String(id)}"`);
     expect(text).toContain("Table 1");
     expect(text).toContain("Table 2");
     const names = [
@@ -702,17 +731,20 @@ describe("Repeated patches and package integrity", () => {
         : [];
       const ids = new Set(entries.map((el) => el.getAttribute("Id")));
       expect(ids.size).toBe(entries.length);
-      for (const element of Array.from(document.getElementsByTagName("*")))
-        for (const attr of ["id", "embed", "link"])
-          if (element.hasAttributeNS(relAttrNamespace, attr))
-            expect(
-              ids.has(element.getAttributeNS(relAttrNamespace, attr)),
-            ).toBe(true);
+      const referencedIds = Array.from(
+        document.getElementsByTagName("*"),
+      ).flatMap((element) =>
+        ["id", "embed", "link"]
+          .filter((attr) => element.hasAttributeNS(relAttrNamespace, attr))
+          .map((attr) => element.getAttributeNS(relAttrNamespace, attr)),
+      );
+      for (const referencedId of referencedIds)
+        expect(ids.has(referencedId)).toBe(true);
       for (const entry of entries)
         if (entry.getAttribute("TargetMode") !== "External")
           expect(
             zip.file(
-              path.posix.normalize(`word/${entry.getAttribute("Target")}`),
+              path.posix.normalize(`word/${String(entry.getAttribute("Target"))}`),
             ),
           ).not.toBeNull();
     }

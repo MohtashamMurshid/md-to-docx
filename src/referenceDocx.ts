@@ -36,11 +36,12 @@ const RELATIONSHIP_NS =
 const EMPTY_NUMBERING_XML =
   '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"></w:numbering>';
 
-type StyleType = "paragraph" | "character" | "table" | string;
+/** Usually "paragraph", "character" or "table", but any w:type is kept. */
+type StyleType = string;
 
 interface ReferenceStyle {
   id: string;
-  name?: string;
+  name?: string | undefined;
   type: StyleType;
   xml: string;
 }
@@ -49,7 +50,7 @@ interface Relationship {
   id: string;
   type: string;
   target: string;
-  targetMode?: string;
+  targetMode?: string | undefined;
   xml: string;
 }
 
@@ -64,9 +65,9 @@ export interface LoadedReferenceDocx {
   documentXml: string;
   documentRelationshipsXml: string;
   stylesXml: string;
-  numberingXml?: string;
-  finalSectionProperties?: string;
-  page?: SectionPageConfig;
+  numberingXml?: string | undefined;
+  finalSectionProperties?: string | undefined;
+  page?: SectionPageConfig | undefined;
 }
 
 const AUTO_STYLE_CANDIDATES: Record<
@@ -129,16 +130,26 @@ const CHARACTER_ROLES = new Set<ReferenceDocxStyleRole>([
   "hyperlink",
 ]);
 
+/**
+ * Error details as callers pass them: optional fields may be present with an
+ * `undefined` value (e.g. a missing selector), and that shape is preserved.
+ */
+type ReferenceErrorContext = {
+  [K in keyof ReferenceDocxErrorContext]: undefined extends ReferenceDocxErrorContext[K]
+    ? ReferenceDocxErrorContext[K] | undefined
+    : ReferenceDocxErrorContext[K];
+};
+
 function referenceError(
   message: string,
   code: ReferenceDocxErrorCode,
-  details: Omit<ReferenceDocxErrorContext, "phase" | "code"> = {},
+  details: Omit<ReferenceErrorContext, "phase" | "code"> = {},
 ): MarkdownConversionError {
   return new MarkdownConversionError(message, {
     phase: "reference-docx",
     code,
     ...details,
-  } satisfies ReferenceDocxErrorContext);
+  } satisfies ReferenceErrorContext);
 }
 
 function throwIfReferenceAborted(signal?: AbortSignal): void {
@@ -215,7 +226,7 @@ function getAttribute(xml: string, name: string): string | undefined {
   const match = xml.match(
     new RegExp(`(?:\\s|<)${escapedName}\\s*=\\s*(["'])(.*?)\\1`),
   );
-  return match ? decodeXml(match[2]) : undefined;
+  return match ? decodeXml(match[2]!) : undefined;
 }
 
 function replaceAttribute(xml: string, name: string, value: string): string {
@@ -635,7 +646,7 @@ function resolveStyleMap(
         ? styles.find((candidate) => candidate.id === explicitSelector.id)
         : resolveStyleByName(
             styles,
-            explicitSelector.name as string,
+            explicitSelector.name,
             duplicateBehavior,
             role,
             explicitSelector,
@@ -791,15 +802,64 @@ function mergeStyles(referenceStylesXml: string, generatedStylesXml: string): st
   );
 }
 
-function replaceParagraphStyle(paragraph: string, styleId: string): string {
-  const styleElement = `<w:pStyle w:val="${encodeXml(styleId)}"/>`;
-  const pPrMatch = paragraph.match(/<w:pPr\b[^>]*>[\s\S]*?<\/w:pPr>/);
-  if (!pPrMatch) {
-    return paragraph.replace(/^(<w:p\b[^>]*>)/, `$1<w:pPr>${styleElement}</w:pPr>`);
+interface StyleReferencePattern {
+  /** Style reference element name, e.g. `pStyle`. */
+  styleTag: "pStyle" | "rStyle";
+  /** Property container name, e.g. `pPr`. */
+  propertiesTag: "pPr" | "rPr";
+  /** Matches the first property container block. */
+  properties: RegExp;
+  /** Captures the opening tag of the paragraph or run element. */
+  elementOpen: RegExp;
+  /** Matches every existing style reference element (global). */
+  styleReference: RegExp;
+  /** Captures the opening tag of the property container. */
+  propertiesOpen: RegExp;
+}
+
+const PARAGRAPH_STYLE_PATTERN: StyleReferencePattern = {
+  styleTag: "pStyle",
+  propertiesTag: "pPr",
+  properties: /<w:pPr\b[^>]*>[\s\S]*?<\/w:pPr>/,
+  elementOpen: /^(<w:p\b[^>]*>)/,
+  styleReference: /<w:pStyle\b[^>]*\/?\s*>/g,
+  propertiesOpen: /^(<w:pPr\b[^>]*>)/,
+};
+
+const RUN_STYLE_PATTERN: StyleReferencePattern = {
+  styleTag: "rStyle",
+  propertiesTag: "rPr",
+  properties: /<w:rPr\b[^>]*>[\s\S]*?<\/w:rPr>/,
+  elementOpen: /^(<w:r\b[^>]*>)/,
+  styleReference: /<w:rStyle\b[^>]*\/?\s*>/g,
+  propertiesOpen: /^(<w:rPr\b[^>]*>)/,
+};
+
+/**
+ * Replace any style reference in a paragraph or run with `styleId`, creating
+ * the property container when it is missing.
+ */
+function replaceStyleReference(
+  element: string,
+  styleId: string,
+  pattern: StyleReferencePattern,
+): string {
+  const { styleTag, propertiesTag } = pattern;
+  const styleElement = `<w:${styleTag} w:val="${encodeXml(styleId)}"/>`;
+  const propertiesMatch = element.match(pattern.properties);
+  if (!propertiesMatch) {
+    return element.replace(
+      pattern.elementOpen,
+      `$1<w:${propertiesTag}>${styleElement}</w:${propertiesTag}>`,
+    );
   }
-  let pPr = pPrMatch[0].replace(/<w:pStyle\b[^>]*\/?\s*>/g, "");
-  pPr = pPr.replace(/^(<w:pPr\b[^>]*>)/, `$1${styleElement}`);
-  return paragraph.replace(pPrMatch[0], pPr);
+  let properties = propertiesMatch[0].replace(pattern.styleReference, "");
+  properties = properties.replace(pattern.propertiesOpen, `$1${styleElement}`);
+  return element.replace(propertiesMatch[0], properties);
+}
+
+function replaceParagraphStyle(paragraph: string, styleId: string): string {
+  return replaceStyleReference(paragraph, styleId, PARAGRAPH_STYLE_PATTERN);
 }
 
 function stripParagraphDirectFormatting(paragraph: string): string {
@@ -839,14 +899,7 @@ function stripBaseRunFormatting(run: string): string {
 }
 
 function replaceRunStyle(run: string, styleId: string): string {
-  const styleElement = `<w:rStyle w:val="${encodeXml(styleId)}"/>`;
-  const rPrMatch = run.match(/<w:rPr\b[^>]*>[\s\S]*?<\/w:rPr>/);
-  if (!rPrMatch) {
-    return run.replace(/^(<w:r\b[^>]*>)/, `$1<w:rPr>${styleElement}</w:rPr>`);
-  }
-  let rPr = rPrMatch[0].replace(/<w:rStyle\b[^>]*\/?\s*>/g, "");
-  rPr = rPr.replace(/^(<w:rPr\b[^>]*>)/, `$1${styleElement}`);
-  return run.replace(rPrMatch[0], rPr);
+  return replaceStyleReference(run, styleId, RUN_STYLE_PATTERN);
 }
 
 function applyRunStyles(
@@ -1132,7 +1185,7 @@ async function importReferencePartGraph(
   const relsPath = relationshipPartPath(sourcePart);
   const relsFile = reference.zip.file(relsPath);
   if (relsFile) {
-    let relsXml = await readXml(reference.zip, relsPath);
+    const relsXml = await readXml(reference.zip, relsPath);
     const relationships = parseRelationships(relsXml, relsPath);
     for (const relationship of relationships) {
       const typeSuffix = relationship.type.slice(RELATIONSHIP_NS.length);
@@ -1256,7 +1309,7 @@ async function adoptSectionPresentation(
     outputContentTypesXml,
     reference.contentTypesXml,
   );
-  let outputRelationships = parseRelationships(
+  const outputRelationships = parseRelationships(
     relationshipsXml,
     "word/_rels/document.xml.rels",
   );

@@ -7,8 +7,9 @@ export function throwIfAborted(signal: AbortSignal | undefined): void {
     return;
   }
 
+  const reason: unknown = signal.reason;
   throw new MarkdownConversionError("Markdown conversion was aborted", {
-    reason: signal.reason,
+    reason,
   });
 }
 

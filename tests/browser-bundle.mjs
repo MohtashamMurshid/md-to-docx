@@ -2,26 +2,13 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { createPackFixture, packAndExtract, repoRoot } from "./pack-helpers.mjs";
 
-const repoRoot = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  ".."
-);
 // Keep the fixture under the repository's node_modules so ancestor lookup finds
 // next/react/react-dom there, while the app resolves md-to-docx from its packed
-// copy in appDir/node_modules first.
-const tempRoot = fs.mkdtempSync(
-  path.join(repoRoot, "node_modules", ".browser-bundle-")
-);
-const packDir = path.join(tempRoot, "pack");
-const appDir = path.join(tempRoot, "app");
-const packageDir = path.join(
-  appDir,
-  "node_modules",
-  "@mohtasham",
-  "md-to-docx"
-);
+// copy in appDir/node_modules first. createPackFixture places tempRoot there.
+const fixture = createPackFixture(".browser-bundle-", "app");
+const { tempRoot, projectDir: appDir } = fixture;
 const nextBin = path.join(
   repoRoot,
   "node_modules",
@@ -47,25 +34,7 @@ function walkJavaScriptFiles(directory) {
 }
 
 try {
-  fs.mkdirSync(packDir, { recursive: true });
-  fs.mkdirSync(packageDir, { recursive: true });
-
-  const tarballName = execFileSync(
-    "npm",
-    ["pack", "--ignore-scripts", "--pack-destination", packDir, "--silent"],
-    { cwd: repoRoot, encoding: "utf8" }
-  ).trim();
-  execFileSync(
-    "tar",
-    [
-      "-xzf",
-      path.join(packDir, tarballName),
-      "-C",
-      packageDir,
-      "--strip-components=1",
-    ],
-    { stdio: "inherit" }
-  );
+  packAndExtract(fixture);
 
   write(
     path.join(appDir, "package.json"),

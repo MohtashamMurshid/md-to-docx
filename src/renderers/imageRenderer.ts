@@ -1,6 +1,7 @@
 import { readLocalAsset } from "#image-assets";
 import { normalizeImage } from "../utils/normalizeImage.js";
 import { Paragraph, TextRun, AlignmentType, ImageRun } from "docx";
+import type { IRunOptions } from "docx";
 import type { IParagraphOptions, ParagraphChild } from "docx";
 import { ImageHandlingOptions, Style } from "../types.js";
 import { resolveFontFamily } from "../utils/styleUtils.js";
@@ -16,11 +17,35 @@ import {
   validateImageText,
 } from "../accessibility.js";
 
-export {
-  DEFAULT_IMAGE_HANDLING,
-  resolveImageHandlingOptions,
-} from "#secure-image-fetch";
-export type { ResolvedImageHandlingOptions } from "#secure-image-fetch";
+export { resolveImageHandlingOptions } from "#secure-image-fetch";
+
+/**
+ * Build the centered red italic placeholder paragraph shown when an image or
+ * chart cannot be rendered and the caller chose not to throw.
+ */
+export function createRenderFailureParagraph(
+  text: string,
+  style: Style,
+  paragraphOptions: Partial<IParagraphOptions>,
+): Paragraph {
+  const fontFamily = resolveFontFamily(style);
+  const language = runLanguage(style);
+  return new Paragraph({
+    ...paragraphOptions,
+    children: [
+      new TextRun({
+        text,
+        italics: true,
+        color: "FF0000",
+        ...(fontFamily !== undefined ? { font: fontFamily } : {}),
+        ...(language ? { language } : {}),
+        rightToLeft: style.direction === "RTL",
+      } satisfies IRunOptions),
+    ],
+    alignment: AlignmentType.CENTER,
+    bidirectional: style.direction === "RTL",
+  });
+}
 
 /**
  * Upper bound for rendered image dimensions in pixels. Hints come from
@@ -41,7 +66,7 @@ function clampImageDimension(value: number): number {
  * - Falls back to intrinsic width capped to 400, or default width 200.
  * Results are clamped to [1, MAX_IMAGE_DIMENSION].
  */
-export function computeImageDimensions(
+function computeImageDimensions(
   widthHint: number | undefined,
   heightHint: number | undefined,
   intrinsicWidth: number | undefined,
@@ -72,20 +97,23 @@ export function computeImageDimensions(
 
   return {
     width: clampImageDimension(outWidth),
-    height: outHeight === undefined ? undefined : clampImageDimension(outHeight),
+    ...(outHeight === undefined
+      ? {}
+      : { height: clampImageDimension(outHeight) }),
   };
 }
 
+// Callers bound-check the buffer before reading, so these indexes are in range.
 function readUint16BE(buf: Uint8Array, offset: number): number {
-  return (buf[offset] << 8) | buf[offset + 1];
+  return (buf[offset]! << 8) | buf[offset + 1]!;
 }
 
 function readUint32BE(buf: Uint8Array, offset: number): number {
   return (
-    ((buf[offset] << 24) |
-      (buf[offset + 1] << 16) |
-      (buf[offset + 2] << 8) |
-      buf[offset + 3]) >>>
+    ((buf[offset]! << 24) |
+      (buf[offset + 1]! << 16) |
+      (buf[offset + 2]! << 8) |
+      buf[offset + 3]!) >>>
     0
   );
 }
@@ -121,11 +149,15 @@ function readIntrinsicDimensions(
       offset += 2 + length;
     }
   } else if (imageType === "gif" && bytes.length >= 10) {
-    width = bytes[6] | (bytes[7] << 8);
-    height = bytes[8] | (bytes[9] << 8);
+    // In range: guarded by the length check above.
+    width = bytes[6]! | (bytes[7]! << 8);
+    height = bytes[8]! | (bytes[9]! << 8);
   }
 
-  return { width, height };
+  return {
+    ...(width !== undefined ? { width } : {}),
+    ...(height !== undefined ? { height } : {}),
+  };
 }
 
 function detectImageType(
@@ -182,19 +214,19 @@ export interface ProcessImageResult {
 
 export interface ProcessImageDataInput {
   altText: string;
-  title?: string;
+  title?: string | undefined;
   data: Uint8Array | ArrayBuffer | Buffer;
-  contentType?: string;
-  source?: string;
-  widthHint?: number;
-  heightHint?: number;
-  maxImageBytes?: number;
-  paragraphOptions?: Partial<IParagraphOptions>;
-  signal?: AbortSignal;
+  contentType?: string | undefined;
+  source?: string | undefined;
+  widthHint?: number | undefined;
+  heightHint?: number | undefined;
+  maxImageBytes?: number | undefined;
+  paragraphOptions?: Partial<IParagraphOptions> | undefined;
+  signal?: AbortSignal | undefined;
   /** Preserve image alt text in Word drawing properties. Defaults to true. */
-  preserveAltText?: boolean;
+  preserveAltText?: boolean | undefined;
   /** Runs placed before the image, used for task markers in list items. */
-  prefixChildren?: readonly ParagraphChild[];
+  prefixChildren?: readonly ParagraphChild[] | undefined;
 }
 
 /**
@@ -213,7 +245,7 @@ export function processImageData(
       ? input.data
       : new Uint8Array(input.data);
 
-  if (!bytes || bytes.length === 0) {
+  if (bytes.length === 0) {
     throw new Error("Invalid image data: data length is 0");
   }
   if (
@@ -316,8 +348,9 @@ export async function processImage(
 
       const wxh = fragment.match(/^(\d+)x(\d+)$/);
       if (wxh) {
-        widthHint = parseInt(wxh[1], 10);
-        heightHint = parseInt(wxh[2], 10);
+        // Both groups are mandatory in the pattern.
+        widthHint = parseInt(wxh[1]!, 10);
+        heightHint = parseInt(wxh[2]!, 10);
       } else {
         const params = new URLSearchParams(fragment.replace(/&amp;/g, "&"));
         const w = params.get("w") || params.get("width");
@@ -331,7 +364,7 @@ export async function processImage(
     let contentType = "";
     let urlForTypeDetection = imageUrl;
 
-    const resolved = await resolvedImageHandling.resolve?.(urlWithoutFragment, { signal, maxBytes: resolvedImageHandling.maxImageBytes });
+    const resolved = await resolvedImageHandling.resolve?.(urlWithoutFragment, { ...(signal !== undefined ? { signal } : {}), maxBytes: resolvedImageHandling.maxImageBytes });
     if (resolved) {
       data = resolved.data instanceof Uint8Array ? resolved.data : new Uint8Array(resolved.data);
       contentType = resolved.contentType ?? "";
@@ -350,7 +383,8 @@ export async function processImage(
       }
       contentType = match[1] || "";
       const isBase64 = !!match[2];
-      const dataPart = match[3];
+      // Group 3 is mandatory in the pattern.
+      const dataPart = match[3]!;
       const estimatedBytes = isBase64
         ? Math.floor((dataPart.replace(/\s/g, "").length * 3) / 4)
         : decodeURIComponent(dataPart).length;
@@ -366,9 +400,9 @@ export async function processImage(
           : typeof Buffer !== "undefined"
             ? Buffer.from(decodeURIComponent(dataPart))
             : new TextEncoder().encode(decodeURIComponent(dataPart));
-        data = binary as Uint8Array | Buffer;
+        data = binary;
 
-        if (!data || data.length === 0) {
+        if (data.length === 0) {
           throw new Error("Data URL produced empty image data");
         }
         if (data.length > resolvedImageHandling.maxImageBytes) {
@@ -424,21 +458,11 @@ export async function processImage(
       embedded: false,
       reason: error instanceof Error ? error.message : String(error),
       paragraphs: [
-        new Paragraph({
-          ...paragraphOptions,
-          children: [
-            new TextRun({
-              text: `[Image could not be displayed: ${altText}]`,
-              italics: true,
-              color: "FF0000",
-              font: resolveFontFamily(style),
-              language: runLanguage(style),
-              rightToLeft: style.direction === "RTL",
-            }),
-          ],
-          alignment: AlignmentType.CENTER,
-          bidirectional: style.direction === "RTL",
-        }),
+        createRenderFailureParagraph(
+          `[Image could not be displayed: ${altText}]`,
+          style,
+          paragraphOptions,
+        ),
       ],
     };
   }

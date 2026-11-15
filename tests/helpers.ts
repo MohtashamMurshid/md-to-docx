@@ -21,3 +21,13 @@ export async function saveBlobForDebug(blob: Blob, name: string): Promise<void> 
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, name), Buffer.from(await blob.arrayBuffer()));
 }
+
+export function at<T>(items: ArrayLike<T>, index: number): T {
+  const item = items[index];
+  if (item === undefined) {
+    throw new Error(
+      `Expected an element at index ${String(index)}, but length is ${String(items.length)}`,
+    );
+  }
+  return item;
+}

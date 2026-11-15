@@ -1,8 +1,8 @@
 import { MarkdownConversionError } from "./errors.js";
 import type { AccessibilityOptions, Style } from "./types.js";
 
-export const MAX_IMAGE_ALT_TEXT_LENGTH = 2_048;
-export const MAX_IMAGE_TITLE_LENGTH = 512;
+const MAX_IMAGE_ALT_TEXT_LENGTH = 2_048;
+const MAX_IMAGE_TITLE_LENGTH = 512;
 
 const INVALID_XML_CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/u;
 
@@ -84,14 +84,16 @@ export function validateAccessibilityOptions(
   accessibility: AccessibilityOptions | undefined,
 ): void {
   if (!accessibility) return;
+  // Read as unknown: options may come from untyped JS or CLI JSON.
+  const missingImageAltText: unknown = accessibility.missingImageAltText;
   if (
-    accessibility.missingImageAltText !== undefined &&
-    accessibility.missingImageAltText !== "permissive" &&
-    accessibility.missingImageAltText !== "throw"
+    missingImageAltText !== undefined &&
+    missingImageAltText !== "permissive" &&
+    missingImageAltText !== "throw"
   ) {
     throw new MarkdownConversionError(
       "Invalid accessibility.missingImageAltText: must be permissive or throw",
-      { missingImageAltText: accessibility.missingImageAltText },
+      { missingImageAltText },
     );
   }
 }
@@ -113,7 +115,7 @@ export function runLanguage(style: Style):
   | undefined {
   const language = style.language;
   if (!language) return undefined;
-  const primary = language.split("-")[0].toLowerCase();
+  const primary = language.split("-")[0]!.toLowerCase();
   return {
     value: language,
     ...(primary === "zh" || primary === "ja" || primary === "ko"

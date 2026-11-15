@@ -4,7 +4,21 @@ import {
   MarkdownConversionError,
   parseToDocxOptions,
 } from "../src/index.js";
-import type { Options } from "../src/types.js";
+import type { DocumentSection, Options } from "../src/types.js";
+import { at } from "./helpers.js";
+
+/**
+ * Structural guard that lets tests pass deliberately invalid field values
+ * through the typed API so the runtime validation can reject them.
+ */
+function isSectionShape(value: unknown): value is DocumentSection {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "markdown" in value &&
+    typeof value.markdown === "string"
+  );
+}
 
 describe("sections API", () => {
   it("builds distinct section properties, footers, and page numbering", async () => {
@@ -39,10 +53,10 @@ describe("sections API", () => {
     const docxOptions = await parseToDocxOptions("", options);
 
     expect(docxOptions.sections).toHaveLength(2);
-    expect(docxOptions.sections[0].footers).toBeUndefined();
-    expect(docxOptions.sections[1].footers?.default).toBeDefined();
-    expect(docxOptions.sections[1].properties?.page?.pageNumbers?.start).toBe(1);
-    expect(docxOptions.sections[1].properties?.page?.pageNumbers?.formatType).toBe(
+    expect(at(docxOptions.sections, 0).footers).toBeUndefined();
+    expect(at(docxOptions.sections, 1).footers?.default).toBeDefined();
+    expect(at(docxOptions.sections, 1).properties?.page?.pageNumbers?.start).toBe(1);
+    expect(at(docxOptions.sections, 1).properties?.page?.pageNumbers?.formatType).toBe(
       "decimal"
     );
   });
@@ -56,8 +70,8 @@ describe("sections API", () => {
     });
 
     expect(docxOptions.numbering?.config).toHaveLength(2);
-    expect(docxOptions.numbering?.config[0].reference).toBe("numbered-list-1");
-    expect(docxOptions.numbering?.config[1].reference).toBe("numbered-list-2");
+    expect(at(docxOptions.numbering?.config ?? [], 0).reference).toBe("numbered-list-1");
+    expect(at(docxOptions.numbering?.config ?? [], 1).reference).toBe("numbered-list-2");
   });
 
   it("applies template and section-level advanced properties, including section types and numbering variants", async () => {
@@ -116,7 +130,7 @@ describe("sections API", () => {
 
     expect(docxOptions.sections).toHaveLength(3);
 
-    const first = docxOptions.sections[0];
+    const first = at(docxOptions.sections, 0);
     expect(first.headers?.default).toBeDefined();
     expect(first.headers?.first).toBeDefined();
     expect(first.footers?.default).toBeDefined();
@@ -129,11 +143,11 @@ describe("sections API", () => {
     expect(first.properties?.page?.pageNumbers?.formatType).toBeDefined();
     expect(first.properties?.page?.pageNumbers?.separator).toBeDefined();
 
-    expect(docxOptions.sections[1].properties?.type).toBeDefined();
-    expect(docxOptions.sections[1].properties?.page?.pageNumbers?.separator).toBeDefined();
-    expect(docxOptions.sections[2].properties?.type).toBeDefined();
-    expect(docxOptions.sections[2].properties?.page?.pageNumbers?.formatType).toBeDefined();
-    expect(docxOptions.sections[2].footers?.default).toBeDefined();
+    expect(at(docxOptions.sections, 1).properties?.type).toBeDefined();
+    expect(at(docxOptions.sections, 1).properties?.page?.pageNumbers?.separator).toBeDefined();
+    expect(at(docxOptions.sections, 2).properties?.type).toBeDefined();
+    expect(at(docxOptions.sections, 2).properties?.page?.pageNumbers?.formatType).toBeDefined();
+    expect(at(docxOptions.sections, 2).footers?.default).toBeDefined();
   });
 
   it("supports per-section style overrides in full conversion", async () => {
@@ -160,14 +174,14 @@ describe("sections API", () => {
   it.each([
     {
       label: "invalid section type",
-      section: { markdown: "# Bad", type: "BAD_TYPE" as any },
+      section: { markdown: "# Bad", type: "BAD_TYPE" },
       expected: MarkdownConversionError,
     },
     {
       label: "invalid page orientation",
       section: {
         markdown: "# Bad",
-        page: { size: { orientation: "SIDEWAYS" as any } },
+        page: { size: { orientation: "SIDEWAYS" } },
       },
       expected: "Invalid page orientation",
     },
@@ -176,19 +190,20 @@ describe("sections API", () => {
       section: {
         markdown: "# Bad",
         headers: {
-          default: { text: "Header", alignment: "MIDDLE" as any },
+          default: { text: "Header", alignment: "MIDDLE" },
         },
       },
       expected: "Invalid header/footer alignment",
     },
     {
       label: "invalid titlePage type",
-      section: { markdown: "# Bad", titlePage: "yes" as any },
+      section: { markdown: "# Bad", titlePage: "yes" },
       expected: "Invalid titlePage",
     },
   ])("rejects $label", async ({ section, expected }) => {
+    if (!isSectionShape(section)) throw new Error("section fixture lacks markdown");
     await expect(
       parseToDocxOptions("", { sections: [section] })
-    ).rejects.toThrow(expected as any);
+    ).rejects.toThrow(expected);
   });
 });

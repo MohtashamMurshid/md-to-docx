@@ -39,8 +39,8 @@ export async function parseMarkdownToAst(
   if (mathEnabled) {
     processor.use(remarkMath);
   }
-  const result = await processor.parse(markdown);
-  return result as Root;
+  const result = processor.parse(markdown);
+  return Promise.resolve(result);
 }
 
 /**
@@ -54,13 +54,15 @@ export function applyTextReplacements(
   replacements: TextReplacement[],
   mode: TextReplacementMode = "trusted",
 ): Root {
-  if (mode !== "trusted" && mode !== "untrusted") {
+  // `mode` comes from caller options, so validate it at runtime as well.
+  const modeValue: unknown = mode;
+  if (modeValue !== "trusted" && modeValue !== "untrusted") {
     throw new Error(
       "Invalid textReplacementMode: Must be trusted or untrusted",
     );
   }
 
-  if (!replacements || replacements.length === 0) {
+  if (replacements.length === 0) {
     return ast;
   }
 
@@ -106,23 +108,40 @@ export function applyTextReplacements(
   return ast;
 }
 
-/** Resolve CommonMark definitions before caption discovery and rendering. */
-export function resolveMarkdownReferences(root: Root): void {
-  // Resolve both full and collapsed CommonMark references before any block/inline
-  // handling. Definitions may be nested and the first definition wins.
-  const definitions = new Map<string, Definition>();
-  const normalizeReference = (id: string): string =>
-    id.replace(/\s+/g, " ").trim().toUpperCase();
+/**
+ * Recursively collect nodes of `type` keyed by `keyOf(node)`, in document
+ * order. When several nodes share a key, the first one wins.
+ */
+export function collectFirstNodesByKey<T extends Node>(
+  root: Node,
+  type: T["type"],
+  keyOf: (node: T) => string,
+): Map<string, T> {
+  const nodes = new Map<string, T>();
   function collect(node: Node): void {
-    if (node.type === "definition") {
-      const def = node as Definition;
-      const key = normalizeReference(def.identifier);
-      if (!definitions.has(key)) definitions.set(key, def);
+    if (node.type === type) {
+      const typed = node as T;
+      const key = keyOf(typed);
+      if (!nodes.has(key)) nodes.set(key, typed);
     }
     if ("children" in node)
       for (const child of node.children as Node[]) collect(child);
   }
   collect(root);
+  return nodes;
+}
+
+/** Resolve CommonMark definitions before caption discovery and rendering. */
+export function resolveMarkdownReferences(root: Root): void {
+  // Resolve both full and collapsed CommonMark references before any block/inline
+  // handling. Definitions may be nested and the first definition wins.
+  const normalizeReference = (id: string): string =>
+    id.replace(/\s+/g, " ").trim().toUpperCase();
+  const definitions = collectFirstNodesByKey<Definition>(
+    root,
+    "definition",
+    (def) => normalizeReference(def.identifier),
+  );
   function resolve(node: Node): Node {
     const ref = node as Node & {
       identifier?: string;

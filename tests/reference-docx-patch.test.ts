@@ -4,10 +4,8 @@ import path from "node:path";
 import JSZip from "jszip";
 import { DOMParser } from "@xmldom/xmldom";
 import { Document, Packer, Paragraph } from "docx";
-import {
-  patchMarkdownInDocx,
-  patchMarkdownInDocxToBuffer,
-} from "../src/index.js";
+import { patchMarkdownInDocx, patchMarkdownInDocxToBuffer } from "../src/index.js";
+import { at } from "./helpers.js";
 
 const fixturePath = path.join(
   process.cwd(),
@@ -92,7 +90,7 @@ Hello **team**.
     const documentXml = await zip.file("word/document.xml")?.async("string");
     const bookmarkNames = Array.from(
       documentXml?.matchAll(/<w:bookmarkStart[^>]+w:name="([^"]+)"/g) || [],
-      (match) => match[1],
+      (match) => at(match, 1),
     );
 
     expect(bookmarkNames.some((name) => name.includes("_Toc_Repeat_1"))).toBe(

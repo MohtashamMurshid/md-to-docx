@@ -33,7 +33,7 @@ function isStandaloneImage(node: RootContent): boolean {
   return (
     node.type === "paragraph" &&
     node.children.length === 1 &&
-    node.children[0].type === "image"
+    node.children[0]?.type === "image"
   );
 }
 
@@ -50,7 +50,7 @@ function textFromPhrasingContent(node: PhrasingContent): string {
   }
   if ("children" in node && Array.isArray(node.children)) {
     return node.children
-      .map((child) => textFromPhrasingContent(child as PhrasingContent))
+      .map((child) => textFromPhrasingContent(child))
       .join("");
   }
   return "";
@@ -80,7 +80,8 @@ function parseCaptionParagraph(
       : null;
   }
 
-  const id = identifierMatch[1];
+  // Group 1 is mandatory in the pattern, so it is always present on a match.
+  const id = identifierMatch[1]!;
   const expectedPrefix = kind === "figure" ? "fig:" : "tbl:";
   if (!id.startsWith(expectedPrefix) || id.length === expectedPrefix.length) {
     return {
@@ -95,7 +96,7 @@ function parseCaptionParagraph(
   const children = paragraph.children.map((child) => ({ ...child }));
   const firstText = children[0];
   const lastText = children[children.length - 1];
-  if (firstText.type !== "text" || lastText.type !== "text") {
+  if (firstText?.type !== "text" || lastText?.type !== "text") {
     return { id, error: "Malformed caption text" };
   }
 
@@ -114,6 +115,9 @@ function captionCandidateAt(
   blockIndex: number,
 ): { kind: CaptionKind; candidate: CaptionCandidate } | null {
   const block = root.children[blockIndex];
+  if (!block) {
+    return null;
+  }
   const kind = captionKindForNode(block);
   const caption = root.children[blockIndex + 1];
   if (!kind || caption?.type !== "paragraph") {
@@ -135,6 +139,29 @@ function definitionError(
 }
 
 /**
+ * Registers a fresh caption map for `root` and visits every caption candidate
+ * (a block followed by another block) in document order.
+ */
+function forEachCaptionCandidate(
+  registry: CrossReferenceRegistry,
+  root: Root,
+  visit: (
+    index: number,
+    parsed: { kind: CaptionKind; candidate: CaptionCandidate },
+    captions: Map<number, ResolvedCaption>,
+  ) => void,
+): void {
+  const captions = new Map<number, ResolvedCaption>();
+  registry.captionsByRoot.set(root, captions);
+  for (let index = 0; index < root.children.length - 1; index++) {
+    const parsed = captionCandidateAt(root, index);
+    if (parsed) {
+      visit(index, parsed, captions);
+    }
+  }
+}
+
+/**
  * Discovers caption definitions in document order so numbering and forward
  * references remain stable across Word sections.
  */
@@ -151,15 +178,7 @@ export function buildCrossReferenceRegistry(
   const counters: Record<CaptionKind, number> = { figure: 0, table: 0 };
 
   for (const root of roots) {
-    const captions = new Map<number, ResolvedCaption>();
-    registry.captionsByRoot.set(root, captions);
-
-    for (let index = 0; index < root.children.length - 1; index++) {
-      const parsed = captionCandidateAt(root, index);
-      if (!parsed) {
-        continue;
-      }
-
+    forEachCaptionCandidate(registry, root, (index, parsed, captions) => {
       const { kind, candidate } = parsed;
       if (candidate.error || !candidate.id || !candidate.children) {
         definitionError(
@@ -167,7 +186,7 @@ export function buildCrossReferenceRegistry(
           candidate.error || "Malformed caption",
           { kind, identifier: candidate.id },
         );
-        continue;
+        return;
       }
 
       const existing = registry.definitions.get(candidate.id);
@@ -177,7 +196,7 @@ export function buildCrossReferenceRegistry(
           firstKind: existing.kind,
           duplicateKind: kind,
         });
-        continue;
+        return;
       }
 
       counters[kind]++;
@@ -189,7 +208,7 @@ export function buildCrossReferenceRegistry(
       };
       registry.definitions.set(definition.id, definition);
       captions.set(index, { ...definition, children: candidate.children });
-    }
+    });
   }
 
   return registry;
@@ -223,31 +242,27 @@ export function bindCrossReferenceCaptions(
     return;
   }
 
-  const captions = new Map<number, ResolvedCaption>();
-  registry.captionsByRoot.set(root, captions);
-  for (let index = 0; index < root.children.length - 1; index++) {
-    const parsed = captionCandidateAt(root, index);
-    const id = parsed?.candidate.id;
+  forEachCaptionCandidate(registry, root, (index, parsed, captions) => {
+    const id = parsed.candidate.id;
     if (
-      !parsed ||
       parsed.candidate.error ||
       !id ||
       !parsed.candidate.children ||
       registry.boundDefinitionIds.has(id)
     ) {
-      continue;
+      return;
     }
 
     const definition = registry.definitions.get(id);
     if (!definition || definition.kind !== parsed.kind) {
-      continue;
+      return;
     }
     captions.set(index, {
       ...definition,
       children: parsed.candidate.children,
     });
     registry.boundDefinitionIds.add(id);
-  }
+  });
 }
 
 export function resolveCrossReference(
@@ -268,32 +283,3 @@ export function throwOnUnresolvedCrossReference(
   }
 }
 
-/** Returns true when patch markdown uses syntax that cannot be safely patched. */
-export function containsCaptionOrCrossReferenceSyntax(root: Root): boolean {
-  for (let index = 0; index < root.children.length; index++) {
-    if (captionCandidateAt(root, index)) {
-      return true;
-    }
-  }
-
-  const stack: unknown[] = [...root.children];
-  while (stack.length > 0) {
-    const node = stack.pop();
-    if (!node || typeof node !== "object") {
-      continue;
-    }
-    const value = (node as { type?: string; value?: unknown }).value;
-    if (
-      (node as { type?: string }).type === "text" &&
-      typeof value === "string" &&
-      /\[@(?:fig|tbl):[^\]\s]+\]/.test(value)
-    ) {
-      return true;
-    }
-    const children = (node as { children?: unknown[] }).children;
-    if (Array.isArray(children)) {
-      stack.push(...children);
-    }
-  }
-  return false;
-}

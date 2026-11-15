@@ -23,7 +23,7 @@ export interface PluginSectionContext {
 export interface PluginResolvedImageOptions {
   remote: {
     enabled: boolean;
-    allowedHosts?: readonly string[];
+    allowedHosts?: readonly string[] | undefined;
   };
   dataUrls: {
     enabled: boolean;
@@ -37,8 +37,8 @@ export interface PluginResolvedImageOptions {
 
 export interface PluginResolvedOptions {
   documentType: "document" | "report";
-  maxInputLength?: number;
-  maxElements?: number;
+  maxInputLength?: number | undefined;
+  maxElements?: number | undefined;
   imageHandling: Readonly<PluginResolvedImageOptions>;
 }
 
@@ -51,7 +51,7 @@ export interface PluginResourceContext {
 
 export interface PluginAstTransformContext<TState = unknown> {
   readonly pluginName: string;
-  readonly signal?: AbortSignal;
+  readonly signal?: AbortSignal | undefined;
   readonly style: Readonly<Style>;
   readonly options: Readonly<PluginResolvedOptions>;
   readonly section: Readonly<PluginSectionContext>;
@@ -60,7 +60,7 @@ export interface PluginAstTransformContext<TState = unknown> {
 
 export interface PluginSetupContext {
   readonly pluginName: string;
-  readonly signal?: AbortSignal;
+  readonly signal?: AbortSignal | undefined;
   readonly options: Readonly<PluginResolvedOptions>;
 }
 
@@ -158,7 +158,7 @@ export interface PluginRenderContext<TState = unknown>
 export interface PluginFenceInput {
   readonly language: string;
   readonly value: string;
-  readonly meta?: string;
+  readonly meta?: string | undefined;
 }
 
 export interface PluginBlockNodeInput {
@@ -198,13 +198,31 @@ export interface MarkdownDocxPlugin<TState = unknown> {
   setup?: (
     context: PluginSetupContext,
   ) => TState | Promise<TState>;
-  /** Runs after core text replacements and before `maxElements` is enforced. */
+  /**
+   * Runs after core text replacements and before `maxElements` is enforced.
+   * Mutate `root` in place and return nothing, or return a replacement Root.
+   */
   transformAst?: (
     root: Root,
     context: PluginAstTransformContext<TState>,
   ) => Root | void | Promise<Root | void>;
   fencedBlocks?: readonly PluginFenceHandler<TState>[];
   blockNodes?: readonly PluginBlockNodeHandler<TState>[];
+}
+
+/**
+ * A plugin with any state type, as accepted by the `plugins` option, so one
+ * list can mix plugins whose `TState` differs. The converter only passes a
+ * plugin's own `setup` result back to that plugin's hooks. `transformAst` takes
+ * its type from a method signature so its context parameter is checked
+ * bivariantly, and its result is `unknown` because the converter validates
+ * what plugins return.
+ */
+export interface AnyMarkdownDocxPlugin
+  extends Omit<MarkdownDocxPlugin, "transformAst"> {
+  transformAst?: {
+    transform(root: Root, context: PluginAstTransformContext): unknown;
+  }["transform"];
 }
 
 export interface PluginOptions {

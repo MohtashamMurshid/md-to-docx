@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@jest/globals";
 import { convertMarkdownToDocx } from "../src/index.js";
 import type { Options } from "../src/types.js";
-import { getDocumentXml, saveBlobForDebug } from "./helpers.js";
+import { at, getDocumentXml, saveBlobForDebug } from "./helpers.js";
 
 async function render(markdown: string, options?: Options): Promise<string> {
   const blob = await convertMarkdownToDocx(markdown, options);
@@ -209,7 +209,7 @@ def greet(name):
       // dropped, the whole block falls back to the default color only.
       const colorMatches = [
         ...xml.matchAll(/<w:color w:val="([0-9A-Fa-f]{6})"\s*\/>/g),
-      ].map((m) => m[1].toUpperCase());
+      ].map((m) => at(m, 1).toUpperCase());
       const themed = colorMatches.filter(
         (c) => c !== "24292E" && c !== "6A737D"
       );

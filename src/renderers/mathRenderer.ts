@@ -70,7 +70,7 @@ class TexMathParser {
 
     if (this.position !== this.source.length) {
       throw new MathParseError(
-        `Unexpected token '${this.source[this.position]}' at ${this.position}`,
+        `Unexpected token '${String(this.source[this.position])}' at ${this.position}`,
       );
     }
 
@@ -138,7 +138,8 @@ class TexMathParser {
       throw new MathParseError("Expected math token");
     }
 
-    const character = this.source[this.position];
+    // In range: guarded by the length check above.
+    const character = this.source[this.position]!;
     if (character === "\\") {
       return this.parseCommand();
     }

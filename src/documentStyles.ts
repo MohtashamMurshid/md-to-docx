@@ -28,6 +28,7 @@ export function buildDefaultStyles(
   style: Style,
 ): NonNullable<IStylesOptions["default"]> {
   const font = resolveFontFamily(style);
+  const language = runLanguage(style);
 
   const headingStyles = HEADING_SPACING.map(
     (spacing, index) => {
@@ -59,7 +60,7 @@ export function buildDefaultStyles(
       ? {
           document: {
             run: {
-              ...(style.language ? { language: runLanguage(style) } : {}),
+              ...(language ? { language } : {}),
               ...(style.direction === "RTL" ? { rightToLeft: true } : {}),
             },
           },
@@ -70,8 +71,8 @@ export function buildDefaultStyles(
         size: style.titleSize,
         bold: true,
         color: "000000",
-        font,
-        language: runLanguage(style),
+        ...(font !== undefined ? { font } : {}),
+        ...(language ? { language } : {}),
         ...(style.direction === "RTL" ? { rightToLeft: true } : {}),
       },
       paragraph: {
@@ -88,8 +89,8 @@ export function buildDefaultStyles(
     strong: {
       run: {
         bold: true,
-        font,
-        language: runLanguage(style),
+        ...(font !== undefined ? { font } : {}),
+        ...(language ? { language } : {}),
         ...(style.direction === "RTL" ? { rightToLeft: true } : {}),
       },
     },

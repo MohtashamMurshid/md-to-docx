@@ -1,7 +1,7 @@
 import type { Node, Root } from "mdast";
-import type { Options, Style } from "./types.js";
+import type { CalloutStyle, Options, Style } from "./types.js";
 import type {
-  MarkdownDocxPlugin,
+  AnyMarkdownDocxPlugin,
   PluginAstTransformContext,
   PluginBlockNodeHandler,
   PluginFenceHandler,
@@ -39,7 +39,7 @@ const BUILT_IN_BLOCK_NODES = new Set([
 ]);
 
 interface RegisteredPlugin {
-  plugin: MarkdownDocxPlugin<any>;
+  plugin: AnyMarkdownDocxPlugin;
   registrationIndex: number;
   state: unknown;
 }
@@ -56,6 +56,31 @@ interface PluginRuntimeOptions {
   sectionCount: number;
 }
 
+/** Plugin fields read as `unknown`: plugins are third-party objects. */
+type PluginFields = Partial<Record<keyof AnyMarkdownDocxPlugin, unknown>>;
+type HandlerFields = Partial<
+  Record<"languages" | "nodeTypes" | "failureMode" | "render", unknown>
+>;
+
+/** Handlers may be plain objects or functions carrying the handler fields. */
+function handlerFields(handler: unknown): HandlerFields {
+  return (typeof handler === "object" && handler !== null) ||
+    typeof handler === "function"
+    ? handler
+    : {};
+}
+
+function isMdastRoot(value: unknown): value is Root {
+  return (
+    ((typeof value === "object" && value !== null) ||
+      typeof value === "function") &&
+    "type" in value &&
+    value.type === "root" &&
+    "children" in value &&
+    Array.isArray(value.children)
+  );
+}
+
 function pluginContext(
   pluginName: string,
   hook: string,
@@ -70,13 +95,43 @@ function pluginContext(
   };
 }
 
-export function pluginConversionError(
-  message: string,
-  reference: Pick<PluginHandlerReference, "pluginName" | "kind">,
-  section: PluginSectionContext,
-  extra: Record<string, unknown>,
-  originalError?: unknown,
+export interface PluginConversionErrorOptions {
+  message: string;
+  reference: Pick<PluginHandlerReference, "pluginName" | "kind">;
+  section: PluginSectionContext;
+  extra: Record<string, unknown>;
+  originalError?: unknown;
+}
+
+/**
+ * Normalize an error thrown by a plugin lifecycle hook: conversion errors pass
+ * through unchanged, anything else is wrapped with the plugin and hook name.
+ */
+function pluginHookError(
+  error: unknown,
+  plugin: { readonly name: string },
+  failure: { label: string; hook: string; section?: PluginSectionContext },
 ): MarkdownConversionError {
+  if (error instanceof MarkdownConversionError) {
+    return error;
+  }
+  return new MarkdownConversionError(
+    `Plugin "${plugin.name}" ${failure.label} failed: ${
+      error instanceof Error ? error.message : "Unknown error"
+    }`,
+    pluginContext(plugin.name, failure.hook, failure.section, {
+      originalError: error,
+    }),
+  );
+}
+
+export function pluginConversionError({
+  message,
+  reference,
+  section,
+  extra,
+  originalError,
+}: PluginConversionErrorOptions): MarkdownConversionError {
   return new MarkdownConversionError(message, {
     ...pluginContext(reference.pluginName, reference.kind, section, extra),
     ...(originalError !== undefined ? { originalError } : {}),
@@ -106,7 +161,8 @@ export function freezePluginStyle(style: Style): Readonly<Style> {
   const calloutStyles = style.calloutStyles
     ? Object.freeze(
         Object.fromEntries(
-          Object.entries(style.calloutStyles).map(([name, value]) => [
+          // Style comes from caller options, so an entry may still be undefined.
+          Object.entries<CalloutStyle | undefined>(style.calloutStyles).map(([name, value]) => [
             name,
             value ? Object.freeze({ ...value }) : value,
           ]),
@@ -119,16 +175,19 @@ export function freezePluginStyle(style: Style): Readonly<Style> {
   });
 }
 
-function priority(plugin: MarkdownDocxPlugin): number {
+function priority(plugin: AnyMarkdownDocxPlugin): number {
   return plugin.priority ?? 0;
 }
 
 function validateFailureMode(
-  value: string | undefined,
+  value: unknown,
   pluginName: string,
   hook: string,
 ): void {
-  if (value !== undefined && !["fallback", "skip", "throw"].includes(value)) {
+  if (
+    value !== undefined &&
+    (typeof value !== "string" || !["fallback", "skip", "throw"].includes(value))
+  ) {
     throw new MarkdownConversionError(
       "Invalid plugin failureMode: must be fallback, skip, or throw",
       pluginContext(pluginName, hook, undefined, { failureMode: value }),
@@ -136,11 +195,39 @@ function validateFailureMode(
   }
 }
 
+/** Per-kind field and label used when validating fence/blockNode handlers. */
+const HANDLER_KINDS = {
+  fence: { namesField: "languages", renderLabel: "fence" },
+  blockNode: { namesField: "nodeTypes", renderLabel: "block-node" },
+} as const;
+
+type HandlerKind = keyof typeof HANDLER_KINDS;
+type ValidatedHandler<K extends HandlerKind> = HandlerFields &
+  Record<(typeof HANDLER_KINDS)[K]["namesField"], readonly string[]>;
+
+/** Validate a handler's names, failureMode and render function. */
+function validateHandler<K extends HandlerKind>(
+  handler: HandlerFields,
+  handlerIndex: number,
+  pluginName: string,
+  hook: K,
+): asserts handler is ValidatedHandler<K> {
+  const { namesField, renderLabel } = HANDLER_KINDS[hook];
+  validateHandlerNames(handler[namesField], pluginName, hook);
+  validateFailureMode(handler.failureMode, pluginName, hook);
+  if (typeof handler.render !== "function") {
+    throw new MarkdownConversionError(
+      `Invalid plugin ${renderLabel} render: must be a function`,
+      pluginContext(pluginName, hook, undefined, { handlerIndex }),
+    );
+  }
+}
+
 function validateHandlerNames(
-  names: readonly string[],
+  names: unknown,
   pluginName: string,
   hook: "fence" | "blockNode",
-): void {
+): asserts names is readonly string[] {
   if (!Array.isArray(names) || names.length === 0) {
     throw new MarkdownConversionError(
       `Plugin ${hook} handler must declare at least one name`,
@@ -148,7 +235,8 @@ function validateHandlerNames(
     );
   }
 
-  const normalized = names.map((name) =>
+  const nameList: readonly unknown[] = names;
+  const normalized = nameList.map((name) =>
     typeof name === "string"
       ? hook === "fence"
         ? name.trim().toLowerCase()
@@ -172,19 +260,22 @@ function validateHandlerNames(
 
 /** Validates shape and all deterministic registration rules without running code. */
 export function validatePluginConfiguration(options: Options): void {
-  if (!options.plugins) {
+  // Plain-JS callers can pass anything, so read these values as unknown.
+  const plugins: unknown = options.plugins;
+  const pluginOptions: unknown = options.pluginOptions;
+  if (!plugins) {
     return;
   }
-  if (!Array.isArray(options.plugins)) {
+  if (!Array.isArray(plugins)) {
     throw new MarkdownConversionError(
       "Invalid plugins: must be an array of trusted programmatic plugin objects",
     );
   }
   if (
-    options.pluginOptions !== undefined &&
-    (!options.pluginOptions ||
-      typeof options.pluginOptions !== "object" ||
-      Array.isArray(options.pluginOptions))
+    pluginOptions !== undefined &&
+    (!pluginOptions ||
+      typeof pluginOptions !== "object" ||
+      Array.isArray(pluginOptions))
   ) {
     throw new MarkdownConversionError("Invalid pluginOptions: must be an object");
   }
@@ -201,87 +292,82 @@ export function validatePluginConfiguration(options: Options): void {
   const fenceOwners = new Map<string, string>();
   const nodeOwners = new Map<string, string>();
   const conflictPolicy = options.pluginOptions?.conflictPolicy ?? "error";
+  const pluginList: readonly unknown[] = plugins;
 
-  options.plugins.forEach((plugin, registrationIndex) => {
+  pluginList.forEach((plugin, registrationIndex) => {
     if (!plugin || typeof plugin !== "object") {
       throw new MarkdownConversionError("Invalid plugin: must be an object", {
         registrationIndex,
       });
     }
-    if (plugin.apiVersion !== 1) {
+    const fields: PluginFields = plugin;
+    if (fields.apiVersion !== 1) {
       throw new MarkdownConversionError("Unsupported plugin apiVersion", {
-        plugin: plugin.name,
-        apiVersion: plugin.apiVersion,
+        plugin: fields.name,
+        apiVersion: fields.apiVersion,
       });
     }
-    if (typeof plugin.name !== "string" || !PLUGIN_NAME.test(plugin.name)) {
+    const pluginName = fields.name;
+    if (typeof pluginName !== "string" || !PLUGIN_NAME.test(pluginName)) {
       throw new MarkdownConversionError(
         "Invalid plugin name: use a stable lowercase identifier",
-        { plugin: plugin.name, registrationIndex },
+        { plugin: pluginName, registrationIndex },
       );
     }
-    if (names.has(plugin.name)) {
+    if (names.has(pluginName)) {
       throw new MarkdownConversionError("Duplicate plugin name", {
-        plugin: plugin.name,
+        plugin: pluginName,
       });
     }
-    names.add(plugin.name);
+    names.add(pluginName);
 
+    const pluginPriority = fields.priority;
     if (
-      plugin.priority !== undefined &&
-      (!Number.isSafeInteger(plugin.priority) || Math.abs(plugin.priority) > 1000)
+      pluginPriority !== undefined &&
+      (typeof pluginPriority !== "number" ||
+        !Number.isSafeInteger(pluginPriority) ||
+        Math.abs(pluginPriority) > 1000)
     ) {
       throw new MarkdownConversionError(
         "Invalid plugin priority: must be an integer from -1000 to 1000",
-        { plugin: plugin.name, priority: plugin.priority },
+        { plugin: pluginName, priority: pluginPriority },
       );
     }
-    if (plugin.setup !== undefined && typeof plugin.setup !== "function") {
+    if (fields.setup !== undefined && typeof fields.setup !== "function") {
       throw new MarkdownConversionError("Invalid plugin setup: must be a function", {
-        plugin: plugin.name,
+        plugin: pluginName,
       });
     }
     if (
-      plugin.transformAst !== undefined &&
-      typeof plugin.transformAst !== "function"
+      fields.transformAst !== undefined &&
+      typeof fields.transformAst !== "function"
     ) {
       throw new MarkdownConversionError(
         "Invalid plugin transformAst: must be a function",
-        { plugin: plugin.name },
+        { plugin: pluginName },
       );
     }
 
-    if (
-      plugin.fencedBlocks !== undefined &&
-      !Array.isArray(plugin.fencedBlocks)
-    ) {
+    const fencedBlocks = fields.fencedBlocks;
+    if (fencedBlocks !== undefined && !Array.isArray(fencedBlocks)) {
       throw new MarkdownConversionError(
         "Invalid plugin fencedBlocks: must be an array",
-        { plugin: plugin.name },
+        { plugin: pluginName },
       );
     }
-    if (
-      plugin.blockNodes !== undefined &&
-      !Array.isArray(plugin.blockNodes)
-    ) {
+    const blockNodes = fields.blockNodes;
+    if (blockNodes !== undefined && !Array.isArray(blockNodes)) {
       throw new MarkdownConversionError(
         "Invalid plugin blockNodes: must be an array",
-        { plugin: plugin.name },
+        { plugin: pluginName },
       );
     }
+    const fenceHandlers: readonly unknown[] | undefined = fencedBlocks;
+    const blockNodeHandlers: readonly unknown[] | undefined = blockNodes;
 
-    plugin.fencedBlocks?.forEach((
-      handler: PluginFenceHandler<any>,
-      handlerIndex: number,
-    ) => {
-      validateHandlerNames(handler.languages, plugin.name, "fence");
-      validateFailureMode(handler.failureMode, plugin.name, "fence");
-      if (typeof handler.render !== "function") {
-        throw new MarkdownConversionError(
-          "Invalid plugin fence render: must be a function",
-          pluginContext(plugin.name, "fence", undefined, { handlerIndex }),
-        );
-      }
+    fenceHandlers?.forEach((rawHandler, handlerIndex) => {
+      const handler = handlerFields(rawHandler);
+      validateHandler(handler, handlerIndex, pluginName, "fence");
       for (const rawLanguage of handler.languages) {
         const language = rawLanguage.trim().toLowerCase();
         const builtInEnabled =
@@ -291,59 +377,50 @@ export function validatePluginConfiguration(options: Options): void {
         if (builtInEnabled) {
           throw new MarkdownConversionError(
             "Plugin fence conflicts with an enabled built-in renderer",
-            pluginContext(plugin.name, "fence", undefined, { language }),
+            pluginContext(pluginName, "fence", undefined, { language }),
           );
         }
         const owner = fenceOwners.get(language);
-        if (owner === plugin.name) {
+        if (owner === pluginName) {
           throw new MarkdownConversionError("Duplicate plugin fence handler", {
-            plugin: plugin.name,
+            plugin: pluginName,
             language,
           });
         }
         if (owner && conflictPolicy === "error") {
           throw new MarkdownConversionError("Conflicting plugin fence handlers", {
             language,
-            plugins: [owner, plugin.name],
+            plugins: [owner, pluginName],
           });
         }
-        fenceOwners.set(language, owner ?? plugin.name);
+        fenceOwners.set(language, owner ?? pluginName);
       }
     });
 
-    plugin.blockNodes?.forEach((
-      handler: PluginBlockNodeHandler<any>,
-      handlerIndex: number,
-    ) => {
-      validateHandlerNames(handler.nodeTypes, plugin.name, "blockNode");
-      validateFailureMode(handler.failureMode, plugin.name, "blockNode");
-      if (typeof handler.render !== "function") {
-        throw new MarkdownConversionError(
-          "Invalid plugin block-node render: must be a function",
-          pluginContext(plugin.name, "blockNode", undefined, { handlerIndex }),
-        );
-      }
+    blockNodeHandlers?.forEach((rawHandler, handlerIndex) => {
+      const handler = handlerFields(rawHandler);
+      validateHandler(handler, handlerIndex, pluginName, "blockNode");
       for (const nodeType of handler.nodeTypes) {
         if (BUILT_IN_BLOCK_NODES.has(nodeType)) {
           throw new MarkdownConversionError(
             "Plugin block-node handler cannot override a built-in node type",
-            pluginContext(plugin.name, "blockNode", undefined, { nodeType }),
+            pluginContext(pluginName, "blockNode", undefined, { nodeType }),
           );
         }
         const owner = nodeOwners.get(nodeType);
-        if (owner === plugin.name) {
+        if (owner === pluginName) {
           throw new MarkdownConversionError("Duplicate plugin block-node handler", {
-            plugin: plugin.name,
+            plugin: pluginName,
             nodeType,
           });
         }
         if (owner && conflictPolicy === "error") {
           throw new MarkdownConversionError(
             "Conflicting plugin block-node handlers",
-            { nodeType, plugins: [owner, plugin.name] },
+            { nodeType, plugins: [owner, pluginName] },
           );
         }
-        nodeOwners.set(nodeType, owner ?? plugin.name);
+        nodeOwners.set(nodeType, owner ?? pluginName);
       }
     });
   });
@@ -425,17 +502,10 @@ export class PluginRuntime {
         });
         throwIfAborted(signal);
       } catch (error) {
-        if (error instanceof MarkdownConversionError) {
-          throw error;
-        }
-        throw new MarkdownConversionError(
-          `Plugin "${registered.plugin.name}" setup failed: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }`,
-          pluginContext(registered.plugin.name, "setup", undefined, {
-            originalError: error,
-          }),
-        );
+        throw pluginHookError(error, registered.plugin, {
+          label: "setup",
+          hook: "setup",
+        });
       }
     }
   }
@@ -476,27 +546,19 @@ export class PluginRuntime {
         state: registered.state,
       };
       try {
-        current = (await transform(current, context)) ?? current;
-        if (
-          !current ||
-          current.type !== "root" ||
-          !Array.isArray(current.children)
-        ) {
+        // Third-party transforms may return anything; validate before use.
+        const transformed = (await transform(current, context)) ?? current;
+        if (!isMdastRoot(transformed)) {
           throw new Error("AST transform must return an mdast Root or void");
         }
+        current = transformed;
         throwIfAborted(signal);
       } catch (error) {
-        if (error instanceof MarkdownConversionError) {
-          throw error;
-        }
-        throw new MarkdownConversionError(
-          `Plugin "${registered.plugin.name}" AST transform failed: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }`,
-          pluginContext(registered.plugin.name, "transformAst", section, {
-            originalError: error,
-          }),
-        );
+        throw pluginHookError(error, registered.plugin, {
+          label: "AST transform",
+          hook: "transformAst",
+          section,
+        });
       }
     }
     return current;
@@ -504,7 +566,7 @@ export class PluginRuntime {
 
   async render(
     reference: PluginHandlerReference,
-    input: { language: string; value: string; meta?: string } | { node: Readonly<Node>; nodeType: string },
+    input: { language: string; value: string; meta?: string | undefined } | { node: Readonly<Node>; nodeType: string },
     context: Omit<PluginRenderContext, "pluginName" | "options" | "state" | "renderChildren">,
   ): Promise<PluginRenderResult> {
     const registered = this.registered(reference);
@@ -518,11 +580,11 @@ export class PluginRuntime {
     throwIfAborted(context.signal);
     const handler =
       reference.kind === "fence"
-        ? registered.plugin.fencedBlocks?.[reference.handlerIndex] as PluginFenceHandler | undefined
-        : registered.plugin.blockNodes?.[reference.handlerIndex] as PluginBlockNodeHandler | undefined;
+        ? registered.plugin.fencedBlocks?.[reference.handlerIndex]
+        : registered.plugin.blockNodes?.[reference.handlerIndex];
     const result = reference.kind === "fence"
       ? await (handler as PluginFenceHandler).render(
-          input as { language: string; value: string; meta?: string },
+          input as { language: string; value: string; meta?: string | undefined },
           renderContext,
         )
       : await (handler as PluginBlockNodeHandler).render(

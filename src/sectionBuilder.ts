@@ -174,53 +174,55 @@ function mergeHeaderFooterGroup(
   return mergedGroup;
 }
 
+/** Shallow-merges two config layers; the section layer wins per key. */
+function layered<T extends object>(
+  template: T | undefined,
+  section: T | undefined,
+): Partial<T> {
+  return { ...(template || {}), ...(section || {}) };
+}
+
+/** The value, or undefined when it has no keys of its own. */
+function nonEmpty<T extends object>(value: T): T | undefined {
+  return Object.keys(value).length > 0 ? value : undefined;
+}
+
+function mergeSectionPage(
+  template: SectionTemplate,
+  section: SectionConfig,
+): NonNullable<SectionConfig["page"]> {
+  const margin = nonEmpty(layered(template.page?.margin, section.page?.margin));
+  const size = nonEmpty(layered(template.page?.size, section.page?.size));
+  return {
+    ...layered(template.page, section.page),
+    ...(margin ? { margin } : {}),
+    ...(size ? { size } : {}),
+  };
+}
+
 function mergeSectionConfig(
-  template?: SectionTemplate,
-  section?: SectionConfig,
+  templateInput?: SectionTemplate,
+  sectionInput?: SectionConfig,
 ): SectionConfig {
-  const mergedStyle = {
-    ...(template?.style || {}),
-    ...(section?.style || {}),
-  };
-  const mergedPageMargins = {
-    ...(template?.page?.margin || {}),
-    ...(section?.page?.margin || {}),
-  };
-  const mergedPageSize = {
-    ...(template?.page?.size || {}),
-    ...(section?.page?.size || {}),
-  };
-  const mergedPage = {
-    ...(template?.page || {}),
-    ...(section?.page || {}),
-    ...(Object.keys(mergedPageMargins).length > 0
-      ? { margin: mergedPageMargins }
-      : {}),
-    ...(Object.keys(mergedPageSize).length > 0 ? { size: mergedPageSize } : {}),
-  };
-  const mergedPageNumbering = {
-    ...(template?.pageNumbering || {}),
-    ...(section?.pageNumbering || {}),
-  };
-  const mergedHeaders = mergeHeaderFooterGroup(
-    template?.headers,
-    section?.headers,
+  // `??`, not a default parameter: an untyped caller can pass a null template.
+  const template = templateInput ?? {};
+  const section = sectionInput ?? {};
+  const style = nonEmpty(layered(template.style, section.style));
+  const page = nonEmpty(mergeSectionPage(template, section));
+  const pageNumbering = nonEmpty(
+    layered(template.pageNumbering, section.pageNumbering),
   );
-  const mergedFooters = mergeHeaderFooterGroup(
-    template?.footers,
-    section?.footers,
-  );
+  const headers = mergeHeaderFooterGroup(template.headers, section.headers);
+  const footers = mergeHeaderFooterGroup(template.footers, section.footers);
 
   return {
-    ...(template || {}),
-    ...(section || {}),
-    ...(Object.keys(mergedStyle).length > 0 ? { style: mergedStyle } : {}),
-    ...(Object.keys(mergedPage).length > 0 ? { page: mergedPage } : {}),
-    ...(Object.keys(mergedPageNumbering).length > 0
-      ? { pageNumbering: mergedPageNumbering }
-      : {}),
-    ...(mergedHeaders ? { headers: mergedHeaders } : {}),
-    ...(mergedFooters ? { footers: mergedFooters } : {}),
+    ...template,
+    ...section,
+    ...(style ? { style } : {}),
+    ...(page ? { page } : {}),
+    ...(pageNumbering ? { pageNumbering } : {}),
+    ...(headers ? { headers } : {}),
+    ...(footers ? { footers } : {}),
   };
 }
 

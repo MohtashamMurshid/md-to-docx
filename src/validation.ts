@@ -1,30 +1,37 @@
 import {
   AlignmentOption,
   CaptionOptions,
-  CalloutType,
   DocumentSection,
+  HeaderFooterContent,
   HeaderFooterGroup,
   HeaderFooterSlot,
   Options,
   SectionConfig,
   SectionPageNumberDisplay,
-  Style,
+  SectionPageNumbering,
+  SectionPageSize,
   TocOptions,
 } from "./types.js";
 import { MarkdownConversionError } from "./errors.js";
-import {
-  validateAccessibilityOptions,
-  validateOoxmlText,
-} from "./accessibility.js";
-import {
-  MAX_METADATA_LANGUAGE_LENGTH,
-  validateDocumentMetadata,
-} from "./metadata.js";
+import { validateAccessibilityOptions } from "./accessibility.js";
+import { validateDocumentMetadata } from "./metadata.js";
 import {
   normalizeSectionConfig,
   normalizeStyleInput,
 } from "./sectionBuilder.js";
 import { validatePluginConfiguration } from "./pluginRuntime.js";
+import { validateStyleInput } from "./styleValidation.js";
+import {
+  AnyFieldRule,
+  FieldRule,
+  checkFields,
+  isBlankOrNotString,
+  isNotBoolean,
+  isNotOneOf,
+  isNotString,
+  scopedContext,
+  valueContext,
+} from "./validationRules.js";
 
 const validAlignments: AlignmentOption[] = [
   "LEFT",
@@ -61,229 +68,301 @@ const validSectionTypes = [
 ] as const;
 const validPageOrientations = ["PORTRAIT", "LANDSCAPE"] as const;
 const validTextReplacementModes = ["trusted", "untrusted"] as const;
-const validCalloutTypes: CalloutType[] = [
-  "note",
-  "tip",
-  "important",
-  "warning",
-  "caution",
+
+function booleanRule<T, K extends keyof T>(
+  key: K,
+  message: string,
+): FieldRule<T, K> {
+  return { key, message, invalid: isNotBoolean };
+}
+
+function isNotPositiveFinite(value: unknown): boolean {
+  return typeof value !== "number" || !Number.isFinite(value) || value <= 0;
+}
+
+function isNotTocDepth(value: number): boolean {
+  return !Number.isInteger(value) || value < 1 || value > 6;
+}
+
+/** TOC checks in the order they run; the first failure is reported. */
+const TOC_RULES: readonly AnyFieldRule<TocOptions>[] = [
+  {
+    key: "mode",
+    message: "Invalid toc.mode",
+    invalid: isNotOneOf(["native", "links"]),
+  },
+  booleanRule("pageNumbers", "Invalid toc.pageNumbers"),
+  booleanRule("dotLeaders", "Invalid toc.dotLeaders"),
+  booleanRule("updateFieldsOnOpen", "Invalid toc.updateFieldsOnOpen"),
+  {
+    key: "title",
+    message: "Invalid TOC title: Must be a string",
+    invalid: isNotString,
+    context: valueContext("title"),
+  },
+  {
+    key: "minDepth",
+    message: "Invalid TOC minDepth: Must be an integer between 1 and 6",
+    invalid: isNotTocDepth,
+    context: valueContext("minDepth"),
+  },
+  {
+    key: "maxDepth",
+    message: "Invalid TOC maxDepth: Must be an integer between 1 and 6",
+    invalid: isNotTocDepth,
+    context: valueContext("maxDepth"),
+  },
 ];
-
-function validateHexColorOption(
-  value: string | undefined,
-  name: string,
-  context: string,
-): void {
-  if (value !== undefined && !/^[0-9A-Fa-f]{6}$/.test(value)) {
-    throw new MarkdownConversionError(
-      `${name} must be a 6-character hex color`,
-      {
-        context,
-        value,
-      },
-    );
-  }
-}
-
-function validateStyleInput(
-  style: Partial<Style> | undefined,
-  styleContext: string,
-): void {
-  if (!style) {
-    return;
-  }
-
-  const { titleSize, headingSpacing, paragraphSpacing, lineSpacing } = style;
-  if (titleSize !== undefined && (titleSize < 8 || titleSize > 72)) {
-    throw new MarkdownConversionError(
-      "Invalid title size: Must be between 8 and 72 points",
-      { styleContext, titleSize },
-    );
-  }
-  if (
-    headingSpacing !== undefined &&
-    (headingSpacing < 0 || headingSpacing > 720)
-  ) {
-    throw new MarkdownConversionError(
-      "Invalid heading spacing: Must be between 0 and 720 twips",
-      { styleContext, headingSpacing },
-    );
-  }
-  if (
-    paragraphSpacing !== undefined &&
-    (paragraphSpacing < 0 || paragraphSpacing > 720)
-  ) {
-    throw new MarkdownConversionError(
-      "Invalid paragraph spacing: Must be between 0 and 720 twips",
-      { styleContext, paragraphSpacing },
-    );
-  }
-  if (lineSpacing !== undefined && (lineSpacing < 1 || lineSpacing > 3)) {
-    throw new MarkdownConversionError(
-      "Invalid line spacing: Must be between 1 and 3",
-      { styleContext, lineSpacing },
-    );
-  }
-
-  if (
-    style.fontFamily !== undefined &&
-    (typeof style.fontFamily !== "string" ||
-      style.fontFamily.trim().length === 0)
-  ) {
-    throw new MarkdownConversionError(
-      "Invalid fontFamily: Must be a non-empty string",
-      { styleContext, fontFamily: style.fontFamily },
-    );
-  }
-
-  if (style.language !== undefined) {
-    validateOoxmlText(
-      style.language,
-      `${styleContext}.language`,
-      MAX_METADATA_LANGUAGE_LENGTH,
-    );
-    if (!/^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/u.test(style.language)) {
-      throw new MarkdownConversionError(
-        "Invalid style language: Must be a BCP 47-style language tag",
-        { styleContext, language: style.language },
-      );
-    }
-  }
-
-  if (
-    style.tableColumnWidths !== undefined &&
-    (!Array.isArray(style.tableColumnWidths) ||
-      !style.tableColumnWidths.length ||
-      style.tableColumnWidths.some(
-        (n) => !Number.isInteger(n) || n < 1 || n > 31680,
-      ))
-  )
-    throw new MarkdownConversionError("Invalid tableColumnWidths");
-  if (
-    style.tableAllowRowSplit !== undefined &&
-    typeof style.tableAllowRowSplit !== "boolean"
-  )
-    throw new MarkdownConversionError("Invalid tableAllowRowSplit");
-  validateHexColorOption(
-    style.tableHeaderBackground,
-    "tableHeaderBackground",
-    styleContext,
-  );
-  for (const value of Object.values(style.tableCellMargins ?? {}))
-    if (!Number.isInteger(value) || value < 0 || value > 31680)
-      throw new MarkdownConversionError("Invalid tableCellMargins");
-  validateHexColorOption(
-    style.inlineCodeColor,
-    "inlineCodeColor",
-    styleContext,
-  );
-  validateHexColorOption(
-    style.inlineCodeBackground,
-    "inlineCodeBackground",
-    styleContext,
-  );
-
-  if (style.calloutStyles !== undefined) {
-    // Read as unknown: styles may come from untyped JS or CLI JSON.
-    const calloutStyles: unknown = style.calloutStyles;
-    if (
-      typeof calloutStyles !== "object" ||
-      calloutStyles === null ||
-      Array.isArray(calloutStyles)
-    ) {
-      throw new MarkdownConversionError(
-        "Invalid calloutStyles: Must be an object",
-        {
-          styleContext,
-          calloutStyles,
-        },
-      );
-    }
-
-    for (const [calloutType, calloutStyle] of Object.entries(
-      style.calloutStyles,
-    )) {
-      if (!validCalloutTypes.includes(calloutType as CalloutType)) {
-        throw new MarkdownConversionError(
-          `Invalid calloutStyles key: ${calloutType}`,
-          { styleContext, calloutType },
-        );
-      }
-      const calloutStyleValue: unknown = calloutStyle;
-      if (
-        typeof calloutStyleValue !== "object" ||
-        calloutStyleValue === null ||
-        Array.isArray(calloutStyleValue)
-      ) {
-        throw new MarkdownConversionError(
-          `Invalid calloutStyles.${calloutType}: Must be an object`,
-          { styleContext, calloutStyle },
-        );
-      }
-
-      validateHexColorOption(
-        calloutStyle.borderColor,
-        `calloutStyles.${calloutType}.borderColor`,
-        styleContext,
-      );
-      validateHexColorOption(
-        calloutStyle.backgroundColor,
-        `calloutStyles.${calloutType}.backgroundColor`,
-        styleContext,
-      );
-      validateHexColorOption(
-        calloutStyle.titleColor,
-        `calloutStyles.${calloutType}.titleColor`,
-        styleContext,
-      );
-    }
-  }
-}
 
 function validateTocOptionsInput(toc: TocOptions | undefined): void {
   if (!toc) {
     return;
   }
 
-  if (toc.mode !== undefined && !["native", "links"].includes(toc.mode))
-    throw new MarkdownConversionError("Invalid toc.mode");
-  for (const key of [
-    "pageNumbers",
-    "dotLeaders",
+  checkFields(toc, TOC_RULES);
+
+  const { minDepth, maxDepth } = toc;
+  if (minDepth !== undefined && maxDepth !== undefined && minDepth > maxDepth) {
+    throw new MarkdownConversionError(
+      "Invalid TOC depth range: minDepth cannot be greater than maxDepth",
+      { minDepth, maxDepth },
+    );
+  }
+}
+
+/** Caption checks in the order they run; none carries a context. */
+const CAPTION_RULES: readonly AnyFieldRule<CaptionOptions>[] = [
+  {
+    key: "figureLabel",
+    message: "Invalid captions.figureLabel: Must be a non-empty string",
+    invalid: isBlankOrNotString,
+  },
+  {
+    key: "tableLabel",
+    message: "Invalid captions.tableLabel: Must be a non-empty string",
+    invalid: isBlankOrNotString,
+  },
+  {
+    key: "figurePlacement",
+    message: "Invalid captions.figurePlacement: Must be above or below",
+    invalid: isNotOneOf(["above", "below"]),
+  },
+  {
+    key: "tablePlacement",
+    message: "Invalid captions.tablePlacement: Must be above or below",
+    invalid: isNotOneOf(["above", "below"]),
+  },
+  {
+    key: "alignment",
+    message:
+      "Invalid captions.alignment: Must be LEFT, CENTER, RIGHT, or JUSTIFIED",
+    invalid: isNotOneOf(validAlignments),
+  },
+  booleanRule("italic", "Invalid captions.italic: Must be a boolean"),
+  booleanRule(
     "updateFieldsOnOpen",
-  ] as const)
-    if (toc[key] !== undefined && typeof toc[key] !== "boolean")
-      throw new MarkdownConversionError(`Invalid toc.${key}`);
-  if (toc.title !== undefined && typeof toc.title !== "string") {
-    throw new MarkdownConversionError("Invalid TOC title: Must be a string", {
-      title: toc.title,
-    });
+    "Invalid captions.updateFieldsOnOpen: Must be a boolean",
+  ),
+  {
+    key: "size",
+    message: "Invalid captions.size: Must be between 8 and 144 half-points",
+    invalid: (size) => !Number.isFinite(size) || size < 8 || size > 144,
+  },
+  {
+    key: "failureMode",
+    message: "Invalid captions.failureMode: Must be preserve or throw",
+    invalid: isNotOneOf(["preserve", "throw"]),
+  },
+];
+
+function validateCaptionOptionsInput(
+  captions: CaptionOptions | undefined,
+): void {
+  if (captions) {
+    checkFields(captions, CAPTION_RULES);
+  }
+}
+
+/** Page numbering checks; contexts name the field `pageNumber<Field>`. */
+const PAGE_NUMBERING_RULES: readonly AnyFieldRule<SectionPageNumbering>[] = [
+  {
+    key: "start",
+    message: "Invalid page number start: Must be an integer >= 1",
+    invalid: (start) => !Number.isInteger(start) || start < 1,
+    context: scopedContext("pageNumberStart"),
+  },
+  {
+    key: "display",
+    message:
+      "Invalid page number display: Must be one of none, current, currentAndTotal, currentAndSectionTotal",
+    invalid: isNotOneOf(validPageNumberDisplays),
+    context: scopedContext("pageNumberDisplay"),
+  },
+  {
+    key: "alignment",
+    message:
+      "Invalid page number alignment: Must be one of LEFT, CENTER, RIGHT, JUSTIFIED",
+    invalid: isNotOneOf(validAlignments),
+    context: scopedContext("pageNumberAlignment"),
+  },
+  {
+    key: "formatType",
+    message:
+      "Invalid page number formatType: Must be one of decimal, upperRoman, lowerRoman, upperLetter, lowerLetter",
+    invalid: isNotOneOf(validPageNumberFormats),
+    context: scopedContext("pageNumberFormatType"),
+  },
+  {
+    key: "separator",
+    message:
+      "Invalid page number separator: Must be one of hyphen, period, colon, emDash, endash",
+    invalid: isNotOneOf(validPageNumberSeparators),
+    context: scopedContext("pageNumberSeparator"),
+  },
+];
+
+/** Header/footer slot checks, run once the slot is known to be an object. */
+const HEADER_FOOTER_SLOT_RULES: readonly AnyFieldRule<HeaderFooterContent>[] = [
+  {
+    key: "markdown",
+    message: "Invalid header/footer markdown: Must be a string",
+    invalid: isNotString,
+  },
+  {
+    key: "text",
+    message: "Invalid header/footer text: Must be a string",
+    invalid: isNotString,
+    context: scopedContext("text"),
+  },
+  {
+    key: "alignment",
+    message:
+      "Invalid header/footer alignment: Must be one of LEFT, CENTER, RIGHT, JUSTIFIED",
+    invalid: isNotOneOf(validAlignments),
+    context: scopedContext("alignment"),
+  },
+  {
+    key: "pageNumberDisplay",
+    message:
+      "Invalid header/footer page number display: Must be one of none, current, currentAndTotal, currentAndSectionTotal",
+    invalid: isNotOneOf(validPageNumberDisplays),
+    context: scopedContext("pageNumberDisplay"),
+  },
+];
+
+function validateHeaderFooterSlotInput(
+  slot: HeaderFooterSlot | undefined,
+  context: string,
+): void {
+  if (slot === undefined || slot === null) {
+    return;
   }
 
-  for (const [name, value] of [
-    ["minDepth", toc.minDepth],
-    ["maxDepth", toc.maxDepth],
-  ] as const) {
-    if (
-      value !== undefined &&
-      (!Number.isInteger(value) || value < 1 || value > 6)
-    ) {
+  if (typeof slot !== "object") {
+    throw new MarkdownConversionError(
+      "Invalid header/footer slot: Must be an object or null",
+      { context, slot },
+    );
+  }
+
+  checkFields(slot, HEADER_FOOTER_SLOT_RULES, context);
+}
+
+function validateHeaderFooterGroupInput(
+  group: HeaderFooterGroup | undefined,
+  context: string,
+): void {
+  if (!group) {
+    return;
+  }
+
+  validateHeaderFooterSlotInput(group.default, `${context}.default`);
+  validateHeaderFooterSlotInput(group.first, `${context}.first`);
+  validateHeaderFooterSlotInput(group.even, `${context}.even`);
+}
+
+/** Section fields checked after style, page numbering, headers and footers. */
+const SECTION_RULES: readonly AnyFieldRule<SectionConfig>[] = [
+  {
+    key: "titlePage",
+    message: "Invalid titlePage: Must be a boolean value",
+    invalid: isNotBoolean,
+    context: scopedContext("titlePage"),
+  },
+  {
+    key: "type",
+    message:
+      "Invalid section type: Must be one of NEXT_PAGE, NEXT_COLUMN, CONTINUOUS, EVEN_PAGE, ODD_PAGE",
+    invalid: isNotOneOf(validSectionTypes),
+    context: scopedContext("sectionType"),
+  },
+];
+
+const PAGE_SIZE_RULES: readonly AnyFieldRule<SectionPageSize>[] = [
+  {
+    key: "width",
+    message: "Invalid page width: Must be a finite number > 0",
+    invalid: isNotPositiveFinite,
+    context: scopedContext("width"),
+  },
+  {
+    key: "height",
+    message: "Invalid page height: Must be a finite number > 0",
+    invalid: isNotPositiveFinite,
+    context: scopedContext("height"),
+  },
+  {
+    key: "orientation",
+    message: "Invalid page orientation: Must be PORTRAIT or LANDSCAPE",
+    invalid: isNotOneOf(validPageOrientations),
+    context: scopedContext("orientation"),
+  },
+];
+
+function isNotNonNegativeFinite(value: unknown): boolean {
+  return typeof value !== "number" || !Number.isFinite(value) || value < 0;
+}
+
+function validatePageMarginsInput(
+  margins: NonNullable<SectionConfig["page"]>["margin"],
+  context: string,
+): void {
+  if (!margins) {
+    return;
+  }
+  const marginEntries: [string, unknown][] = Object.entries(margins);
+  for (const [name, value] of marginEntries) {
+    if (value !== undefined && isNotNonNegativeFinite(value)) {
       throw new MarkdownConversionError(
-        `Invalid TOC ${name}: Must be an integer between 1 and 6`,
-        { [name]: value },
+        `Invalid page margin '${name}': Must be a finite number >= 0`,
+        { context, margin: name, value },
       );
     }
   }
+}
 
-  if (
-    toc.minDepth !== undefined &&
-    toc.maxDepth !== undefined &&
-    toc.minDepth > toc.maxDepth
-  ) {
-    throw new MarkdownConversionError(
-      "Invalid TOC depth range: minDepth cannot be greater than maxDepth",
-      { minDepth: toc.minDepth, maxDepth: toc.maxDepth },
+function validateSectionConfigInput(
+  config: SectionConfig | undefined,
+  context: string,
+): void {
+  if (!config) {
+    return;
+  }
+
+  validateStyleInput(normalizeStyleInput(config.style), `${context}.style`);
+  if (config.pageNumbering) {
+    checkFields(
+      config.pageNumbering,
+      PAGE_NUMBERING_RULES,
+      `${context}.pageNumbering`,
     );
+  }
+  validateHeaderFooterGroupInput(config.headers, `${context}.headers`);
+  validateHeaderFooterGroupInput(config.footers, `${context}.footers`);
+  checkFields(config, SECTION_RULES, context);
+  validatePageMarginsInput(config.page?.margin, context);
+  if (config.page?.size) {
+    checkFields(config.page.size, PAGE_SIZE_RULES, context);
   }
 }
 
@@ -313,287 +392,6 @@ function validateMathRenderingInput(
       'Invalid mathRendering.unsupported: Must be "text" or "throw"',
       { unsupported },
     );
-  }
-}
-
-function validateCaptionOptionsInput(
-  captions: CaptionOptions | undefined,
-): void {
-  if (!captions) {
-    return;
-  }
-
-  for (const [name, value] of [
-    ["figureLabel", captions.figureLabel],
-    ["tableLabel", captions.tableLabel],
-  ] as const) {
-    if (
-      value !== undefined &&
-      (typeof value !== "string" || value.trim().length === 0)
-    ) {
-      throw new MarkdownConversionError(
-        `Invalid captions.${name}: Must be a non-empty string`,
-      );
-    }
-  }
-
-  for (const [name, value] of [
-    ["figurePlacement", captions.figurePlacement],
-    ["tablePlacement", captions.tablePlacement],
-  ] as const) {
-    const placement: unknown = value;
-    if (
-      placement !== undefined &&
-      placement !== "above" &&
-      placement !== "below"
-    ) {
-      throw new MarkdownConversionError(
-        `Invalid captions.${name}: Must be above or below`,
-      );
-    }
-  }
-
-  if (
-    captions.alignment !== undefined &&
-    !validAlignments.includes(captions.alignment)
-  ) {
-    throw new MarkdownConversionError(
-      "Invalid captions.alignment: Must be LEFT, CENTER, RIGHT, or JUSTIFIED",
-    );
-  }
-  if (captions.italic !== undefined && typeof captions.italic !== "boolean") {
-    throw new MarkdownConversionError(
-      "Invalid captions.italic: Must be a boolean",
-    );
-  }
-  if (
-    captions.updateFieldsOnOpen !== undefined &&
-    typeof captions.updateFieldsOnOpen !== "boolean"
-  ) {
-    throw new MarkdownConversionError(
-      "Invalid captions.updateFieldsOnOpen: Must be a boolean",
-    );
-  }
-  if (
-    captions.size !== undefined &&
-    (!Number.isFinite(captions.size) ||
-      captions.size < 8 ||
-      captions.size > 144)
-  ) {
-    throw new MarkdownConversionError(
-      "Invalid captions.size: Must be between 8 and 144 half-points",
-    );
-  }
-  const failureMode: unknown = captions.failureMode;
-  if (
-    failureMode !== undefined &&
-    failureMode !== "preserve" &&
-    failureMode !== "throw"
-  ) {
-    throw new MarkdownConversionError(
-      "Invalid captions.failureMode: Must be preserve or throw",
-    );
-  }
-}
-
-function validatePageNumberingInput(
-  pageNumbering: SectionConfig["pageNumbering"] | undefined,
-  context: string,
-): void {
-  if (!pageNumbering) {
-    return;
-  }
-
-  if (
-    pageNumbering.start !== undefined &&
-    (!Number.isInteger(pageNumbering.start) || pageNumbering.start < 1)
-  ) {
-    throw new MarkdownConversionError(
-      "Invalid page number start: Must be an integer >= 1",
-      { context, pageNumberStart: pageNumbering.start },
-    );
-  }
-
-  if (
-    pageNumbering.display !== undefined &&
-    !validPageNumberDisplays.includes(pageNumbering.display)
-  ) {
-    throw new MarkdownConversionError(
-      "Invalid page number display: Must be one of none, current, currentAndTotal, currentAndSectionTotal",
-      { context, pageNumberDisplay: pageNumbering.display },
-    );
-  }
-
-  if (
-    pageNumbering.alignment !== undefined &&
-    !validAlignments.includes(pageNumbering.alignment)
-  ) {
-    throw new MarkdownConversionError(
-      "Invalid page number alignment: Must be one of LEFT, CENTER, RIGHT, JUSTIFIED",
-      { context, pageNumberAlignment: pageNumbering.alignment },
-    );
-  }
-
-  if (
-    pageNumbering.formatType !== undefined &&
-    !validPageNumberFormats.includes(pageNumbering.formatType)
-  ) {
-    throw new MarkdownConversionError(
-      "Invalid page number formatType: Must be one of decimal, upperRoman, lowerRoman, upperLetter, lowerLetter",
-      { context, pageNumberFormatType: pageNumbering.formatType },
-    );
-  }
-
-  if (
-    pageNumbering.separator !== undefined &&
-    !validPageNumberSeparators.includes(pageNumbering.separator)
-  ) {
-    throw new MarkdownConversionError(
-      "Invalid page number separator: Must be one of hyphen, period, colon, emDash, endash",
-      { context, pageNumberSeparator: pageNumbering.separator },
-    );
-  }
-}
-
-function validateHeaderFooterSlotInput(
-  slot: HeaderFooterSlot | undefined,
-  context: string,
-): void {
-  if (slot === undefined || slot === null) {
-    return;
-  }
-
-  if (typeof slot !== "object") {
-    throw new MarkdownConversionError(
-      "Invalid header/footer slot: Must be an object or null",
-      { context, slot },
-    );
-  }
-
-  if (slot.markdown !== undefined && typeof slot.markdown !== "string")
-    throw new MarkdownConversionError(
-      "Invalid header/footer markdown: Must be a string",
-    );
-
-  if (slot.text !== undefined && typeof slot.text !== "string") {
-    throw new MarkdownConversionError(
-      "Invalid header/footer text: Must be a string",
-      { context, text: slot.text },
-    );
-  }
-
-  if (
-    slot.alignment !== undefined &&
-    !validAlignments.includes(slot.alignment)
-  ) {
-    throw new MarkdownConversionError(
-      "Invalid header/footer alignment: Must be one of LEFT, CENTER, RIGHT, JUSTIFIED",
-      { context, alignment: slot.alignment },
-    );
-  }
-
-  if (
-    slot.pageNumberDisplay !== undefined &&
-    !validPageNumberDisplays.includes(slot.pageNumberDisplay)
-  ) {
-    throw new MarkdownConversionError(
-      "Invalid header/footer page number display: Must be one of none, current, currentAndTotal, currentAndSectionTotal",
-      { context, pageNumberDisplay: slot.pageNumberDisplay },
-    );
-  }
-}
-
-function validateHeaderFooterGroupInput(
-  group: HeaderFooterGroup | undefined,
-  context: string,
-): void {
-  if (!group) {
-    return;
-  }
-
-  validateHeaderFooterSlotInput(group.default, `${context}.default`);
-  validateHeaderFooterSlotInput(group.first, `${context}.first`);
-  validateHeaderFooterSlotInput(group.even, `${context}.even`);
-}
-
-function validateSectionConfigInput(
-  config: SectionConfig | undefined,
-  context: string,
-): void {
-  if (!config) {
-    return;
-  }
-
-  validateStyleInput(normalizeStyleInput(config.style), `${context}.style`);
-  validatePageNumberingInput(config.pageNumbering, `${context}.pageNumbering`);
-  validateHeaderFooterGroupInput(config.headers, `${context}.headers`);
-  validateHeaderFooterGroupInput(config.footers, `${context}.footers`);
-
-  if (config.titlePage !== undefined && typeof config.titlePage !== "boolean") {
-    throw new MarkdownConversionError(
-      "Invalid titlePage: Must be a boolean value",
-      { context, titlePage: config.titlePage },
-    );
-  }
-
-  if (config.type !== undefined && !validSectionTypes.includes(config.type)) {
-    throw new MarkdownConversionError(
-      "Invalid section type: Must be one of NEXT_PAGE, NEXT_COLUMN, CONTINUOUS, EVEN_PAGE, ODD_PAGE",
-      { context, sectionType: config.type },
-    );
-  }
-
-  const margins = config.page?.margin;
-  if (margins) {
-    const marginEntries: [string, unknown][] = Object.entries(margins);
-    marginEntries.forEach(([name, value]) => {
-      if (value === undefined) {
-        return;
-      }
-      if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-        throw new MarkdownConversionError(
-          `Invalid page margin '${name}': Must be a finite number >= 0`,
-          { context, margin: name, value },
-        );
-      }
-    });
-  }
-
-  const pageSize = config.page?.size;
-  if (pageSize) {
-    if (
-      pageSize.width !== undefined &&
-      (typeof pageSize.width !== "number" ||
-        !Number.isFinite(pageSize.width) ||
-        pageSize.width <= 0)
-    ) {
-      throw new MarkdownConversionError(
-        "Invalid page width: Must be a finite number > 0",
-        { context, width: pageSize.width },
-      );
-    }
-
-    if (
-      pageSize.height !== undefined &&
-      (typeof pageSize.height !== "number" ||
-        !Number.isFinite(pageSize.height) ||
-        pageSize.height <= 0)
-    ) {
-      throw new MarkdownConversionError(
-        "Invalid page height: Must be a finite number > 0",
-        { context, height: pageSize.height },
-      );
-    }
-
-    if (
-      pageSize.orientation !== undefined &&
-      !validPageOrientations.includes(pageSize.orientation)
-    ) {
-      throw new MarkdownConversionError(
-        "Invalid page orientation: Must be PORTRAIT or LANDSCAPE",
-        { context, orientation: pageSize.orientation },
-      );
-    }
   }
 }
 

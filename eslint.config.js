@@ -63,7 +63,6 @@ export default [
     // functions pass fallow's thresholds and these two rules
     // (docs/DECISIONS.md, "Complexity baseline").
     files: [
-      "src/index.ts",
       "src/mdastToDocxModel.ts",
       "src/modelToDocx.ts",
       "src/patchPackage.ts",

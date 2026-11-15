@@ -12,6 +12,7 @@ import {
   SectionPageNumberDisplay,
   SectionPageNumbering,
   SectionPageSize,
+  ProtectionOptions,
   ReferenceDocxGenerationOptions,
   TaskListOptions,
   TocOptions,
@@ -243,6 +244,10 @@ const TASK_LIST_RULES: readonly AnyFieldRule<TaskListOptions>[] = [
   },
 ];
 
+const PROTECTION_RULES: readonly AnyFieldRule<ProtectionOptions>[] = [
+  booleanRule("readOnly", "Invalid protection.readOnly: Must be a boolean"),
+];
+
 /** Watermark text longer than this shrinks to fit the page and stops reading as one. */
 const MAX_WATERMARK_TEXT_LENGTH = 100;
 
@@ -292,6 +297,11 @@ const PATCH_UNSUPPORTED_OPTIONS: readonly {
     active: (options) => options.watermark !== undefined,
     message:
       "Patch mode does not support watermark: the template's headers are kept as they are.",
+  },
+  {
+    active: (options) => options.protection?.readOnly === true,
+    message:
+      "Patch mode does not support protection: the template's settings are kept as they are.",
   },
 ];
 
@@ -788,6 +798,7 @@ export function validateInput(markdown: string, options: Options): void {
   checkOptionObject(options.footnotes, "footnotes", FOOTNOTE_RULES);
   checkOptionObject(options.taskLists, "taskLists", TASK_LIST_RULES);
   validateWatermarkInput(options.watermark);
+  checkOptionObject(options.protection, "protection", PROTECTION_RULES);
   validateImageHandlingInput(options.imageHandling);
   validateChartRenderingInput(options.chartRendering);
   validateMermaidRenderingInput(options.mermaidRendering);

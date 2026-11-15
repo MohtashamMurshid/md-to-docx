@@ -331,10 +331,24 @@ export interface Options {
    * joins each section's headers rather than replacing them.
    */
   watermark?: WatermarkOptions;
+  /**
+   * Word's Restrict Editing, with no password. It stops casual edits in
+   * Word; it is not security, since anyone can turn it off or edit the XML.
+   */
+  protection?: ProtectionOptions;
   /** Trusted programmatic renderer plugins. Functions cannot be loaded from CLI JSON. */
   plugins?: readonly AnyMarkdownDocxPlugin[];
   /** Deterministic conflict handling for overlapping plugin handlers. */
   pluginOptions?: PluginOptions;
+}
+
+export interface ProtectionOptions {
+  /**
+   * Open the document read-only in Word ("No changes"), with no password:
+   * Review > Restrict Editing > Stop Protection turns it off. The file is not
+   * encrypted. Defaults to false.
+   */
+  readOnly?: boolean;
 }
 
 export type WatermarkLayout = "diagonal" | "horizontal";

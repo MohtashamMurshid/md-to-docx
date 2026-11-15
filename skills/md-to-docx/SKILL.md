@@ -198,6 +198,7 @@ Each is off by default and works from a CLI `--options` JSON file. Where patch m
 | `footnotes.placement` | `footnotes`, `endnotes` (Word endnotes at the end of the document, numbered 1, 2, 3) | `footnotes` | `endnotes` rejected |
 | `taskLists.checkboxes` | `text` (`☐`/`☒` characters), `content-control` (clickable Word checkboxes, checked state kept) | `text` | supported |
 | `watermark` | `{ "text": "DRAFT", "color": "C0C0C0", "opacity": 0.5, "layout": "diagonal" }`; `text` (1–100 characters) is required. Added to every section's headers, alongside existing ones. With `--reference`, also set `reference.preserveHeadersAndFooters: false` | none | rejected |
+| `protection.readOnly` | `true` opens the document read-only in Word with no password. An editing restriction, not security: anyone can turn it off | `false` | rejected |
 
 ## Troubleshooting
 

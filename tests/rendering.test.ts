@@ -1443,6 +1443,23 @@ describe("Rendering: image dimension clamping", () => {
   });
 });
 
+describe("Rendering: document protection", () => {
+  it("restricts editing to read-only, with no password, only when asked", async () => {
+    const settings = async (options?: Options) =>
+      (await getZip(await convertMarkdownToDocx("Hello", options)))
+        .file("word/settings.xml")!
+        .async("string");
+
+    expect(await settings({ protection: { readOnly: true } })).toContain(
+      '<w:documentProtection w:edit="readOnly" w:enforcement="true"/>',
+    );
+    expect(await settings({ protection: { readOnly: false } })).toBe(
+      await settings(),
+    );
+    expect(await settings()).not.toContain("documentProtection");
+  });
+});
+
 describe("Rendering: error cases", () => {
   it("throws MarkdownConversionError for whitespace-only fontFamily", async () => {
     await expect(
@@ -1503,6 +1520,16 @@ describe("Rendering: error cases", () => {
       label: "a watermark opacity above 1",
       options: { watermark: { text: "DRAFT", opacity: 2 } },
       expected: "Invalid watermark.opacity: Must be a number from 0 to 1",
+    },
+    {
+      label: "protection that is not an object",
+      options: { protection: true },
+      expected: "Invalid protection: Must be an object",
+    },
+    {
+      label: "a non-boolean protection.readOnly",
+      options: { protection: { readOnly: "yes" } },
+      expected: "Invalid protection.readOnly: Must be a boolean",
     },
     {
       label: "an unknown watermark layout",

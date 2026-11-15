@@ -25,6 +25,7 @@ A TypeScript-first library and CLI that turns Markdown into production-ready Wor
 - [Features](#features)
   - [Multi-section documents (template + sections)](#multi-section-documents-template--sections)
   - [Watermarks](#watermarks)
+  - [Read-only protection](#read-only-protection)
   - [Figure and table captions](#figure-and-table-captions)
   - [Syntax-highlighted code blocks](#syntax-highlighted-code-blocks)
   - [Chart fenced blocks](#chart-fenced-blocks)
@@ -521,7 +522,7 @@ Current limitations:
 - This does not append to the end of a document unless the template contains a placeholder at that location.
 - Markdown table width is not inferred from the reference DOCX. Set `tableWidthTwips` to match the placeholder section's content width when the template differs from the default A4 portrait width.
 - New Word comments remain unsupported in patch Markdown. Existing template comments are preserved.
-- Conversion-only document options are rejected with a `MarkdownConversionError` rather than ignored: `footnotes.placement: "endnotes"` and `watermark`.
+- Conversion-only document options are rejected with a `MarkdownConversionError` rather than ignored: `footnotes.placement: "endnotes"`, `watermark`, and `protection.readOnly`.
 - Browser use accepts in-memory DOCX bytes; Node remains the primary tested environment.
 
 A placeholder replaces its containing paragraph, including when its text spans multiple Word runs. Repeated placeholders are all replaced by default; `recursive: false` replaces only the first occurrence of each name. Inserted text is never reinterpreted as another placeholder. Repeated copies receive distinct bookmark and footnote IDs. The merger preserves existing named styles and applies explicit Markdown formatting. `keepOriginalStyles` remains accepted for API compatibility; it does not override explicit patch formatting.
@@ -613,6 +614,16 @@ await convertMarkdownToBuffer(markdown, {
 The watermark lives in the headers and joins whatever they already hold. Every section gets it in its default header; a section that sets a `first` or `even` header slot, or `titlePage: true`, gets it there too. A header slot set to `null` still gets a header holding only the watermark. `text` is 1 to 100 characters, `color` is RRGGBB (default silver `C0C0C0`), `opacity` runs from 0 to 1 (default 0.5), and `layout` is `"diagonal"` (default) or `"horizontal"`.
 
 Reference-style generation replaces the generated headers with the reference's, so it rejects `watermark` unless `reference.preserveHeadersAndFooters` is `false`. Placeholder patching keeps the template's headers and rejects `watermark`.
+
+### Read-only protection
+
+`protection: { readOnly: true }` turns on Word's Restrict Editing with "No changes (Read only)", so Word opens the document without letting readers edit it:
+
+```typescript
+await convertMarkdownToBuffer(markdown, { protection: { readOnly: true } });
+```
+
+This is an editing restriction, not security. It sets no password, so anyone can turn it off in Word with Review > Restrict Editing > Stop Protection. The file is not encrypted, and other programs can read or change it. Checkbox content controls from `taskLists.checkboxes` cannot be toggled while it is on. Reference-style generation keeps it; placeholder patching keeps the template's settings and rejects it.
 
 ### Native table of contents and conversion warnings
 
@@ -1255,6 +1266,7 @@ interface Options {
   footnotes?: FootnoteOptions;
   taskLists?: TaskListOptions;
   watermark?: WatermarkOptions;
+  protection?: ProtectionOptions;
   plugins?: readonly MarkdownDocxPlugin[];
   pluginOptions?: PluginOptions;
   textReplacements?: TextReplacement[];
@@ -1287,6 +1299,12 @@ Every option below is off by default; omitting one leaves output byte-for-byte u
 | `layout`  | `"diagonal" \| "horizontal"`   | `"diagonal"` | Corner to corner, or level across the page. |
 
 See [Watermarks](#watermarks) for how it combines with headers. Not supported in placeholder patching, nor in reference-style generation unless `reference.preserveHeadersAndFooters` is `false`.
+
+#### `ProtectionOptions`
+
+| Field      | Type      | Default | Description |
+| ---------- | --------- | ------- | ----------- |
+| `readOnly` | `boolean` | `false` | Word's Restrict Editing, "No changes (Read only)", with no password. An editing restriction, not security: anyone can turn it off in Word, and the file is not encrypted. Not supported in placeholder patching. |
 
 #### `ImageHandlingOptions`
 

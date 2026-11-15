@@ -1,3 +1,9 @@
+## [4.1.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.0.5...v4.1.0) (2026-11-15)
+
+### Features
+
+* **math:** render LaTeX with docx's latexToMath ([#105](https://github.com/MohtashamMurshid/md-to-docx/issues/105)) ([b835584](https://github.com/MohtashamMurshid/md-to-docx/commit/b83558420a60b6350441e1d07a2fdf75c53357d9))
+
 ## [4.0.5](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.0.4...v4.0.5) (2026-11-15)
 
 ### Bug Fixes

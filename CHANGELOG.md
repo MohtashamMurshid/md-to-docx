@@ -1,3 +1,9 @@
+## [4.0.3](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.0.2...v4.0.3) (2026-11-15)
+
+### Bug Fixes
+
+* **images:** block every non-public address before fetching images ([#102](https://github.com/MohtashamMurshid/md-to-docx/issues/102)) ([ff9e19d](https://github.com/MohtashamMurshid/md-to-docx/commit/ff9e19dcd67a82581ad7c59b63abada6304dc714))
+
 ## [4.0.2](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.0.1...v4.0.2) (2026-11-15)
 
 ### Bug Fixes

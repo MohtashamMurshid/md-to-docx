@@ -273,12 +273,37 @@ describe("drawing accessibility properties", () => {
         chartRendering: { enabled: true, renderer: customRenderer },
       }),
     );
+    const nativeZip = await JSZip.loadAsync(
+      await convertMarkdownToBuffer(`\`\`\`chart\n${definition}\n\`\`\``, {
+        chartRendering: { enabled: true, output: "native" },
+      }),
+    );
+    const nativeXml = await nativeZip.file("word/document.xml")!.async("string");
 
-    for (const xml of [builtInXml, customXml]) {
-      expect(xml).toContain('descr="Quarterly revenue"');
-      expect(xml).toContain('title="FY26 &lt;Revenue&gt;"');
+    for (const xml of [builtInXml, customXml, nativeXml]) {
+      expect(xml).toContain(
+        'name="FY26 &lt;Revenue&gt;" descr="Quarterly revenue" title="FY26 &lt;Revenue&gt;"',
+      );
     }
     expect(customRenderer).toHaveBeenCalledTimes(1);
+    // A displayed Chart.js title is also the native chart's visible title.
+    expect(
+      await nativeZip.file("word/charts/chart1.xml")!.async("string"),
+    ).toContain("<a:t>FY26 &lt;Revenue&gt;</a:t>");
+  });
+
+  it("lets Word describe a native chart without alt text from its data", async () => {
+    const definition = JSON.stringify({
+      type: "line",
+      data: { labels: ["Jan"], datasets: [{ label: "Visits", data: [4] }] },
+    });
+    const xml = await getDocumentXml(
+      await convertMarkdownToDocx(`\`\`\`chart\n${definition}\n\`\`\``, {
+        chartRendering: { enabled: true, output: "native" },
+      }),
+    );
+
+    expect(xml).toMatch(/<wp:docPr id="\d+" name="line" descr="Line chart[^"]*Visits[^"]*Jan 4/);
   });
 
   it("enforces explicit chart alt text in strict mode", async () => {
@@ -286,12 +311,14 @@ describe("drawing accessibility properties", () => {
       type: "line",
       data: { datasets: [{ data: [1, 2] }] },
     });
-    await expect(
-      convertMarkdownToDocx(`\`\`\`chart\n${definition}\n\`\`\``, {
-        chartRendering: { enabled: true },
-        accessibility: { missingImageAltText: "throw" },
-      }),
-    ).rejects.toThrow("strict accessibility mode");
+    for (const output of ["image", "native"] as const) {
+      await expect(
+        convertMarkdownToDocx(`\`\`\`chart\n${definition}\n\`\`\``, {
+          chartRendering: { enabled: true, output },
+          accessibility: { missingImageAltText: "throw" },
+        }),
+      ).rejects.toThrow("strict accessibility mode");
+    }
 
     await expect(
       convertMarkdownToDocx(

@@ -1,6 +1,7 @@
 import { AlignmentType, Paragraph, TextRun } from "docx";
 import type { IParagraphOptions, IRunOptions, ParagraphChild } from "docx";
 import type { DocxBlockNode } from "../docxModel.js";
+import type { ChartRenderingOptions } from "../types.js";
 import {
   processImage,
   processImageData,
@@ -183,6 +184,37 @@ export async function renderImageNode(
   }
 }
 
+/**
+ * Placeholder patching merges only image and hyperlink relationships into
+ * the template, so a native chart there is drawn as a PNG instead.
+ */
+function patchDowngradesNativeChart(env: RenderEnv): boolean {
+  const { chartRendering } = env.options;
+  return (
+    env.renderOptions.pluginSection?.kind === "patch" &&
+    chartRendering?.output === "native" &&
+    chartRendering.renderer === undefined
+  );
+}
+
+function chartRenderingFor(env: RenderEnv): ChartRenderingOptions | undefined {
+  const { chartRendering } = env.options;
+  return chartRendering && patchDowngradesNativeChart(env)
+    ? { ...chartRendering, output: "image" }
+    : chartRendering;
+}
+
+/** Said only once the PNG stand-in was actually embedded. */
+function warnPatchChartFallback(env: RenderEnv, node: ChartNode): void {
+  env.options.onWarning?.({
+    code: "DIAGRAM_FALLBACK",
+    message:
+      "Native charts are not supported when patching a DOCX; the chart was rendered as a PNG image",
+    source: node.value,
+    sectionIndex: env.renderOptions.pluginSection?.index,
+  });
+}
+
 export async function renderChartNode(
   env: RenderEnv,
   node: ChartNode,
@@ -206,7 +238,7 @@ export async function renderChartNode(
   const { embedded, paragraphs } = await processChartBlock(
     {
       value: node.value,
-      chartRendering: options.chartRendering,
+      chartRendering: chartRenderingFor(env),
       imageHandling: options.imageHandling,
       paragraphOptions,
       signal: options.signal,
@@ -217,6 +249,7 @@ export async function renderChartNode(
   );
   if (embedded) {
     env.processedImageCounter.count++;
+    if (patchDowngradesNativeChart(env)) warnPatchChartFallback(env, node);
   } else {
     options.onWarning?.({
       code: "DIAGRAM_FALLBACK",

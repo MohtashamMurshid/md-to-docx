@@ -481,6 +481,17 @@ function validateImageHandlingInput(
   }
 }
 
+const CHART_RENDERING_RULES: readonly AnyFieldRule<
+  NonNullable<Options["chartRendering"]>
+>[] = [
+  {
+    key: "output",
+    message: "Invalid chartRendering.output: must be image or native",
+    invalid: isNotOneOf(["image", "native"]),
+    context: valueContext("output"),
+  },
+];
+
 function validateChartRenderingInput(
   chartRendering: Options["chartRendering"],
 ): void {
@@ -519,6 +530,8 @@ function validateChartRenderingInput(
       "Invalid chartRendering.renderer: must be a function",
     );
   }
+
+  checkFields(chartRendering, CHART_RENDERING_RULES);
 }
 
 function validateMermaidRenderingInput(

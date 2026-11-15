@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { inflateSync } from "node:zlib";
 import {
   convertMarkdownToArrayBuffer,
@@ -7,6 +7,7 @@ import {
   MarkdownConversionError,
 } from "../src/index.js";
 import type { ConversionWarning, Options } from "../src/types.js";
+import type JSZip from "jszip";
 import { at, getDocumentXml, getZip, saveBlobForDebug } from "./helpers.js";
 
 // 1x1 transparent PNG used in image tests so the suite doesn't hit the network.
@@ -804,25 +805,167 @@ describe("Rendering: chart blocks", () => {
     expect(mediaFilesFromZip(zip)).toHaveLength(0);
   });
 
-  it("renders invalid chart definitions as clear placeholders by default", async () => {
-    const xml = await render(
-      "```chart\n{\"type\":\"bar\",\"data\":{\"datasets\":[{\"data\":[\"bad\"]}]}}\n```",
-      { chartRendering: { enabled: true } },
-    );
+  it.each(["image", "native"] as const)(
+    "renders invalid chart definitions as clear placeholders by default (%s)",
+    async (output) => {
+      const zip = await getZip(
+        await convertMarkdownToDocx(
+          "```chart\n{\"type\":\"bar\",\"data\":{\"datasets\":[{\"data\":[\"bad\"]}]}}\n```\n\n" +
+            "```chart\n{\"type\":\"pie\",\"data\":{\"datasets\":[{\"data\":[0,-2]}]}}\n```",
+          { chartRendering: { enabled: true, output } },
+        ),
+      );
+      const xml = await zip.file("word/document.xml")!.async("string");
 
-    expect(xml).toContain("Chart could not be rendered");
-    expect(xml).toContain("finite numbers");
+      expect(xml).toContain("Chart could not be rendered");
+      expect(xml).toContain("finite numbers");
+      expect(xml).toContain("positive total");
+      expect(Object.keys(zip.files).filter((name) => /^word\/(media|charts)\//.test(name))).toEqual([]);
+    },
+  );
+
+  it.each(["image", "native"] as const)(
+    "can throw on invalid chart definitions (%s)",
+    async (output) => {
+      await expect(
+        convertMarkdownToDocx("```chart\n{\"type\":\"scatter\"}\n```", {
+          chartRendering: {
+            enabled: true,
+            output,
+            invalidDefinitionBehavior: "throw",
+          },
+        }),
+      ).rejects.toThrow(MarkdownConversionError);
+    },
+  );
+
+  it("rejects an unknown chartRendering.output", async () => {
+    await expect(
+      convertMarkdownToDocx("```chart\n{}\n```", {
+        chartRendering: { enabled: true, output: "svg" as unknown as "image" },
+      }),
+    ).rejects.toThrow("Invalid chartRendering.output: must be image or native");
   });
 
-  it("can throw on invalid chart definitions", async () => {
-    await expect(
-      convertMarkdownToDocx("```chart\n{\"type\":\"scatter\"}\n```", {
-        chartRendering: {
-          enabled: true,
-          invalidDefinitionBehavior: "throw",
-        },
+  it.each([
+    {
+      type: "bar",
+      element: "c:barChart",
+      datasets: [
+        { label: "Revenue", data: [12, 18, 9], backgroundColor: ["#4E79A7", "#F28E2B", "#E15759"] },
+        { label: "Cost", data: [5, 7, 4], backgroundColor: "#76B7B2" },
+      ],
+      values: ["12", "18", "9", "5", "7", "4"],
+      colors: ["4E79A7", "F28E2B", "E15759", "76B7B2"],
+    },
+    {
+      type: "line",
+      element: "c:lineChart",
+      datasets: [{ label: "Visitors", data: [3, 1.5, 4], borderColor: "#59A14F" }],
+      values: ["3", "1.5", "4"],
+      colors: ["59A14F"],
+    },
+    {
+      type: "pie",
+      element: "c:pieChart",
+      datasets: [{ label: "Share", data: [50, 30, 20], backgroundColor: ["#EDC948", "#B07AA1", "#FF9DA7"] }],
+      values: ["50", "30", "20"],
+      colors: ["EDC948", "B07AA1", "FF9DA7"],
+    },
+    {
+      type: "doughnut",
+      element: "c:doughnutChart",
+      datasets: [{ label: "Share", data: [2, 6, 2], backgroundColor: "#9C755F" }],
+      values: ["2", "6", "2"],
+      colors: ["9C755F"],
+    },
+  ])("renders a $type chart as a native Word chart", async ({ type, element, datasets, values, colors }) => {
+    const definition = JSON.stringify({
+      type,
+      data: { labels: ["Q1", "Q2", "Q3"], datasets },
+      width: 480,
+      height: 270,
+      alt: `${type} chart`,
+    });
+    const blob = await convertMarkdownToDocx(`\`\`\`chart\n${definition}\n\`\`\``, {
+      chartRendering: { enabled: true, output: "native" },
+    });
+    await saveBlobForDebug(blob, `native-${type}-chart.docx`);
+    const zip = await getZip(blob);
+    const documentXml = await zip.file("word/document.xml")!.async("string");
+    const relationships = await zip.file("word/_rels/document.xml.rels")!.async("string");
+    const contentTypes = await zip.file("[Content_Types].xml")!.async("string");
+    const chartXml = await zip.file("word/charts/chart1.xml")!.async("string");
+    const chartRelationships = await zip.file("word/charts/_rels/chart1.xml.rels")!.async("string");
+
+    expect(mediaFilesFromZip(zip)).toEqual([]);
+    expect(documentXml).toContain('uri="http://schemas.openxmlformats.org/drawingml/2006/chart"');
+    expect(documentXml).toContain(`<wp:extent cx="${480 * 9525}" cy="${270 * 9525}"/>`);
+    const chartRelId = /<c:chart [^>]*r:id="([^"]+)"/.exec(documentXml)?.[1];
+    expect(relationships).toContain(
+      `<Relationship Id="${String(chartRelId)}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="charts/chart1.xml"/>`,
+    );
+    expect(contentTypes).toContain(
+      '<Override ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml" PartName="/word/charts/chart1.xml"/>',
+    );
+    expect(contentTypes).toContain('PartName="/word/embeddings/Microsoft_Excel_Worksheet1.xlsx"');
+    expect(chartRelationships).toContain('Target="../embeddings/Microsoft_Excel_Worksheet1.xlsx"');
+    expect(zip.file("word/embeddings/Microsoft_Excel_Worksheet1.xlsx")).not.toBeNull();
+    expect(chartXml).toContain(`<${element}>`);
+    for (const label of ["Q1", "Q2", "Q3", datasets[0]!.label]) {
+      expect(chartXml).toContain(`<c:v>${label}</c:v>`);
+    }
+    for (const value of values) expect(chartXml).toContain(`<c:v>${value}</c:v>`);
+    for (const color of colors) expect(chartXml).toContain(`<a:srgbClr val="${color}"/>`);
+  });
+
+  it("writes byte-identical native chart parts for the same input", async () => {
+    const markdown = `\`\`\`chart\n${chartJson}\n\`\`\`\n\n\`\`\`chart\n${chartJson}\n\`\`\``;
+    const options: Options = { chartRendering: { enabled: true, output: "native" } };
+    const first = await getZip(await convertMarkdownToDocx(markdown, options));
+    await new Promise((resolve) => setTimeout(resolve, 2100));
+    const second = await getZip(await convertMarkdownToDocx(markdown, options));
+    const wordParts = (zip: JSZip) =>
+      Object.values(zip.files)
+        .filter((file) => !file.dir && file.name.startsWith("word/"))
+        .map((file) => file.name)
+        .sort();
+    const parts = wordParts(first);
+
+    expect(parts).toContain("word/charts/chart2.xml");
+    expect(wordParts(second)).toEqual(parts);
+    for (const part of parts) {
+      expect(await second.file(part)!.async("base64"), part).toBe(await first.file(part)!.async("base64"));
+    }
+  });
+
+  it("lets a custom renderer win over native output", async () => {
+    const renderer = vi.fn(() => ONE_PX_PNG);
+    const zip = await getZip(
+      await convertMarkdownToDocx(`\`\`\`chart\n${chartJson}\n\`\`\``, {
+        chartRendering: { enabled: true, output: "native", renderer },
       }),
-    ).rejects.toThrow(MarkdownConversionError);
+    );
+
+    expect(renderer).toHaveBeenCalledTimes(1);
+    expect(mediaFilesFromZip(zip)).toHaveLength(1);
+    expect(Object.keys(zip.files).filter((name) => name.startsWith("word/charts/"))).toEqual([]);
+  });
+
+  it("charges native charts to the maxImages budget", async () => {
+    const zip = await getZip(
+      await convertMarkdownToDocx(
+        `![First](${ONE_PX_PNG})\n\n\`\`\`chart\n${chartJson}\n\`\`\``,
+        {
+          chartRendering: { enabled: true, output: "native" },
+          imageHandling: { maxImages: 1 },
+        },
+      ),
+    );
+    const xml = await zip.file("word/document.xml")!.async("string");
+
+    expect(xml).toContain("Chart could not be loaded: image limit reached");
+    expect(zip.file("word/charts/chart1.xml")).toBeNull();
   });
 
   it("uses chart block dimensions for DOCX image sizing", async () => {

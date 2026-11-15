@@ -454,7 +454,7 @@ Metadata and drawing text are untrusted input. Invalid OOXML control characters 
 #### Image descriptions and strict mode
 
 - Markdown image alt text is written to the actual Word drawing `descr` property for data URLs, allowed remote images, and ordinary image URLs. A Markdown image title is written as the Word drawing name/title.
-- Chart blocks use the explicit JSON `alt`; the configured chart title becomes the drawing title. This applies to the built-in and custom chart renderer.
+- Chart blocks use the explicit JSON `alt`; the configured chart title becomes the drawing title. This applies to the built-in and custom chart renderer and to native Word charts. A native chart without `alt` gets a description written from its data (for example "Line chart. Visits: Jan 4.") instead of the bare chart type.
 - Mermaid renderers can return `altText` and `title` with their image bytes. In permissive mode, a missing value retains the compatibility fallback `Mermaid diagram`.
 - `accessibility.missingImageAltText` defaults to `"permissive"`. Set it to `"throw"` to reject missing/whitespace-only Markdown, chart, or Mermaid alt text with `MarkdownConversionError`. Normal/remote Markdown images are rejected before any fetch; charts are rejected before a custom renderer runs.
 
@@ -698,6 +698,39 @@ Supported built-in chart types are `bar`, `line`, `pie`, and `doughnut`. `data.d
 Set the block's `alt` to a meaningful chart description. Strict accessibility mode requires it. If `options.plugins.title.text` is present, it is also written as the Word drawing title.
 
 The built-in renderer is offline and has no network, native canvas, or browser runtime dependency. It produces simple PNG geometry for the supported subset. For full Chart.js layout, fonts, plugins, or custom drawing, pass `chartRendering.renderer`; the callback receives the parsed definition plus resolved dimensions and must return a PNG data URL or PNG bytes. In Node, that renderer can use optional project dependencies such as `chart.js` with `canvas` or `skia-canvas`; those packages are not bundled by `@mohtasham/md-to-docx`.
+
+#### Native Word charts
+
+Set `chartRendering.output: "native"` to write each chart as an editable Word chart instead of a PNG. Word draws it from its data, and **Edit Data** opens that data in Excel. The default, `"image"`, keeps the PNG output unchanged.
+
+```typescript
+await convertMarkdownToDocx(markdown, {
+  chartRendering: { enabled: true, output: "native" },
+});
+```
+
+The same JSON subset maps onto Word's chart types:
+
+| Chart JSON | Word chart |
+| --- | --- |
+| `bar` | Clustered column chart, one series per dataset |
+| `line` | Line chart, one series per dataset |
+| `pie`, `doughnut` | Pie or doughnut chart of the first dataset, as the PNG renderer draws |
+| `data.labels` | Categories. A dataset longer than `labels` gets numbered categories (`4`, `5`, …) for the extra values. |
+| `datasets[].label` | Series name; `Series 1`, `Series 2`, … when missing |
+| `backgroundColor` | Bar and slice colours: one colour for the series, or one per bar or slice |
+| `borderColor` | Line colour (the first entry of an array) |
+| `options.plugins.title.text` | Drawing title. It is also shown above the chart when `display` is `true`. |
+| `width`, `height` | Chart size in pixels, with the same defaults and limits as the PNG |
+
+Colours must be `#RRGGBB` hex. Any colour left out, or not in that form, comes from the document theme's accent colours, so a reference DOCX's theme recolours the chart. Native charts follow the same rules as PNG charts:
+
+- **A custom renderer wins.** When `chartRendering.renderer` is set, its PNG is embedded and `output: "native"` is ignored. Passing a renderer means you want your own image.
+- **Invalid definitions** follow `invalidDefinitionBehavior`. That includes a pie with no positive total, and labels holding characters that OOXML cannot carry.
+- **Strict accessibility mode** still requires `alt`.
+- **Budgets.** Each native chart counts as one image toward `imageHandling.maxImages`, as a PNG chart does, so switching `output` never changes which charts render. `maxImageBytes` does not apply: no image is encoded, and the chart part and its embedded workbook grow with the fence's JSON, which `maxInputLength` already bounds.
+- **Reference DOCX generation** (`convertMarkdownWithReferenceDocx*`) keeps native charts as they are.
+- **Placeholder patching** (`patchMarkdownInDocx*`) only merges image and hyperlink relationships into the template, so there each native chart is embedded as a PNG instead. Every such chart raises an `onWarning` with code `DIAGRAM_FALLBACK`.
 
 ### Mermaid diagram blocks
 
@@ -1050,7 +1083,7 @@ await convertMarkdownToDocx(markdown, {
 | Code blocks       | ````` fenced                   | Optional syntax highlighting per block               |
 | Math              | `$x^2$`, `$$...$$`             | Native Word math subset; literal fallback            |
 | Mermaid diagrams  | `````mermaid                   | Opt-in image rendering; code fallback                |
-| Chart blocks      | `````chart / chartjs           | Opt-in PNG rendering; Chart.js-like JSON subset      |
+| Chart blocks      | `````chart / chartjs           | Opt-in PNG or native Word charts; Chart.js-like JSON |
 | Lists             | `-`, `*`, `1.`                 | Bullet, numbered, nested, rich formatting inside     |
 | Task lists        | `- [ ]`, `- [x]`, `- [X]`     | GFM; unchecked `☐`, checked `☒`; preserves nesting   |
 | Tables            | `\| a \| b \|`                 | GFM tables                                           |
@@ -1403,13 +1436,14 @@ interface AccessibilityOptions {
 
 | Option                      | Type                              | Default       | Description                                                        |
 | --------------------------- | --------------------------------- | ------------- | ------------------------------------------------------------------ |
-| `enabled`                   | `boolean`                         | `false`       | Render `chart` / `chartjs` fences as PNG images.                   |
+| `enabled`                   | `boolean`                         | `false`       | Render `chart` / `chartjs` fences as charts.                       |
 | `width`                     | `number`                          | `640`         | Default output width in pixels.                                    |
 | `height`                    | `number`                          | `360`         | Default output height in pixels.                                   |
 | `maxWidth`                  | `number`                          | `2000`        | Maximum accepted chart width.                                      |
 | `maxHeight`                 | `number`                          | `2000`        | Maximum accepted chart height.                                     |
 | `invalidDefinitionBehavior` | `"placeholder" \| "throw"`        | `placeholder` | Keep converting with a visible placeholder, or throw on invalid definitions. |
-| `renderer`                  | `ChartRenderer`                   | built-in      | Optional callback that returns a PNG data URL or PNG bytes.        |
+| `renderer`                  | `ChartRenderer`                   | built-in      | Optional callback that returns a PNG data URL or PNG bytes. Wins over `output: "native"`. |
+| `output`                    | `"image" \| "native"`             | `"image"`     | Embed a PNG, or write an editable Word chart. Patching always embeds a PNG. |
 
 
 #### `MermaidRenderingOptions`

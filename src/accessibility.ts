@@ -20,6 +20,11 @@ function hasUnpairedSurrogate(value: string): boolean {
   return false;
 }
 
+/** Whether `value` holds only characters an OOXML part can carry. */
+export function isValidOoxmlText(value: string): boolean {
+  return !INVALID_XML_CONTROL.test(value) && !hasUnpairedSurrogate(value);
+}
+
 export function validateOoxmlText(
   value: unknown,
   context: string,
@@ -41,7 +46,7 @@ export function validateOoxmlText(
       { context, length: value.length, maxLength },
     );
   }
-  if (INVALID_XML_CONTROL.test(value) || hasUnpairedSurrogate(value)) {
+  if (!isValidOoxmlText(value)) {
     throw new MarkdownConversionError(
       `${context} contains characters that are not valid in OOXML`,
       { context },

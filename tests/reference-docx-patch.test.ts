@@ -195,6 +195,56 @@ Hello **team**.
     expect(numbering).toContain('w:start w:val="5"');
   });
 
+  it("falls back to a PNG chart with a warning when native charts are patched", async () => {
+    const chart = JSON.stringify({
+      type: "pie",
+      data: { labels: ["A", "B"], datasets: [{ data: [3, 1] }] },
+      alt: "Split of A and B",
+    });
+    const warnings: unknown[] = [];
+    const output = await patchMarkdownInDocxToBuffer(
+      fs.readFileSync(fixturePath),
+      { body: `\`\`\`chart\n${chart}\n\`\`\`` },
+      {
+        chartRendering: { enabled: true, output: "native" },
+        onWarning: (warning) => warnings.push(warning),
+      },
+    );
+    const zip = await JSZip.loadAsync(output);
+    const document = await zip.file("word/document.xml")!.async("string");
+    const parts = Object.keys(zip.files);
+
+    expect(document).toContain('descr="Split of A and B"');
+    expect(parts.some((name) => /^word\/media\/mdp\d+_.+\.png$/.test(name))).toBe(true);
+    expect(parts.filter((name) => /^word\/(charts|embeddings)\//.test(name))).toEqual([]);
+    expect(warnings).toEqual([
+      {
+        code: "DIAGRAM_FALLBACK",
+        message:
+          "Native charts are not supported when patching a DOCX; the chart was rendered as a PNG image",
+        source: chart,
+        sectionIndex: 0,
+      },
+    ]);
+  });
+
+  it("does not claim a PNG fallback for an invalid native chart in a patch", async () => {
+    const warnings: { code: string; message: string }[] = [];
+    await patchMarkdownInDocxToBuffer(
+      fs.readFileSync(fixturePath),
+      { body: "```chart\n{not json}\n```" },
+      {
+        chartRendering: { enabled: true, output: "native" },
+        onWarning: (warning) => warnings.push(warning),
+      },
+    );
+
+    expect(warnings.map((warning) => warning.message)).not.toContain(
+      "Native charts are not supported when patching a DOCX; the chart was rendered as a PNG image",
+    );
+    expect(warnings.filter((warning) => warning.code === "DIAGRAM_FALLBACK")).toHaveLength(1);
+  });
+
   it("merges caption fields and bookmarks", async () => {
     const output = await patchMarkdownInDocxToBuffer(
       fs.readFileSync(fixturePath),

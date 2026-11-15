@@ -161,3 +161,66 @@ Hello **team**.
     expect(document).not.toContain("[@tbl:patched]");
   });
 });
+
+describe("patch bookmark IDs", () => {
+  it("keeps a template bookmark that spans the placeholder paired with its own end", async () => {
+    const templateZip = await JSZip.loadAsync(
+      await Packer.toBuffer(
+        new Document({
+          sections: [
+            {
+              children: [
+                new Paragraph("Before"),
+                new Paragraph("{{body}}"),
+                new Paragraph("After"),
+              ],
+            },
+          ],
+        }),
+      ),
+    );
+    const templateXml = await templateZip.file("word/document.xml")!.async("string");
+    templateZip.file(
+      "word/document.xml",
+      templateXml
+        .replace(
+          /(<w:p\b(?:(?!<w:p\b)[\s\S])*?Before)/,
+          '<w:bookmarkStart w:id="1" w:name="span"/>$1',
+        )
+        .replace(
+          /(<w:p\b(?:(?!<w:p\b)[\s\S])*?After)/,
+          '<w:bookmarkEnd w:id="1"/>$1',
+        ),
+    );
+    const template = await templateZip.generateAsync({ type: "nodebuffer" });
+
+    const output = await patchMarkdownInDocxToBuffer(template, {
+      body: "# Inserted heading\n\nText.",
+    });
+
+    const xml = await (await JSZip.loadAsync(output))
+      .file("word/document.xml")!
+      .async("string");
+    const tags = [
+      ...xml.matchAll(/<w:bookmark(Start|End)\b[^>]*?w:id="(\d+)"(?:[^>]*?w:name="([^"]*)")?/g),
+    ].map((match) => ({ kind: match[1]!, id: match[2]!, name: match[3] }));
+    const spanStart = tags.findIndex((tag) => tag.name === "span");
+    expect(spanStart).toBeGreaterThanOrEqual(0);
+    const spanId = tags[spanStart]!.id;
+    const spanEnd = tags.findIndex(
+      (tag, index) => index > spanStart && tag.kind === "End" && tag.id === spanId,
+    );
+    const inner = tags.findIndex(
+      (tag, index) => index > spanStart && tag.kind === "Start" && tag.name !== "span",
+    );
+    expect(inner).toBeGreaterThan(spanStart);
+    const innerEnd = tags.findIndex(
+      (tag, index) => index > inner && tag.kind === "End" && tag.id === tags[inner]!.id,
+    );
+    expect(innerEnd).toBeGreaterThan(inner);
+    expect(spanEnd).toBeGreaterThan(innerEnd);
+    expect(xml.indexOf("After")).toBeGreaterThan(
+      xml.indexOf(`<w:bookmarkEnd w:id="${spanId}"/>`),
+    );
+  });
+});

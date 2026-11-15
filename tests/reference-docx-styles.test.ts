@@ -542,3 +542,44 @@ describe("reference DOCX drawing IDs", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 });
+
+describe("reference DOCX drawing connections", () => {
+  it("keeps connector targets pointing at their renumbered shapes", async () => {
+    const reference = await JSZip.loadAsync(
+      await convertMarkdownToBuffer("Reference body", {
+        template: { headers: { default: { text: "Header" } } },
+      }),
+    );
+    const headerName = Object.keys(reference.files).find((name) =>
+      /^word\/header\d*\.xml$/.test(name),
+    )!;
+    const header = await reference.file(headerName)!.async("string");
+    const group =
+      '<w:r><w:drawing><wp:inline><wp:docPr id="40" name="Group"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"><wpg:wgp xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">' +
+      '<wps:wsp><wps:cNvCnPr><a:stCxn id="42" idx="0"/><a:endCxn id="43" idx="0"/></wps:cNvCnPr></wps:wsp>' +
+      '<wps:wsp><wps:cNvPr id="42" name="A"/></wps:wsp><wps:wsp><wps:cNvPr id="43" name="B"/></wps:wsp>' +
+      "</wpg:wgp></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>";
+    reference.file(
+      headerName,
+      header.replace(/(<w:p\b[^>]*>)/, `$1${group}`),
+    );
+
+    const output = await JSZip.loadAsync(
+      await convertMarkdownWithReferenceDocxToBuffer(
+        "Body",
+        await reference.generateAsync({ type: "nodebuffer" }),
+      ),
+    );
+    const parts = await Promise.all(
+      Object.keys(output.files)
+        .filter((name) => /^word\/.+\.xml$/.test(name))
+        .map((name) => output.file(name)!.async("string")),
+    );
+    const xml = parts.find((part) => part.includes('name="A"'))!;
+    expect(xml).toBeDefined();
+    const shapeA = /<wps:cNvPr id="(\d+)" name="A"/.exec(xml)![1];
+    const shapeB = /<wps:cNvPr id="(\d+)" name="B"/.exec(xml)![1];
+    expect(/<a:stCxn id="(\d+)"/.exec(xml)![1]).toBe(shapeA);
+    expect(/<a:endCxn id="(\d+)"/.exec(xml)![1]).toBe(shapeB);
+  });
+});

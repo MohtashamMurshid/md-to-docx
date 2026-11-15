@@ -71,6 +71,8 @@ const DRAWING_TAG = new RegExp(
   `<(?:wp:docPr|wps:cNvPr|wpg:cNvPr)${ATTRIBUTES}`,
   "g",
 );
+// Connectors name the shapes they join by those shapes' drawing IDs.
+const CONNECTION_TAG = new RegExp(`<a:(?:stCxn|endCxn)${ATTRIBUTES}`, "g");
 const ATTRIBUTE = /(\s)([^\s=/>]+)(\s*=\s*)(?:"([^"]*)"|'([^']*)')/g;
 const MAIN_PART = "word/document.xml";
 
@@ -81,8 +83,9 @@ const MAIN_PART = "word/document.xml";
  * from 1 across every part under word/, in document order, so output depends
  * only on the input and no two parts share an ID. Bookmark start/end pairs and
  * any drawing docx repeats within one part keep one new ID; IDs never link
- * across parts, so equal IDs in different parts get different new IDs. Only
- * the ID values are edited, leaving every other byte as it was.
+ * across parts, so equal IDs in different parts get different new IDs.
+ * Connector ends (`a:stCxn`, `a:endCxn`) follow their shapes. Only the ID
+ * values are edited, leaving every other byte as it was.
  */
 export async function renumberProcessWideIds(zip: JSZip): Promise<boolean> {
   const bookmarkIds = new Map<string, string>();
@@ -101,6 +104,14 @@ export async function renumberProcessWideIds(zip: JSZip): Promise<boolean> {
       )
       .replace(DRAWING_TAG, (tag) =>
         renumberAttribute(tag, "id", { part: name, ids: drawingIds }),
+      )
+      // After every shape in the part has its new ID, wherever it appears.
+      .replace(CONNECTION_TAG, (tag) =>
+        renumberAttribute(tag, "id", {
+          part: name,
+          ids: drawingIds,
+          lookupOnly: true,
+        }),
       );
     if (output !== source) {
       zip.file(name, output);
@@ -114,12 +125,14 @@ export async function renumberProcessWideIds(zip: JSZip): Promise<boolean> {
 interface IdScope {
   part: string;
   ids: Map<string, string>;
+  /** Rewrite only IDs that already have a new one, leaving the rest as they are. */
+  lookupOnly?: boolean;
 }
 
 function renumberAttribute(
   tag: string,
   attribute: string,
-  { part, ids }: IdScope,
+  { part, ids, lookupOnly = false }: IdScope,
 ): string {
   return tag.replace(
     ATTRIBUTE,
@@ -127,7 +140,10 @@ function renumberAttribute(
       if (key !== attribute) return match;
       const old = `${part}\u0000${(values[0] ?? values[1]) as string}`;
       let id = ids.get(old);
-      if (id === undefined) ids.set(old, (id = String(ids.size + 1)));
+      if (id === undefined) {
+        if (lookupOnly) return match;
+        ids.set(old, (id = String(ids.size + 1)));
+      }
       return `${space}${key}${equals}"${id}"`;
     },
   );

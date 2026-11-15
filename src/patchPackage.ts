@@ -98,6 +98,9 @@ export async function mergePatchPackage(
       maxId(baseText, /<w:numId\b[^>]*w:val="(\d+)"/g) +
       1,
     abstractNumId: maxId(baseText, /w:abstractNumId="(\d+)"/g) + 1,
+    // Donor bookmarks start at 1 too; lift them above the template's so the
+    // final pairing pass never matches a donor end to a template start.
+    bookmark: maxId(baseText, /<w:bookmark(?:Start|End)\b[^>]*w:id="(\d+)"/g) + 1,
     footnote: maxId(baseText, /<w:footnote\b[^>]*w:id="(\d+)"/g) + 1,
     comment: maxId(baseText, /<w:comment\b[^>]*w:id="(\d+)"/g) + 1,
   };
@@ -116,6 +119,12 @@ export async function mergePatchPackage(
     for (const element of Array.from(document.getElementsByTagName("*"))) {
       const local = element.localName;
       if (element.namespaceURI === W) {
+        if (local === "bookmarkStart" || local === "bookmarkEnd")
+          element.setAttributeNS(
+            W,
+            "w:id",
+            String(Number(element.getAttributeNS(W, "id")) + offsets.bookmark),
+          );
         for (const attr of ["numId", "abstractNumId"] as const) {
           if (element.hasAttributeNS(W, attr))
             element.setAttributeNS(

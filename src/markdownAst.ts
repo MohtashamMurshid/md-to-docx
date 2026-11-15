@@ -43,6 +43,45 @@ export async function parseMarkdownToAst(
   return Promise.resolve(result);
 }
 
+/** `mode` comes from caller options, so validate it at runtime as well. */
+function assertReplacementMode(mode: unknown): void {
+  if (mode !== "trusted" && mode !== "untrusted") {
+    throw new Error(
+      "Invalid textReplacementMode: Must be trusted or untrusted",
+    );
+  }
+}
+
+function assertReplacementAllowed(
+  replacement: TextReplacement,
+  mode: TextReplacementMode,
+): void {
+  if (mode === "untrusted" && typeof replacement.replace === "function") {
+    throw new Error(
+      'Function textReplacements are not allowed when textReplacementMode is "untrusted"',
+    );
+  }
+  if (
+    typeof replacement.replace === "string" &&
+    replacement.replace.length > MAX_REPLACEMENT_TEXT_LENGTH
+  ) {
+    throw new Error("textReplacements replacement text is too large");
+  }
+  assertReplacementPatternAllowed(replacement);
+}
+
+function assertReplacementPatternAllowed(replacement: TextReplacement): void {
+  if (replacement.find instanceof RegExp && isUnsafeRegex(replacement.find)) {
+    throw new Error("Unsafe textReplacements RegExp rejected");
+  }
+  if (
+    typeof replacement.find === "string" &&
+    replacement.find.length > MAX_REPLACEMENT_PATTERN_LENGTH
+  ) {
+    throw new Error("textReplacements string pattern is too large");
+  }
+}
+
 /**
  * Applies text replacements to the markdown AST
  * @param ast - The markdown AST root node
@@ -54,45 +93,17 @@ export function applyTextReplacements(
   replacements: TextReplacement[],
   mode: TextReplacementMode = "trusted",
 ): Root {
-  // `mode` comes from caller options, so validate it at runtime as well.
-  const modeValue: unknown = mode;
-  if (modeValue !== "trusted" && modeValue !== "untrusted") {
-    throw new Error(
-      "Invalid textReplacementMode: Must be trusted or untrusted",
-    );
-  }
-
+  assertReplacementMode(mode);
   if (replacements.length === 0) {
     return ast;
   }
-
   if (replacements.length > MAX_REPLACEMENTS) {
     throw new Error(
       `textReplacements supports at most ${MAX_REPLACEMENTS} entries`,
     );
   }
-
   for (const replacement of replacements) {
-    if (mode === "untrusted" && typeof replacement.replace === "function") {
-      throw new Error(
-        'Function textReplacements are not allowed when textReplacementMode is "untrusted"',
-      );
-    }
-    if (
-      typeof replacement.replace === "string" &&
-      replacement.replace.length > MAX_REPLACEMENT_TEXT_LENGTH
-    ) {
-      throw new Error("textReplacements replacement text is too large");
-    }
-    if (replacement.find instanceof RegExp && isUnsafeRegex(replacement.find)) {
-      throw new Error("Unsafe textReplacements RegExp rejected");
-    }
-    if (
-      typeof replacement.find === "string" &&
-      replacement.find.length > MAX_REPLACEMENT_PATTERN_LENGTH
-    ) {
-      throw new Error("textReplacements string pattern is too large");
-    }
+    assertReplacementAllowed(replacement, mode);
   }
 
   // Convert replacements to the format expected by mdast-util-find-and-replace.

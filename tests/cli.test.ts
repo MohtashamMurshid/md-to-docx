@@ -224,6 +224,16 @@ describe("standalone CLI", () => {
         expectedError: "Options JSON must be an object",
       },
       {
+        label: "an unknown TOC tab leader",
+        body: '{"toc":{"tabLeader":"dots"}}',
+        expectedError: "Invalid toc.tabLeader",
+      },
+      {
+        label: "a non-boolean TOC page-number prefill",
+        body: '{"toc":{"prefillPageNumbers":"yes"}}',
+        expectedError: "Invalid toc.prefillPageNumbers",
+      },
+      {
         label: "plugin configuration",
         body: '{"plugins":[]}',
         expectedError: "cannot be loaded from CLI JSON",

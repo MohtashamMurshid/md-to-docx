@@ -3,6 +3,7 @@ import type {
   Element as XmlElement,
 } from "@xmldom/xmldom";
 import { throwIfAborted } from "../processingLimits.js";
+import { tocUpdatesFieldsOnOpen } from "../tocBuilder.js";
 import { addPartRelationship, type PatchMergeState } from "./state.js";
 import {
   CONTENT_TYPES,
@@ -172,7 +173,8 @@ export function mergeContentTypes(state: PatchMergeState): void {
 
 /**
  * Ask Word to refresh fields on open when captions were numbered or the body
- * holds a TOC, unless the caller opted out for that feature.
+ * holds a TOC, unless the caller opted out for that feature. Pre-filled TOC
+ * page numbers opt the TOC out by default.
  */
 export function enableUpdateFieldsWhenNeeded(state: PatchMergeState): void {
   if (!needsFieldUpdate(state)) return;
@@ -197,7 +199,7 @@ function needsFieldUpdate(state: PatchMergeState): boolean {
     (elements(bodyDocument, "instrText").some((el) =>
       /\bTOC\b/.test(el.textContent ?? ""),
     ) &&
-      options.toc?.updateFieldsOnOpen !== false)
+      tocUpdatesFieldsOnOpen(options.toc))
   );
 }
 

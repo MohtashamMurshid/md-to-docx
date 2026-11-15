@@ -148,6 +148,66 @@ describe("Markdown fidelity", () => {
       }),
     );
     expect(legacy.text).not.toContain(" PAGEREF ");
+    expect(legacy.text).not.toMatch(/<w:pStyle w:val="TOC\d"\/>/);
+  });
+  it.each([
+    [{}, "dot"],
+    [{ dotLeaders: false }, "none"],
+    [{ tabLeader: "dot" }, "dot"],
+    [{ tabLeader: "hyphen" }, "hyphen"],
+    [{ tabLeader: "underscore" }, "underscore"],
+    [{ tabLeader: "middleDot" }, "middleDot"],
+    [{ tabLeader: "none" }, "none"],
+    [{ tabLeader: "hyphen", dotLeaders: false }, "hyphen"],
+  ] as const)("writes TOC options %o with a %s leader", async (toc, leader) => {
+    const { text } = await unpack(
+      await convertMarkdownToBuffer("[TOC]\n\n# One\n\n## Two", { toc }),
+    );
+    expect(Array.from(text.matchAll(/w:leader="([^"]+)"/g), (m) => m[1])).toEqual(
+      [leader, leader],
+    );
+  });
+  it("gives native TOC entries Word's TOC1-TOC9 paragraph styles", async () => {
+    const { zip, text } = await unpack(
+      await convertMarkdownToBuffer("[TOC]\n\n# One\n\n## Two\n\n### Three"),
+    );
+    expect(
+      Array.from(text.matchAll(/<w:pStyle w:val="(TOC\d)"\/>/g), (m) => m[1]),
+    ).toEqual(["TOC1", "TOC2", "TOC3"]);
+    const styles = await zip.file("word/styles.xml")!.async("string");
+    for (const id of ["TOC1", "TOC2", "TOC3"])
+      expect(styles).toContain(`w:styleId="${id}"`);
+  });
+  it("pre-fills estimated TOC page numbers so Word need not update fields", async () => {
+    const markdown = "[TOC]\n\n# One\n\n\\pagebreak\n\n## Two";
+    const pageNumbers = (text: string): (string | undefined)[] =>
+      Array.from(
+        text.matchAll(/w:instr=" PAGEREF [^"]+"><w:r><w:t[^>]*>([^<]*)</g),
+        (m) => m[1],
+      );
+    const settings = (zip: JSZip): Promise<string> =>
+      zip.file("word/settings.xml")!.async("string");
+
+    const byDefault = await unpack(await convertMarkdownToBuffer(markdown));
+    expect(pageNumbers(byDefault.text)).toEqual(["?", "?"]);
+    expect(byDefault.text).toContain('w:fldCharType="begin" w:dirty="true"');
+
+    const prefilled = await unpack(
+      await convertMarkdownToBuffer(markdown, {
+        toc: { prefillPageNumbers: true },
+      }),
+    );
+    expect(pageNumbers(prefilled.text)).toEqual(["1", "2"]);
+    expect(prefilled.text).toContain('<w:fldChar w:fldCharType="begin"/>');
+    expect(await settings(prefilled.zip)).not.toContain("updateFields");
+
+    const refreshed = await unpack(
+      await convertMarkdownToBuffer(markdown, {
+        toc: { prefillPageNumbers: true, updateFieldsOnOpen: true },
+      }),
+    );
+    expect(pageNumbers(refreshed.text)).toEqual(["1", "2"]);
+    expect(await settings(refreshed.zip)).toContain("updateFields");
   });
 });
 

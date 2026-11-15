@@ -412,6 +412,36 @@ const answer = 42;
     });
   });
 
+  it("keeps native chart parts, relationships and content types", async () => {
+    const chart = JSON.stringify({
+      type: "bar",
+      data: { labels: ["Q1", "Q2"], datasets: [{ label: "Revenue", data: [12, 18] }] },
+      alt: "Revenue by quarter",
+    });
+    const output = await convertMarkdownWithReferenceDocxToBuffer(
+      `# Report\n\n\`\`\`chart\n${chart}\n\`\`\``,
+      await createReferenceFixture(),
+      { chartRendering: { enabled: true, output: "native" } },
+    );
+    const zip = await JSZip.loadAsync(output);
+    const documentXml = await xml(zip, "word/document.xml");
+    const relationshipsXml = await xml(zip, "word/_rels/document.xml.rels");
+    const contentTypesXml = await xml(zip, "[Content_Types].xml");
+    const chartRelId = /<c:chart [^>]*r:id="([^"]+)"/.exec(documentXml)?.[1];
+
+    expect(documentXml).toContain('descr="Revenue by quarter"');
+    expect(relationshipsXml).toMatch(
+      new RegExp(`<Relationship Id="${String(chartRelId)}" Type="[^"]+/chart" Target="charts/chart1.xml"/>`),
+    );
+    expect(contentTypesXml).toContain('PartName="/word/charts/chart1.xml"');
+    expect(contentTypesXml).toContain('PartName="/word/embeddings/Microsoft_Excel_Worksheet1.xlsx"');
+    expect(await xml(zip, "word/charts/chart1.xml")).toContain("<c:v>18</c:v>");
+    expect(await xml(zip, "word/charts/_rels/chart1.xml.rels")).toContain(
+      'Target="../embeddings/Microsoft_Excel_Worksheet1.xlsx"',
+    );
+    expect(zip.file("word/embeddings/Microsoft_Excel_Worksheet1.xlsx")).not.toBeNull();
+  });
+
   it("reuses generated DOCX files as deterministic reference input", async () => {
     const generated = await convertMarkdownToBuffer("# Generated reference");
     const generatedZip = await JSZip.loadAsync(generated);

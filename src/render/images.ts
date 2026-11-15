@@ -1,6 +1,7 @@
 import { AlignmentType, Paragraph, TextRun } from "docx";
 import type { IParagraphOptions, IRunOptions, ParagraphChild } from "docx";
 import type { DocxBlockNode } from "../docxModel.js";
+import type { ChartRenderingOptions } from "../types.js";
 import {
   processImage,
   processImageData,
@@ -183,6 +184,33 @@ export async function renderImageNode(
   }
 }
 
+/**
+ * Placeholder patching merges only image and hyperlink relationships into
+ * the template, so a native chart there is drawn as a PNG instead.
+ */
+function chartRenderingFor(
+  env: RenderEnv,
+  node: ChartNode,
+): ChartRenderingOptions | undefined {
+  const { chartRendering, onWarning } = env.options;
+  const section = env.renderOptions.pluginSection;
+  if (
+    section?.kind !== "patch" ||
+    chartRendering?.output !== "native" ||
+    chartRendering.renderer !== undefined
+  ) {
+    return chartRendering;
+  }
+  onWarning?.({
+    code: "DIAGRAM_FALLBACK",
+    message:
+      "Native charts are not supported when patching a DOCX; the chart was rendered as a PNG image",
+    source: node.value,
+    sectionIndex: section.index,
+  });
+  return { ...chartRendering, output: "image" };
+}
+
 export async function renderChartNode(
   env: RenderEnv,
   node: ChartNode,
@@ -206,7 +234,7 @@ export async function renderChartNode(
   const { embedded, paragraphs } = await processChartBlock(
     {
       value: node.value,
-      chartRendering: options.chartRendering,
+      chartRendering: chartRenderingFor(env, node),
       imageHandling: options.imageHandling,
       paragraphOptions,
       signal: options.signal,

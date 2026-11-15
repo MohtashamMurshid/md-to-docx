@@ -22,6 +22,7 @@ export async function packDocumentWithRepairs(
   let changed = hasFootnotes && (await repairFootnoteNumbering(zip, document));
   changed = (await renumberProcessWideIds(zip)) || changed;
   changed = (await renumberHyperlinkRelationships(zip)) || changed;
+  changed = (await normalizeChartParts(zip)) || changed;
   if (!changed) return blob;
   return new Blob(
     [await zip.generateAsync({ type: "arraybuffer", compression: "DEFLATE" })],
@@ -66,7 +67,6 @@ async function repairFootnoteNumbering(
 // One start tag, with quoted attribute values that may themselves contain ">".
 // docx names each hyperlink relationship with a random 21-character ID.
 const RANDOM_RELATIONSHIP_ID = /^rId[A-Za-z0-9_-]{21}$/;
-const RELATIONSHIP_TAG = /<Relationship\b[^>]*>/g;
 const HYPERLINK_TYPE =
   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink";
 
@@ -207,5 +207,93 @@ function renumberAttribute(
       }
       return `${space ?? ""}${key}${equals ?? ""}"${id}"`;
     },
+  );
+}
+
+const CHART_PART = /^word\/charts\/(chart(\d+))\.xml$/;
+const RELATIONSHIP_TAG = new RegExp(`<Relationship${ATTRIBUTES}`, "g");
+/** The earliest date a ZIP entry can carry, so workbook bytes never depend on the clock. */
+const FIXED_ZIP_DATE = new Date(Date.UTC(1980, 0, 1));
+
+/**
+ * docx gives each chart's relationships random IDs and zips each chart's
+ * workbook with the current time, so the same chart came out different on
+ * every conversion. Name each chart relationship after its chart part
+ * (`rIdChart3` for `charts/chart3.xml`) and each chart's workbook
+ * relationship `rIdWorkbook`, and rezip every embedded workbook with a fixed
+ * date. Packages without charts are left alone.
+ */
+async function normalizeChartParts(zip: JSZip): Promise<boolean> {
+  const charts = Object.keys(zip.files).filter((name) => CHART_PART.test(name));
+  if (charts.length === 0) return false;
+  const relationshipParts = Object.keys(zip.files).filter((name) =>
+    /^word\/_rels\/[^/]+\.rels$/.test(name),
+  );
+  for (const rels of relationshipParts)
+    await renameRelationships(zip, rels, (type, target) => {
+      const chart = /^charts\/chart(\d+)\.xml$/.exec(target);
+      return type.endsWith("/chart") && chart ? `rIdChart${chart[1]!}` : undefined;
+    });
+  for (const chart of charts)
+    await renameRelationships(
+      zip,
+      chart.replace(CHART_PART, "word/charts/_rels/$1.xml.rels"),
+      (type) => (type.endsWith("/package") ? "rIdWorkbook" : undefined),
+    );
+  for (const name of Object.keys(zip.files))
+    if (/^word\/embeddings\/[^/]+\.xlsx$/.test(name))
+      await rezipWithFixedDates(zip, name);
+  return true;
+}
+
+/**
+ * Give the relationships `newId` names new IDs in a `.rels` part, and in the
+ * part that owns it (`dir/_rels/name.rels` belongs to `dir/name`).
+ */
+async function renameRelationships(
+  zip: JSZip,
+  relsPath: string,
+  newId: (type: string, target: string) => string | undefined,
+): Promise<void> {
+  const rels = zip.file(relsPath);
+  const owner = zip.file(relsPath.replace(/_rels\/([^/]+)\.rels$/, "$1"));
+  if (!rels || !owner) return;
+  const renamed = new Map<string, string>();
+  const relsXml = (await rels.async("string")).replace(RELATIONSHIP_TAG, (tag) => {
+    const id = attributeValue(tag, "Id");
+    const replacement = newId(
+      attributeValue(tag, "Type") ?? "",
+      attributeValue(tag, "Target") ?? "",
+    );
+    if (id === undefined || replacement === undefined) return tag;
+    renamed.set(id, replacement);
+    return tag.replace(`Id="${id}"`, `Id="${replacement}"`);
+  });
+  if (renamed.size === 0) return;
+  let ownerXml = await owner.async("string");
+  for (const [id, replacement] of renamed)
+    ownerXml = ownerXml.split(`r:id="${id}"`).join(`r:id="${replacement}"`);
+  zip.file(relsPath, relsXml);
+  zip.file(owner.name, ownerXml);
+}
+
+function attributeValue(tag: string, name: string): string | undefined {
+  return new RegExp(`\\s${name}="([^"]*)"`).exec(tag)?.[1];
+}
+
+async function rezipWithFixedDates(zip: JSZip, name: string): Promise<void> {
+  const source = await JSZip.loadAsync(await zip.file(name)!.async("uint8array"), {
+    createFolders: false,
+  });
+  const output = new JSZip();
+  for (const entry of Object.values(source.files))
+    if (!entry.dir)
+      output.file(entry.name, await entry.async("uint8array"), {
+        date: FIXED_ZIP_DATE,
+        createFolders: false,
+      });
+  zip.file(
+    name,
+    await output.generateAsync({ type: "uint8array", compression: "DEFLATE" }),
   );
 }

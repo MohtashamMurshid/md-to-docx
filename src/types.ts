@@ -889,9 +889,17 @@ export interface ChartRenderingOptions {
   invalidDefinitionBehavior?: "placeholder" | "throw";
   /**
    * Optional custom renderer. When omitted, a built-in offline PNG renderer
-   * handles the documented bar, line, pie, and doughnut subset.
+   * handles the documented bar, line, pie, and doughnut subset. A renderer
+   * always wins over `output: "native"`: its PNG is embedded.
    */
   renderer?: ChartRenderer;
+  /**
+   * `"image"` (the default) embeds each chart as a PNG. `"native"` writes an
+   * editable Word chart, with its data in an embedded workbook that Word's
+   * "Edit Data" opens in Excel. Ignored when `renderer` is set. Placeholder
+   * patching always embeds a PNG, with a `DIAGRAM_FALLBACK` warning.
+   */
+  output?: "image" | "native";
 }
 
 export interface TableData {

@@ -9,12 +9,19 @@ import {
 import { MarkdownConversionError } from "../errors.js";
 import { throwIfAborted } from "../processingLimits.js";
 import type { AccessibilityOptions } from "../types.js";
-import { assertImageAltPolicy, validateImageText } from "../accessibility.js";
+import {
+  assertImageAltPolicy,
+  drawingAltText,
+  validateImageText,
+} from "../accessibility.js";
 import {
   createRenderFailureParagraph,
+  drawingParagraph,
   processImage,
 } from "./imageRenderer.js";
 import type { ProcessImageResult } from "./imageRenderer.js";
+import { isUnknownArray, normalizeColor, pieSliceValues } from "./chartData.js";
+import { createNativeChartRun } from "./nativeChart.js";
 
 const DEFAULT_CHART_WIDTH = 640;
 const DEFAULT_CHART_HEIGHT = 360;
@@ -42,6 +49,7 @@ interface ResolvedChartRenderingOptions {
   maxHeight: number;
   invalidDefinitionBehavior: "placeholder" | "throw";
   renderer?: ChartRenderingOptions["renderer"];
+  output: "image" | "native";
 }
 
 interface ChartRenderData {
@@ -152,6 +160,7 @@ function resolveChartRenderingOptions(
     invalidDefinitionBehavior:
       options?.invalidDefinitionBehavior ?? "placeholder",
     renderer: options?.renderer,
+    output: options?.output ?? "image",
   };
 }
 
@@ -191,41 +200,31 @@ export interface ProcessChartBlockInput {
   prefixChildren?: readonly ParagraphChild[] | undefined;
 }
 
+/** A parsed chart block whose alt text and title passed validation. */
+interface ValidatedChart {
+  definition: ChartBlockDefinition;
+  title: string | undefined;
+}
+
 export async function processChartBlock(
   input: ProcessChartBlockInput,
   style: Style,
 ): Promise<ProcessImageResult> {
-  const { value, imageHandling, signal } = input;
   const paragraphOptions = input.paragraphOptions ?? {};
   const resolved = resolveChartRenderingOptions(input.chartRendering);
 
   try {
-    throwIfAborted(signal);
-    const definition = parseChartDefinition(value);
+    throwIfAborted(input.signal);
+    const definition = parseChartDefinition(input.value);
     const explicitAlt = definition.alt ?? "";
     const title = definition.options?.plugins?.title?.text;
     validateImageText(explicitAlt, title, "chart image");
     assertImageAltPolicy(explicitAlt, input.accessibility, "chart block");
-    const chart = await renderChart(definition, resolved, signal);
-    const sizedDataUrl = `${chart.dataUrl}#${chart.width}x${chart.height}`;
-    const alt = chart.definition.alt || chart.definition.type;
-    const result = await processImage(
-      {
-        altText: alt,
-        url: sizedDataUrl,
-        imageHandling: {
-          ...imageHandling,
-          dataUrls: { ...imageHandling?.dataUrls, enabled: true },
-        },
-        paragraphOptions,
-        signal,
-        preserveAltText: true,
-        title,
-        prefixChildren: input.prefixChildren,
-      },
-      style,
-    );
-    return result;
+    const chart = { definition, title };
+    // A custom renderer means the caller wants their own image.
+    return resolved.output === "native" && resolved.renderer === undefined
+      ? nativeChartResult(chart, resolved, input, style)
+      : await imageChartResult(chart, resolved, input, style);
   } catch (error) {
     if (
       resolved.invalidDefinitionBehavior === "throw" ||
@@ -254,24 +253,91 @@ export async function processChartBlock(
   }
 }
 
+async function imageChartResult(
+  { definition, title }: ValidatedChart,
+  resolved: ResolvedChartRenderingOptions,
+  input: ProcessChartBlockInput,
+  style: Style,
+): Promise<ProcessImageResult> {
+  const { imageHandling, signal } = input;
+  const chart = await renderChart(definition, resolved, signal);
+  const sizedDataUrl = `${chart.dataUrl}#${chart.width}x${chart.height}`;
+  const alt = chart.definition.alt || chart.definition.type;
+  return processImage(
+    {
+      altText: alt,
+      url: sizedDataUrl,
+      imageHandling: {
+        ...imageHandling,
+        dataUrls: { ...imageHandling?.dataUrls, enabled: true },
+      },
+      paragraphOptions: input.paragraphOptions ?? {},
+      signal,
+      preserveAltText: true,
+      title,
+      prefixChildren: input.prefixChildren,
+    },
+    style,
+  );
+}
+
+/**
+ * Without explicit alt text the drawing gets no fixed description, so docx
+ * writes one from the chart's data instead of the bare chart type.
+ */
+function nativeChartResult(
+  { definition, title }: ValidatedChart,
+  resolved: ResolvedChartRenderingOptions,
+  input: ProcessChartBlockInput,
+  style: Style,
+): ProcessImageResult {
+  const run = createNativeChartRun({
+    definition,
+    ...resolveChartSize(definition, resolved),
+    altText: drawingAltText(definition.alt ?? "", title, definition.type),
+  });
+  return {
+    embedded: true,
+    paragraphs: [
+      drawingParagraph(
+        run,
+        {
+          paragraphOptions: input.paragraphOptions,
+          prefixChildren: input.prefixChildren,
+        },
+        style,
+      ),
+    ],
+  };
+}
+
+function resolveChartSize(
+  definition: ChartBlockDefinition,
+  options: ResolvedChartRenderingOptions,
+): { width: number; height: number } {
+  return {
+    width: resolveDimension(
+      definition.width,
+      options.width,
+      options.maxWidth,
+      "width",
+    ),
+    height: resolveDimension(
+      definition.height,
+      options.height,
+      options.maxHeight,
+      "height",
+    ),
+  };
+}
+
 async function renderChart(
   definition: ChartBlockDefinition,
   options: ResolvedChartRenderingOptions,
   signal?: AbortSignal,
 ): Promise<ChartRenderData> {
   throwIfAborted(signal);
-  const width = resolveDimension(
-    definition.width,
-    options.width,
-    options.maxWidth,
-    "width",
-  );
-  const height = resolveDimension(
-    definition.height,
-    options.height,
-    options.maxHeight,
-    "height",
-  );
+  const { width, height } = resolveChartSize(definition, options);
 
   const rendered = options.renderer
     ? await options.renderer({
@@ -294,10 +360,6 @@ async function renderChart(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
-}
-
-function isUnknownArray(value: unknown): value is unknown[] {
-  return Array.isArray(value);
 }
 
 function parseChartDefinition(value: string): ChartBlockDefinition {
@@ -481,11 +543,7 @@ function renderLineChart(raster: Raster, definition: ChartBlockDefinition): void
 function renderPieChart(raster: Raster, definition: ChartBlockDefinition): void {
   // parseChartDefinition guarantees at least one dataset.
   const dataset = definition.data.datasets[0]!;
-  const values = dataset.data.map((value) => Math.max(0, value));
-  const total = values.reduce((sum, value) => sum + value, 0);
-  if (total <= 0) {
-    throw new Error("pie and doughnut charts require a positive total");
-  }
+  const { values, total } = pieSliceValues(dataset);
 
   const radius = Math.max(1, Math.min(raster.width, raster.height) * 0.38);
   const ring: Ring = {
@@ -649,12 +707,6 @@ function colorForDataset(
     normalizeColor(color) ||
     DEFAULT_COLORS[datasetIndex % DEFAULT_COLORS.length]!
   );
-}
-
-function normalizeColor(color: string | undefined): string | undefined {
-  if (!color) return undefined;
-  const match = color.trim().match(/^#?([0-9a-f]{6})$/i);
-  return match ? match[1]!.toUpperCase() : undefined;
 }
 
 function parseColor(color: string): [number, number, number] {

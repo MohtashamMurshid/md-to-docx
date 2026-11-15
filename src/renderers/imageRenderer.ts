@@ -156,23 +156,26 @@ export function processImageData(
   return {
     embedded: true,
     run,
-    paragraphs: [
-      new Paragraph({
-        ...(input.paragraphOptions || {}),
-        children: [
-          ...(input.prefixChildren ?? []),
-          run,
-        ],
-        alignment:
-          input.paragraphOptions?.alignment ?? AlignmentType.CENTER,
-        spacing: {
-          before: style.paragraphSpacing,
-          after: style.paragraphSpacing,
-        },
-        bidirectional: style.direction === "RTL",
-      }),
-    ],
+    paragraphs: [drawingParagraph(run, input, style)],
   };
+}
+
+/** The paragraph an embedded image or chart stands in, centred unless the options align it. */
+export function drawingParagraph(
+  run: ParagraphChild,
+  placement: Pick<ProcessImageDataInput, "paragraphOptions" | "prefixChildren">,
+  style: Style,
+): Paragraph {
+  return new Paragraph({
+    ...(placement.paragraphOptions || {}),
+    children: [...(placement.prefixChildren ?? []), run],
+    alignment: placement.paragraphOptions?.alignment ?? AlignmentType.CENTER,
+    spacing: {
+      before: style.paragraphSpacing,
+      after: style.paragraphSpacing,
+    },
+    bidirectional: style.direction === "RTL",
+  });
 }
 
 export interface ProcessImageInput {

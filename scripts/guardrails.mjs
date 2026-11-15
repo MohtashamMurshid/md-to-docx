@@ -14,11 +14,12 @@ const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 function repoFiles(...pathspecs) {
   const output = execFileSync(
     "git",
-    ["ls-files", "--cached", "--others", "--exclude-standard", "--", ...pathspecs],
+    ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", ...pathspecs],
     { cwd: root, encoding: "utf8" },
   );
+  // NUL-separated, so unusual filenames come back verbatim instead of quoted.
   return output
-    .split("\n")
+    .split("\0")
     .filter((file) => file && fs.existsSync(path.join(root, file)));
 }
 
@@ -93,13 +94,35 @@ function checkoutProblems(where, reference, stepLines) {
     : [];
 }
 
+const indentOf = (line) => line.length - line.trimStart().length;
+const STEP_START = /^\s*-\s/;
+
+function stepStartIndex(lines, index) {
+  let start = index;
+  while (start > 0 && !STEP_START.test(lines[start])) start--;
+  return start;
+}
+
+const endsStep = (line, indent) =>
+  line.trim() !== "" && indentOf(line) <= indent;
+
+/** The lines of the workflow step that contains `index`, from its `-` to the next step. */
+function stepLines(lines, index) {
+  const start = stepStartIndex(lines, index);
+  const indent = indentOf(lines[start]);
+  const length = lines
+    .slice(start + 1)
+    .findIndex((line) => endsStep(line, indent));
+  return lines.slice(start, length === -1 ? lines.length : start + 1 + length);
+}
+
 function stepProblems(file, lines, index) {
   const reference = remoteAction(lines[index]);
   if (reference === undefined) return [];
   const where = `${file}:${index + 1}`;
   return [
     ...actionPinProblems(where, reference),
-    ...checkoutProblems(where, reference, lines.slice(index + 1, index + 6)),
+    ...checkoutProblems(where, reference, stepLines(lines, index)),
   ];
 }
 
@@ -145,7 +168,11 @@ function lintExceptionProblems() {
     ? read("docs/DECISIONS.md")
     : "";
   const relaxed = [
-    ...config.matchAll(/"((?:@typescript-eslint\/)?[a-z-]+)":\s*(?:"off"|\[\s*"error",\s*\{)/g),
+    // "off", "warn", 0 or 1, alone or as an array's severity, or "error" with
+    // options that replace the preset's.
+    ...config.matchAll(
+      /"((?:@typescript-eslint\/)?[a-z-]+)":\s*(?:\[\s*)?(?:"(?:off|warn)"|[01]\b|(?<=\[\s*)"error",\s*\{)/g,
+    ),
   ].map((match) => match[1]);
   return [...new Set(relaxed)]
     .filter((rule) => !decisions.includes(`\`${rule}\``))

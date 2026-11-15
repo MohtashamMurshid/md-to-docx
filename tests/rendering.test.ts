@@ -473,11 +473,11 @@ describe("Rendering: footnotes", () => {
 
     const embed = /r:embed="([^"]+)"/.exec(footnotesXml)?.[1];
     expect(embed).toBeDefined();
-    const target = new RegExp(`Id="${embed}"[^>]*Target="([^"]+)"`).exec(
+    const target = new RegExp(`Id="${String(embed)}"[^>]*Target="([^"]+)"`).exec(
       footnoteRels,
     )?.[1];
     expect(target).toMatch(/^media\//);
-    expect(zip.file(`word/${target}`)).not.toBeNull();
+    expect(zip.file(`word/${String(target)}`)).not.toBeNull();
   });
 
   it("renders repeated footnote references as valid NOTEREF fields", async () => {

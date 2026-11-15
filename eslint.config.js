@@ -35,7 +35,16 @@ export default [
       "@typescript-eslint/no-non-null-assertion": "off",
       "@typescript-eslint/restrict-template-expressions": [
         "error",
-        { allowNumber: true, allowBoolean: true },
+        // The preset's options, restated because ESLint replaces rather than
+        // merges them, with only numbers and booleans allowed.
+        {
+          allowAny: false,
+          allowBoolean: true,
+          allowNever: false,
+          allowNullish: false,
+          allowNumber: true,
+          allowRegExp: false,
+        },
       ],
       "@typescript-eslint/no-unused-vars": [
         "error",

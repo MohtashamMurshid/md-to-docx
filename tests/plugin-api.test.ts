@@ -71,6 +71,19 @@ function replaceMarkedParagraphs(root: Root): void {
 }
 
 describe("stable custom renderer plugin API", () => {
+  it("accepts handlers that are functions carrying the handler fields", async () => {
+    const handler = Object.assign(() => undefined, {
+      languages: ["callable"],
+      render: () => ({ type: "paragraph" as const, children: ["CALLABLE"] }),
+    });
+    const xml = await getDocumentXml(
+      await convertMarkdownToDocx("```callable\nx\n```", {
+        plugins: [{ apiVersion: 1, name: "acme.callable", fencedBlocks: [handler] }],
+      }),
+    );
+    expect(xml).toContain("CALLABLE");
+  });
+
   it("renders a custom fenced block with semantic content", async () => {
     const xml = await getDocumentXml(
       await convertMarkdownToDocx("```notice\nShip it\n```", {
@@ -570,7 +583,7 @@ Footnote reference[^plugin].
         plugins: [
           fencePlugin("acme.patch", (value, context) => ({
             type: "paragraph",
-            children: `${context.section.placeholder}: ${value}`,
+            children: `${String(context.section.placeholder)}: ${value}`,
           })),
         ],
       },

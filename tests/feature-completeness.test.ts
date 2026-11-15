@@ -468,13 +468,20 @@ describe("CLI workflows", () => {
       await ready;
       // macOS's FSEvents can drop a change made just after a watcher starts,
       // so keep editing until the rebuild is seen.
-      const edit = (): Promise<void> => fs.writeFile(md, "# After");
+      // Every write is awaited before cleanup removes the directory.
+      const writes: Promise<void>[] = [];
+      const edit = (): Promise<void> => {
+        const write = fs.writeFile(md, "# After");
+        writes.push(write);
+        return write;
+      };
       const retry = setInterval(() => void edit(), 250);
       try {
         await edit();
         await changed;
       } finally {
         clearInterval(retry);
+        await Promise.all(writes);
       }
       expect((await unpack(await fs.readFile(out))).text).toContain("After");
     } finally {
@@ -520,7 +527,7 @@ describe("Patch package integration", () => {
     );
     expect(new Set(ids).size).toBe(2);
     for (const id of ids)
-      expect(footnotes).toContain(`<w:footnote w:id="${id}"`);
+      expect(footnotes).toContain(`<w:footnote w:id="${String(id)}"`);
     expect(footnotes).toContain("Existing note");
     expect(footnotes).toContain("<w:drawing>");
     expect(
@@ -656,7 +663,7 @@ describe("Repeated patches and package integrity", () => {
     expect(new Set(ids).size).toBe(2);
     const footnotes = await zip.file("word/footnotes.xml")!.async("string");
     for (const id of ids)
-      expect(footnotes).toContain(`<w:footnote w:id="${id}"`);
+      expect(footnotes).toContain(`<w:footnote w:id="${String(id)}"`);
     expect(text).toContain("Table 1");
     expect(text).toContain("Table 2");
     const names = [
@@ -727,7 +734,7 @@ describe("Repeated patches and package integrity", () => {
         if (entry.getAttribute("TargetMode") !== "External")
           expect(
             zip.file(
-              path.posix.normalize(`word/${entry.getAttribute("Target")}`),
+              path.posix.normalize(`word/${String(entry.getAttribute("Target"))}`),
             ),
           ).not.toBeNull();
     }

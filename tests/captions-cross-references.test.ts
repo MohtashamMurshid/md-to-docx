@@ -202,8 +202,8 @@ See [@fig:duplicate].`);
     expect(bookmark).toMatch(/^[A-Za-z_][A-Za-z0-9_]{0,39}$/);
     expect(bookmark).not.toContain("/");
     expect(bookmark).not.toContain("?");
-    expect(second).toContain(`w:name="${bookmark}"`);
-    expect(first).toContain(`REF ${bookmark} \\h`);
+    expect(second).toContain(`w:name="${String(bookmark)}"`);
+    expect(first).toContain(`REF ${String(bookmark)} \\h`);
   });
 
   it("applies typed labels, placement, and caption styling", async () => {

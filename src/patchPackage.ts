@@ -227,7 +227,7 @@ export async function mergePatchPackage(
     part: string,
     relationships: XmlElement[],
   ): void {
-    const key = `word/_rels/${part.split("/").pop()}.rels`;
+    const key = `word/_rels/${part.split("/").pop() ?? ""}.rels`;
     const target =
       documents.get(key) ?? parse(`<Relationships xmlns="${REL}"/>`);
     const ids = new Set(

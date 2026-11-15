@@ -62,8 +62,12 @@ type HandlerFields = Partial<
   Record<"languages" | "nodeTypes" | "failureMode" | "render", unknown>
 >;
 
+/** Handlers may be plain objects or functions carrying the handler fields. */
 function handlerFields(handler: unknown): HandlerFields {
-  return typeof handler === "object" && handler !== null ? handler : {};
+  return (typeof handler === "object" && handler !== null) ||
+    typeof handler === "function"
+    ? handler
+    : {};
 }
 
 function isMdastRoot(value: unknown): value is Root {

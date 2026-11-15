@@ -228,6 +228,23 @@ Hello **team**.
     ]);
   });
 
+  it("does not claim a PNG fallback for an invalid native chart in a patch", async () => {
+    const warnings: { code: string; message: string }[] = [];
+    await patchMarkdownInDocxToBuffer(
+      fs.readFileSync(fixturePath),
+      { body: "```chart\n{not json}\n```" },
+      {
+        chartRendering: { enabled: true, output: "native" },
+        onWarning: (warning) => warnings.push(warning),
+      },
+    );
+
+    expect(warnings.map((warning) => warning.message)).not.toContain(
+      "Native charts are not supported when patching a DOCX; the chart was rendered as a PNG image",
+    );
+    expect(warnings.filter((warning) => warning.code === "DIAGRAM_FALLBACK")).toHaveLength(1);
+  });
+
   it("merges caption fields and bookmarks", async () => {
     const output = await patchMarkdownInDocxToBuffer(
       fs.readFileSync(fixturePath),

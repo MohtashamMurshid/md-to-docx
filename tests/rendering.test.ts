@@ -1220,4 +1220,27 @@ describe("Rendering: stable IDs", () => {
     expect([...ends].sort()).toEqual([...starts].sort());
     expect(ids(/<wp:docPr\b[^>]*\bid="(\d+)"/g)).toEqual(["1", "2", "3"]);
   });
+
+  it("gives hyperlink relationships the same IDs on every conversion", async () => {
+    const markdown =
+      "See [one](https://example.com/1) and [two](https://example.com/2)[^n].\n\n[^n]: Also [three](https://example.com/3).";
+    const parts = async () => {
+      const zip = await getZip(await convertMarkdownToDocx(markdown));
+      return Promise.all(
+        [
+          "word/document.xml",
+          "word/_rels/document.xml.rels",
+          "word/footnotes.xml",
+          "word/_rels/footnotes.xml.rels",
+        ].map((part) => zip.file(part)!.async("string")),
+      );
+    };
+
+    const first = await parts();
+    expect(await parts()).toEqual(first);
+    const [documentXml = "", documentRels = ""] = first;
+    for (const match of documentXml.matchAll(/<w:hyperlink\b[^>]*\br:id="([^"]+)"/g)) {
+      expect(documentRels).toContain(`Id="${String(match[1])}"`);
+    }
+  });
 });

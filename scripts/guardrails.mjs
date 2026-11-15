@@ -85,10 +85,16 @@ function actionPinProblems(where, reference) {
     : [`${where} pins ${reference}; use a full commit SHA followed by "# vX.Y.Z"`];
 }
 
+/** The step's lines without YAML comments, so a commented-out setting doesn't count. */
+const withoutComments = (lines) =>
+  lines.map((line) => line.replace(/(^|\s)#.*$/, "")).join("\n");
+
+const DROPS_TOKEN = /^\s*persist-credentials:\s*(?:false|"false"|'false')\s*$/m;
+
 function checkoutProblems(where, reference, stepLines) {
   const keepsToken =
     /^actions\/checkout@/.test(reference) &&
-    !/persist-credentials:\s*false/.test(stepLines.join("\n"));
+    !DROPS_TOKEN.test(withoutComments(stepLines));
   return keepsToken
     ? [`${where} checks out without persist-credentials: false`]
     : [];

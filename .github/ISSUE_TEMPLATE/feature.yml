@@ -1,0 +1,22 @@
+name: Feature request
+description: Markdown syntax, an option, or a Word feature md-to-docx does not support yet.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you are trying to do
+      description: The document you want to produce, and what stops you today.
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Example
+      description: Markdown in, and what the Word document should look like. A screenshot of the target is welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Workarounds you tried

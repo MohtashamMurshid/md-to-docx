@@ -1,3 +1,9 @@
+## [4.2.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.1.0...v4.2.0) (2026-11-15)
+
+### Features
+
+* **toc:** add tab leaders, TOC styles and pre-filled page numbers ([#106](https://github.com/MohtashamMurshid/md-to-docx/issues/106)) ([e189ed2](https://github.com/MohtashamMurshid/md-to-docx/commit/e189ed28a81e44590565f524906e2489de09812d))
+
 ## [4.1.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.0.5...v4.1.0) (2026-11-15)
 
 ### Features

@@ -18,6 +18,8 @@ import {
   readIntrinsicDimensions,
 } from "./imageFormat.js";
 import { loadImage, parseImageReference } from "./imageSource.js";
+import type { ImageReference, LoadedImage } from "./imageSource.js";
+import type { ResolvedImageHandlingOptions } from "../utils/imageHandling.js";
 
 export { resolveImageHandlingOptions } from "#secure-image-fetch";
 
@@ -178,6 +180,28 @@ export function drawingParagraph(
   });
 }
 
+interface NormalizedImage {
+  reference: ImageReference;
+  image: LoadedImage;
+  /** The bytes, with SVG and WebP converted to PNG. */
+  data: Uint8Array;
+}
+
+/**
+ * Loads an image under the image handling policy (resolver, local directory,
+ * data URL or remote fetch) and converts formats Word cannot show.
+ */
+export async function loadNormalizedImage(
+  url: string,
+  handling: ResolvedImageHandlingOptions,
+  signal: AbortSignal | undefined,
+): Promise<NormalizedImage> {
+  const reference = parseImageReference(url);
+  const image = await loadImage(reference.url, handling, signal);
+  const data = await normalizeImage(image.data, handling.maxImageBytes, signal);
+  return { reference, image, data };
+}
+
 export interface ProcessImageInput {
   altText: string;
   /** Image URL, data URL or local path, optionally with a `#WxH` size fragment. */
@@ -205,9 +229,12 @@ export async function processImage(
   try {
     throwIfAborted(signal);
     const handling = resolveImageHandlingOptions(input.imageHandling);
-    const { url, widthHint, heightHint } = parseImageReference(input.url);
-    const image = await loadImage(url, handling, signal);
-    const data = await normalizeImage(image.data, handling.maxImageBytes, signal);
+    const { reference, image, data } = await loadNormalizedImage(
+      input.url,
+      handling,
+      signal,
+    );
+    const { widthHint, heightHint } = reference;
     return processImageData(
       {
         altText,

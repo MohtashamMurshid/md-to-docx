@@ -9,6 +9,7 @@ import type {
 import { parseTexMath, renderNativeMath } from "../renderers/mathRenderer.js";
 import { MarkdownConversionError } from "../errors.js";
 import type { InlineOverrides, RenderEnv } from "./context.js";
+import { htmlRuns } from "./html.js";
 import { renderTextNode } from "./links.js";
 import { textRunFromNode } from "./runs.js";
 
@@ -16,7 +17,7 @@ type InlineRenderer<T extends DocxInlineNode> = (
   env: RenderEnv,
   node: T,
   overrides: InlineOverrides,
-) => ParagraphChild;
+) => ParagraphChild | readonly ParagraphChild[];
 
 /** "Figure" or "Table", or the label the caption options set. */
 export function captionLabel(
@@ -98,13 +99,22 @@ const INLINE_RENDERERS: {
   crossReference: crossReferenceField,
   footnoteReference,
   mathInline: (env, node) => renderMathNode(env, node.value, false),
+  // Inline HTML was prepared by prepareInlineImages; malformed HTML renders as before.
+  htmlInline: (env, node, overrides) => {
+    const prepared = env.inlineHtml.get(node);
+    return prepared
+      ? htmlRuns(env, prepared, overrides)
+      : node.fallback.flatMap((child) =>
+          renderInlineNode(env, child, overrides),
+        );
+  },
 };
 
 function renderInlineNode(
   env: RenderEnv,
   node: DocxInlineNode,
   overrides: InlineOverrides,
-): ParagraphChild {
+): ParagraphChild | readonly ParagraphChild[] {
   // The table is keyed by node type, so each entry receives its own kind of node.
   const render = INLINE_RENDERERS[node.type] as InlineRenderer<DocxInlineNode>;
   return render(env, node, overrides);
@@ -116,7 +126,7 @@ export function renderInlineNodes(
   nodes: DocxInlineNode[],
   overrides: InlineOverrides = {},
 ): ParagraphChild[] {
-  const out = nodes.map((node) => renderInlineNode(env, node, overrides));
+  const out = nodes.flatMap((node) => renderInlineNode(env, node, overrides));
   if (out.length === 0) {
     out.push(textRunFromNode(env, { type: "text", value: "" }, overrides));
   }
@@ -135,6 +145,9 @@ export function textFromInlineNodes(
       }
       if (node.type === "crossReference") {
         return `${captionLabel(env, node.kind)} ${node.number}`;
+      }
+      if (node.type === "htmlInline") {
+        return node.text;
       }
       return "";
     })

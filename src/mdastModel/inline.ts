@@ -6,6 +6,8 @@ import {
 } from "../crossReferences.js";
 import type { ConversionContext, ProcessOptions } from "./context.js";
 import { footnoteReferenceNode } from "./footnotes.js";
+import { htmlRenderingEnabled, inlineHtmlSpan } from "./html.js";
+import type { InlineHtmlSpan } from "./html.js";
 
 /** One `processInlineNodes` call: its output list and the switches it inherits. */
 interface InlineRun {
@@ -181,6 +183,43 @@ function convertInline<K extends keyof PhrasingByType>(
   }
 }
 
+function convertEach(run: InlineRun, nodes: readonly PhrasingContent[]): void {
+  for (const node of nodes) {
+    convertInline(run, node.type, node);
+  }
+}
+
+/** An HTML span, with what it renders as when the HTML turns out malformed. */
+function pushHtmlSpan(run: InlineRun, span: InlineHtmlSpan): void {
+  const fallback: InlineRun = { ...run, result: [] };
+  convertEach(fallback, span.nodes);
+  run.result.push({
+    type: "htmlInline",
+    value: span.value,
+    text: span.text,
+    fallback: fallback.result,
+  });
+}
+
+/** Converts nodes, gathering each inline HTML tag and what it wraps into one HTML span. */
+function convertWithHtml(
+  run: InlineRun,
+  nodes: readonly PhrasingContent[],
+): void {
+  let index = 0;
+  while (index < nodes.length) {
+    const node = nodes[index]!;
+    if (node.type === "html") {
+      const span = inlineHtmlSpan(nodes, index, node);
+      pushHtmlSpan(run, span);
+      index += span.nodes.length;
+    } else {
+      convertInline(run, node.type, node);
+      index++;
+    }
+  }
+}
+
 export function processInlineNodes(
   context: ConversionContext,
   nodes: readonly PhrasingContent[],
@@ -192,8 +231,10 @@ export function processInlineNodes(
     allowFootnoteReferences: options.allowFootnoteReferences ?? true,
     result: [],
   };
-  for (const node of nodes) {
-    convertInline(run, node.type, node);
+  if (htmlRenderingEnabled(context.options)) {
+    convertWithHtml(run, nodes);
+  } else {
+    convertEach(run, nodes);
   }
   return run.result;
 }

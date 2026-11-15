@@ -38,9 +38,10 @@ function namesHostWithoutScheme(url: string): boolean {
  * clicked in Word on Windows) or other unexpected protocol handlers.
  * Relative/fragment targets resolve against the dummy base and inherit its
  * safe scheme; targets the URL parser rejects outright fail closed because
- * Word may still treat the raw string as an active hyperlink.
+ * Word may still treat the raw string as an active hyperlink. Links in raw
+ * HTML pass the same check.
  */
-function isSafeLinkUrl(url: string): boolean {
+export function isSafeLinkUrl(url: string): boolean {
   if (namesHostWithoutScheme(url)) {
     return false;
   }

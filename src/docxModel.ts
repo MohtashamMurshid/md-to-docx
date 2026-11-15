@@ -44,7 +44,19 @@ export interface DocxInlineImageNode {
   title?: string;
 }
 
+/** Raw inline HTML, rendered as Word runs when `htmlRendering` is on. */
+export interface DocxHtmlInlineNode {
+  type: "htmlInline";
+  /** The HTML: a tag, or a tag, the Markdown it wraps and its end tag. */
+  value: string;
+  /** The span's visible text, for heading bookmarks and the TOC. */
+  text: string;
+  /** What the span renders as without `htmlRendering`, used when the HTML is malformed. */
+  fallback: DocxInlineNode[];
+}
+
 export type DocxInlineNode =
+  | DocxHtmlInlineNode
   | DocxInlineImageNode
   | DocxTextNode
   | DocxMathInlineNode
@@ -152,6 +164,12 @@ export interface DocxCommentNode {
   value: string;
 }
 
+/** A raw HTML block, rendered as Word paragraphs and tables when `htmlRendering` is on. */
+export interface DocxHtmlBlockNode {
+  type: "htmlBlock";
+  value: string;
+}
+
 export interface DocxPageBreakNode {
   type: "pageBreak";
 }
@@ -193,6 +211,7 @@ export type DocxBlockNode =
   | DocxImageNode
   | DocxTableNode
   | DocxCommentNode
+  | DocxHtmlBlockNode
   | DocxPageBreakNode
   | DocxHorizontalRuleNode
   | DocxTocPlaceholderNode

@@ -13,6 +13,7 @@ import type { RichTableAst } from "../richTables.js";
 import type { BlockResult, ConversionContext, ProcessOptions } from "./context.js";
 import { convertBlocks } from "./context.js";
 import { processCodeBlock } from "./codeBlocks.js";
+import { convertHtmlBlock, htmlNodeValue } from "./html.js";
 import { processInlineNodes } from "./inline.js";
 import { processList } from "./lists.js";
 import { processRichTable, processTable } from "./tables.js";
@@ -25,30 +26,6 @@ type BlockHandler = (
 
 const GITHUB_CALLOUT_MARKER =
   /^\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*(?:\r?\n[ \t]*)?/i;
-const HTML_COMMENT = /^\s*<!--\s*COMMENT:\s*([\s\S]*?)\s*(?:-->\s*|$)/;
-
-/**
- * Classifies a raw HTML node value into a comment or page-break block, or
- * null when it carries no recognized marker. Shared by the top-level scan
- * and the nested (blockquote/list) block walker.
- */
-export function classifyHtmlNode(value: string): DocxBlockNode | null {
-  const commentMatch = value.match(HTML_COMMENT);
-  if (commentMatch) {
-    // Group 1 is mandatory in the pattern, so it is always present on a match.
-    return { type: "comment", value: commentMatch[1]!.trim() };
-  }
-  if (value.includes("pagebreak")) {
-    return { type: "pageBreak" };
-  }
-  return null;
-}
-
-/** HTML nodes may come from plugins without a `value`. */
-export function htmlNodeValue(node: Node): string {
-  return (node as { value?: string }).value || "";
-}
-
 function imageBlock(image: Image): DocxBlockNode {
   return {
     type: "image",
@@ -196,7 +173,7 @@ const BLOCK_HANDLERS: Record<string, BlockHandler> = {
     processRichTable(context, node as RichTableAst, options),
   table: (context, node, options) =>
     processTable(context, node as Table, options),
-  html: (_context, node) => classifyHtmlNode(htmlNodeValue(node)),
+  html: (context, node) => convertHtmlBlock(context.options, htmlNodeValue(node)),
   thematicBreak: () => ({ type: "horizontalRule" }),
 };
 

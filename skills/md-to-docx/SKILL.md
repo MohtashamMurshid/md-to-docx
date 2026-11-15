@@ -166,6 +166,7 @@ Support includes:
 - Automatically numbered figure/table captions and clickable cross-references
 - Text replacements before rendering via `textReplacements`
 - `COMMENT: ...`
+- Raw HTML (`<sup>`, `<br>`, `<table>`, editor output) only with `"htmlRendering": { "enabled": true }`; otherwise inline tags stay literal and HTML blocks are dropped. It is sanitized and its images follow `imageHandling`
 - `[TOC]` on its own line
 - `\pagebreak` on its own line
 - Markdown thematic breaks (`---`, `***`, `___`) render as native Word paragraph borders

@@ -13,11 +13,8 @@ import type {
 import type { PluginRuntime } from "./pluginRuntime.js";
 import type { ConversionContext } from "./mdastModel/context.js";
 import { blockResultToArray } from "./mdastModel/context.js";
-import {
-  classifyHtmlNode,
-  convertBlockNode,
-  htmlNodeValue,
-} from "./mdastModel/blocks.js";
+import { convertBlockNode } from "./mdastModel/blocks.js";
+import { convertHtmlBlock, htmlNodeValue } from "./mdastModel/html.js";
 import { createFootnoteState } from "./mdastModel/footnotes.js";
 import { processReferencedFootnotes } from "./mdastModel/footnoteDefinitions.js";
 import { processInlineNodes } from "./mdastModel/inline.js";
@@ -85,7 +82,12 @@ function convertRootChild(
     return { blocks: [marker], consumed: 1 };
   }
   if (child.type === "html") {
-    return { blocks: blockResultToArray(classifyHtmlNode(htmlNodeValue(child))), consumed: 1 };
+    return {
+      blocks: blockResultToArray(
+        convertHtmlBlock(context.options, htmlNodeValue(child)),
+      ),
+      consumed: 1,
+    };
   }
   if (child.type === "footnoteDefinition") {
     return { blocks: [], consumed: 1 };

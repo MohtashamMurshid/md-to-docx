@@ -5,6 +5,7 @@ import type { PluginRuntime } from "../pluginRuntime.js";
 import type { HeadingAnchorRegistry } from "../utils/bookmarkUtils.js";
 import { resolveImageHandlingOptions } from "../renderers/imageRenderer.js";
 import type { ResolvedImageHandlingOptions } from "../utils/imageHandling.js";
+import type { PreparedHtml } from "./html.js";
 
 /** One rendered body element. */
 export type Block = Paragraph | Table;
@@ -116,6 +117,8 @@ export interface RenderEnv {
   maxSequenceId: number;
   /** Inline images, fetched before the paragraph that holds them renders. */
   readonly inlineImages: WeakMap<object, ParagraphChild>;
+  /** Inline HTML, prepared before its paragraph renders; undefined when it was malformed. */
+  readonly inlineHtml: WeakMap<object, PreparedHtml | undefined>;
   /** Fragment links, resolved once every section's headings are known. */
   readonly pendingLinks: {
     link: InternalHyperlink;
@@ -159,6 +162,7 @@ export function createRenderEnv(
     headings: [],
     maxSequenceId: 0,
     inlineImages: new WeakMap(),
+    inlineHtml: new WeakMap(),
     pendingLinks: [],
     mermaidFallbackCodeParagraphs: new WeakSet(),
     pluginCodeParagraphs: new WeakSet(),

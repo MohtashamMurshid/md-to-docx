@@ -28,6 +28,7 @@ A TypeScript-first library and CLI that turns Markdown into production-ready Wor
   - [Syntax-highlighted code blocks](#syntax-highlighted-code-blocks)
   - [Chart fenced blocks](#chart-fenced-blocks)
   - [Mermaid diagram blocks](#mermaid-diagram-blocks)
+  - [Raw HTML rendering](#raw-html-rendering)
   - [Custom renderer plugins](#custom-renderer-plugins)
   - [Math rendering](#math-rendering)
   - [Custom heading and paragraph alignment](#custom-heading-and-paragraph-alignment)
@@ -626,7 +627,7 @@ The numbers come from docx's layout pass (`docx/layout`), which lays the pages o
 
 With `prefillPageNumbers` the TOC field is written clean and `updateFieldsOnOpen` defaults to `false`, so Word opens the document without asking. Set `updateFieldsOnOpen: true` as well to have Word replace the estimates on open. Captions and cross-references keep their own `captions.updateFieldsOnOpen` setting, so a document with captions still asks unless you turn that off too. The option works in ordinary, reference-DOCX and patch conversions. Reference-DOCX styles are applied after the layout pass, so the estimate uses the library's own styles. A patch runs the layout pass over the merged template. The layout pass is imported only when you set the option, so browser bundlers split it into a separate chunk, and it adds nothing to the initial bundle. It has no effect in `links` mode or with `pageNumbers: false`.
 
-`onWarning` reports image failures/budget fallbacks, unsupported math, unresolved heading links, diagram failures, and plugin fallbacks. The library does not log by default. Callback exceptions propagate as conversion failures. Strict options such as `mathRendering.unsupported: "throw"` continue to throw instead of producing a warning.
+`onWarning` reports image failures/budget fallbacks, unsupported math, unresolved heading links, diagram failures, plugin fallbacks, and raw HTML that fell back or was partly left out (`HTML_FALLBACK`, `UNSUPPORTED_CONTENT`). The library does not log by default. Callback exceptions propagate as conversion failures. Strict options such as `mathRendering.unsupported: "throw"` continue to throw instead of producing a warning.
 
 Reference-style links, ordered-list starting numbers including zero, and `#heading` links work in both ordinary and patch conversions. Heading fragments use lowercase text with punctuation removed and spaces replaced by hyphens; duplicates receive `-1`, `-2`, and later suffixes. Unicode fragments and links to later sections are supported.
 
@@ -768,6 +769,35 @@ await convertMarkdownToDocx(markdown, {
 Rendered diagrams use the same image sizing and `imageHandling.maxImages` / `maxImageBytes` limits as normal embedded images. If rendering is unavailable or fails, the default `failureMode` is `"codeBlock"` so the original Mermaid source remains in the document. Set `failureMode: "placeholder"` to emit a visible failure paragraph, or `"throw"` to fail conversion with `MarkdownConversionError`.
 
 Security note: run Mermaid or browser-based renderers with the same care as any server-side rendering pipeline for untrusted input. Use request timeouts, `AbortSignal`, process isolation or sandboxing, memory limits, and a vetted Mermaid configuration. The CLI options JSON cannot provide a renderer function, so CLI-only usage preserves Mermaid fences as code unless wrapped by a host application.
+
+### Raw HTML rendering
+
+Raw HTML rendering is **opt-in**. When disabled (the default), raw HTML is handled exactly as before: inline tags such as `<sup>` stay in the text as literal tags, and HTML blocks are left out, apart from `<!-- COMMENT: ... -->` comments and page breaks. When enabled, raw HTML becomes native Word content through docx's `docx/html` converter:
+
+```typescript
+await convertMarkdownToDocx(
+  [
+    "Water is H<sub>2</sub>O, and E = mc<sup>2</sup>.<br>A <mark>marked</mark> <u>word</u>.",
+    "",
+    '<table><tr><th>Name</th></tr><tr><td style="color:#c00">Ada</td></tr></table>',
+  ].join("\n"),
+  { htmlRendering: { enabled: true } },
+);
+```
+
+- Inline HTML (`<sup>`, `<sub>`, `<br>`, `<u>`, `<mark>`, `<span style="...">` and other phrasing) becomes runs in the surrounding paragraph, heading, list item, table cell or footnote. Emphasis, strong, strikethrough, inline code and links between a tag and its end tag keep their formatting. When the wrapped Markdown holds something HTML has no form for, such as a footnote reference, an image or math, each tag renders on its own and the Markdown renders natively. A Markdown link's hyperlink does not extend over inline HTML inside its text: in `[a <sup>2</sup> b](https://example.com/)`, `a` and `b` are linked and the superscript `2` is not.
+- HTML blocks (`<p>`, `<div>`, `<table>`, `<ul>`/`<ol>` including nested lists, headings) become paragraphs and tables, such as the output of a rich-text editor. They render in the document flow without the indent or quote styling of a surrounding list item or blockquote.
+- HTML text takes the style's `fontFamily` and paragraph size, so it matches the Markdown around it.
+- Malformed HTML (anything the HTML parser reports as an error, such as `<span/>` or a stray `<`) and HTML nested more than 512 elements deep render as they would without `htmlRendering`, with an `HTML_FALLBACK` warning: a malformed HTML block is left out, and malformed inline HTML keeps its tags as literal text. Content docx cannot show in Word is left out with an `UNSUPPORTED_CONTENT` warning.
+- `\pagebreak` on its own line is the page break. Without `htmlRendering`, an HTML block that mentions `pagebreak` anywhere is also taken as one; with it, such HTML renders as HTML, so `<p>the word pagebreak</p>` keeps its text, and only an HTML block that is nothing but `<!-- pagebreak -->` still breaks the page.
+
+Security, for untrusted Markdown:
+
+- `docx/html` never downloads anything and never runs scripts: it has no network code, reads `<img>` only from data URLs or the images the caller passes, and ignores `<link>` style sheets and CSS `@import`. Before it sees the HTML, the library parses it and sanitizes it with GitHub's schema (`hast-util-sanitize`), extended with the formatting Word supports. `<script>`, `<style>`, `<template>`, `<noscript>`, `<title>` and `<textarea>` are dropped with their content; `<svg>`, `<math>`, `<iframe>`, `<object>` and other unknown elements are unwrapped to their text.
+- Links in HTML pass the same check as Markdown links: `http`, `https`, `mailto` and `tel` targets and relative ones are kept. `file:`, `javascript:` and other schemes, UNC paths (`\\host\share`) and protocol-relative targets (`//host/share`) lose their target, and their text stays as plain text. `id` and `name` attributes are prefixed with `user-content-`, so they cannot collide with the document's own bookmarks.
+- Every `<img>` goes through the same pipeline as a Markdown image: `imageHandling.remote` (off by default), `dataUrls`, `resolve`, `baseDirectory`, `maxImageBytes`, SVG validation and the document-wide `maxImages` budget. Only the formats a Markdown image embeds reach Word: PNG, JPEG and GIF, and SVG and WebP after conversion to PNG. An image that is not allowed, fails to load or is in any other format, such as an SVG with a DOCTYPE, is left out with an `IMAGE_FALLBACK` warning. Inline `<svg>` is never embedded, because it would skip SVG validation.
+- Every node in the parsed HTML counts toward `maxElements`, the same as Markdown nodes.
+- `htmlRendering` takes only `enabled`, a boolean, so a CLI options file can turn it on but cannot pass any code through it.
 
 ### Custom renderer plugins
 
@@ -1058,7 +1088,7 @@ try {
 }
 ```
 
-`maxInputLength` is measured with JavaScript string length. When `sections` is provided, all section markdown lengths are summed. `maxElements` counts parsed Markdown AST nodes across every section after `textReplacements` run. The CLI options JSON can set numeric limits, but `signal` is programmatic-only.
+`maxInputLength` is measured with JavaScript string length. When `sections` is provided, all section markdown lengths are summed. `maxElements` counts parsed Markdown AST nodes across every section after `textReplacements` run, plus the nodes of raw HTML when `htmlRendering` is on. The CLI options JSON can set numeric limits, but `signal` is programmatic-only.
 
 ### RTL / bidirectional text
 
@@ -1099,6 +1129,7 @@ await convertMarkdownToDocx(markdown, {
 | Table of Contents | `[TOC]`                        | Clickable, auto-populated                            |
 | Page break        | `\pagebreak`                   | Place on its own line                                |
 | Comments          | `<!-- COMMENT: text -->`       | Rendered as Word comments                            |
+| Raw HTML          | `<sup>2</sup>`, `<table>`      | Opt-in native rendering with `htmlRendering`; sanitized |
 
 Task-list checkboxes use Unicode ballot-box text (`☐` U+2610 and `☒` U+2612)
 inside the existing Word list paragraph. This deterministic representation has
@@ -1186,6 +1217,7 @@ interface Options {
   codeHighlighting?: CodeHighlightOptions;
   mermaidRendering?: MermaidRenderingOptions;
   chartRendering?: ChartRenderingOptions;
+  htmlRendering?: HtmlRenderingOptions;
   captions?: CaptionOptions;
   plugins?: readonly MarkdownDocxPlugin[];
   pluginOptions?: PluginOptions;
@@ -1293,6 +1325,7 @@ interface PatchMarkdownOptions {
   mathRendering?: MathRenderingOptions;
   mermaidRendering?: MermaidRenderingOptions;
   chartRendering?: ChartRenderingOptions;
+  htmlRendering?: HtmlRenderingOptions;
   plugins?: readonly MarkdownDocxPlugin[];
   pluginOptions?: PluginOptions;
   textReplacements?: TextReplacement[];
@@ -1453,6 +1486,12 @@ interface AccessibilityOptions {
 | `enabled`     | `false`       | Turn fenced Mermaid rendering on.                                    |
 | `render`      | `undefined`   | Converts a Mermaid block into PNG, JPEG, or GIF bytes.               |
 | `failureMode` | `"codeBlock"` | Behavior when rendering is unavailable, returns no image, or throws. |
+
+#### `HtmlRenderingOptions`
+
+| Option    | Type      | Default | Description                                                                                   |
+| --------- | --------- | ------- | --------------------------------------------------------------------------------------------- |
+| `enabled` | `boolean` | `false` | Render raw HTML as native Word content. Off leaves raw HTML as before. See [Raw HTML rendering](#raw-html-rendering). |
 
 #### `MarkdownDocxPlugin` (API version 1)
 

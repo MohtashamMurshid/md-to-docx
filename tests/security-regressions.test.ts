@@ -259,4 +259,37 @@ describe("Security regressions", () => {
     expect(relationshipsXml).toContain("https://example.com/ok");
     expect(relationshipsXml).toContain("mailto:user@example.com");
   });
+
+  it.each([
+    { name: "a <script>", html: "<p>safe<script>alert(1)</script></p>", dropped: "alert" },
+    { name: "a <style>", html: "<style>p { color: red }</style><p>safe</p>", dropped: "color" },
+    {
+      name: "a file:// UNC link",
+      html: '<p><a href="file://attacker.example/share/doc.docx">safe</a></p>',
+      dropped: "attacker.example",
+    },
+    {
+      name: "a link the Markdown link check refuses",
+      html: '<p><a href="https://exa mple.example/">safe</a></p>',
+      dropped: "mple.example",
+    },
+    {
+      name: "an inline <svg>",
+      html: '<p>safe<svg><image href="https://tracker.example/p.png"/></svg></p>',
+      dropped: "tracker.example",
+    },
+  ])("renders raw HTML without $name", async ({ html, dropped }) => {
+    const blob = await convertMarkdownToDocx(html, {
+      htmlRendering: { enabled: true },
+    });
+
+    const documentXml = await getDocumentXml(blob);
+    const relationshipsXml = await documentRelationshipsXml(blob);
+
+    expect(documentXml).toContain("safe");
+    expect(documentXml).not.toContain(dropped);
+    expect(documentXml).not.toContain("<w:hyperlink");
+    expect(documentXml).not.toContain("<w:drawing>");
+    expect(relationshipsXml).not.toContain(dropped);
+  });
 });

@@ -103,15 +103,14 @@ function workflowSteps(workflow) {
   );
 }
 
-/** Reads the step's own `with:` settings, so comments or other keys can't stand in. */
-function keepsCheckoutToken({ step }) {
-  const setting = step?.with?.["persist-credentials"];
-  return (
-    String(step?.uses ?? "").startsWith("actions/checkout@") &&
-    setting !== false &&
-    setting !== "false"
-  );
-}
+const isCheckout = (step) =>
+  String(step?.uses ?? "").startsWith("actions/checkout@");
+
+/** Only the step's own parsed `with:` counts, so comments or other keys can't stand in. */
+const dropsToken = (step) =>
+  ["false", false].includes(step?.with?.["persist-credentials"]);
+
+const keepsCheckoutToken = ({ step }) => isCheckout(step) && !dropsToken(step);
 
 function checkoutProblems(file, workflow) {
   return workflowSteps(workflow)

@@ -7,9 +7,14 @@ import {
 import { modelToDocx } from "../src/modelToDocx.js";
 import type { DocxDocumentModel } from "../src/docxModel.js";
 import type { Options, Style } from "../src/types.js";
+import { Response } from "undici";
+import { remoteFetch } from "./undiciFetchMock.js";
+
+vi.mock("undici", async () => (await import("./undiciFetchMock.js")).mockUndiciFetch());
 
 afterEach(() => {
   vi.restoreAllMocks();
+  remoteFetch.mockReset();
 });
 
 const invalidLimitCases: Array<{
@@ -107,7 +112,7 @@ describe("Conversion cancellation", () => {
 
   it("rejects when the signal aborts during remote image fetch", async () => {
     const controller = new AbortController();
-    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+    remoteFetch.mockImplementation((_input, init) => {
       setTimeout(() => {
         controller.abort(new Error("caller cancelled"));
       }, 0);
@@ -126,7 +131,7 @@ describe("Conversion cancellation", () => {
       })
     ).rejects.toThrow("Markdown conversion was aborted");
 
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(remoteFetch).toHaveBeenCalledTimes(1);
   });
 
   it("rethrows image aborts from model rendering", async () => {
@@ -141,7 +146,7 @@ describe("Conversion cancellation", () => {
       ],
     };
 
-    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+    remoteFetch.mockImplementation((_input, init) => {
       setTimeout(() => {
         controller.abort(new Error("caller cancelled"));
       }, 0);

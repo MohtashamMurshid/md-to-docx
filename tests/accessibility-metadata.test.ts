@@ -11,6 +11,10 @@ import {
 } from "../src/index.js";
 import { applyDocumentMetadata } from "../src/metadata.js";
 import { at, getDocumentXml, getZip } from "./helpers.js";
+import { Response } from "undici";
+import { remoteFetch } from "./undiciFetchMock.js";
+
+vi.mock("undici", async () => (await import("./undiciFetchMock.js")).mockUndiciFetch());
 
 const ONE_PX_PNG =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAGgwJ/vk9yBgAAAABJRU5ErkJggg==";
@@ -28,6 +32,7 @@ async function part(zip: JSZip, path: string): Promise<string> {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  remoteFetch.mockReset();
 });
 
 describe("document metadata package parts", () => {
@@ -201,7 +206,7 @@ describe("drawing accessibility properties", () => {
   });
 
   it("propagates alt text for allowed remote images", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    remoteFetch.mockResolvedValue(
       new Response(new Uint8Array(ONE_PX_PNG_BYTES), {
         status: 200,
         headers: { "content-type": "image/png" },
@@ -215,7 +220,7 @@ describe("drawing accessibility properties", () => {
     );
 
     expect(xml).toContain('name="Remote chart" descr="Remote chart"');
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(remoteFetch).toHaveBeenCalledTimes(1);
   });
 
   it("allows empty alt text by default without claiming decorative semantics", async () => {
@@ -228,7 +233,6 @@ describe("drawing accessibility properties", () => {
   });
 
   it("throws for empty normal and remote image alt text in strict mode before lookup", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch");
     await expect(
       convertMarkdownToDocx(`![](${ONE_PX_PNG})`, {
         accessibility: { missingImageAltText: "throw" },
@@ -240,7 +244,7 @@ describe("drawing accessibility properties", () => {
         imageHandling: { remote: { enabled: true } },
       }),
     ).rejects.toThrow("strict accessibility mode");
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(remoteFetch).not.toHaveBeenCalled();
   });
 
   it("rejects invalid and oversized image descriptions with conversion context", async () => {

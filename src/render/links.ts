@@ -54,7 +54,7 @@ export function isSafeLinkUrl(url: string): boolean {
   return SAFE_LINK_PROTOCOLS.has(protocol.toLowerCase());
 }
 
-function decodeFragment(fragment: string): string {
+export function decodeFragment(fragment: string): string {
   try {
     return decodeURIComponent(fragment);
   } catch {
@@ -63,18 +63,24 @@ function decodeFragment(fragment: string): string {
   }
 }
 
+/** How a link renders: to a heading, to a URL, or, when its scheme is refused, not at all. */
+export type LinkKind = "internal" | "external" | "unsafe";
+
+export function linkKind(url: string): LinkKind {
+  if (url.startsWith("#")) {
+    return "internal";
+  }
+  return isSafeLinkUrl(url) ? "external" : "unsafe";
+}
+
 /** A link to a heading. Its anchor is filled in by {@link finalizeLinks}. */
-function internalLink(
+function internalHyperlink(
   env: RenderEnv,
-  node: DocxTextNode,
   source: string,
-  overrides: InlineOverrides,
+  children: readonly ParagraphChild[],
 ): InternalHyperlink {
   const fragment = decodeFragment(source.slice(1));
-  const link = new InternalHyperlink({
-    anchor: fragment,
-    children: [textRunFromNode(env, node, overrides)],
-  });
+  const link = new InternalHyperlink({ anchor: fragment, children });
   env.pendingLinks.push({ link, fragment, source });
   return link;
 }
@@ -112,14 +118,77 @@ export function renderTextNode(
   if (!node.link) {
     return textRunFromNode(env, node, overrides);
   }
-  if (node.link.startsWith("#")) {
-    return internalLink(env, node, node.link, overrides);
+  switch (linkKind(node.link)) {
+    case "internal":
+      return internalHyperlink(env, node.link, [
+        textRunFromNode(env, node, overrides),
+      ]);
+    case "unsafe": {
+      const { link: _unsafeLink, ...plainNode } = node;
+      return textRunFromNode(env, plainNode, overrides);
+    }
+    case "external":
+      return externalLink(env, node, node.link, overrides);
   }
-  if (!isSafeLinkUrl(node.link)) {
-    const { link: _unsafeLink, ...plainNode } = node;
-    return textRunFromNode(env, plainNode, overrides);
+}
+
+function isHyperlink(
+  child: ParagraphChild,
+): child is ExternalHyperlink | InternalHyperlink {
+  return child instanceof ExternalHyperlink || child instanceof InternalHyperlink;
+}
+
+/**
+ * Runs in a hyperlink to `url`, as a text node with that link renders: a
+ * heading link, an external link, or no link when the scheme is refused.
+ * Hyperlinks among the runs keep their own targets, as Word cannot nest them.
+ */
+export function linkRuns(
+  env: RenderEnv,
+  url: string,
+  runs: readonly ParagraphChild[],
+): ParagraphChild[] {
+  const kind = linkKind(url);
+  if (kind === "unsafe") {
+    return [...runs];
   }
-  return externalLink(env, node, node.link, overrides);
+  const linked: ParagraphChild[] = [];
+  let group: ParagraphChild[] = [];
+  const flush = (): void => {
+    if (group.length === 0) return;
+    linked.push(
+      kind === "internal"
+        ? internalHyperlink(env, url, group)
+        : new ExternalHyperlink({ children: group, link: url }),
+    );
+    group = [];
+  };
+  for (const run of runs) {
+    if (isHyperlink(run)) {
+      flush();
+      linked.push(run);
+    } else {
+      group.push(run);
+    }
+  }
+  flush();
+  return linked;
+}
+
+/** The bookmark of the heading a fragment names, with a warning when there is none. */
+function headingAnchor(
+  env: RenderEnv,
+  fragment: string,
+  source: string,
+): string | undefined {
+  const anchor = env.headingAnchors.anchors.get(fragment);
+  if (!anchor)
+    env.options.onWarning?.({
+      code: "UNRESOLVED_LINK",
+      message: `No heading matches ${source}`,
+      source,
+    });
+  return anchor;
 }
 
 /**
@@ -130,13 +199,7 @@ export function finalizeLinks(env: RenderEnv): void {
   for (const { link, fragment, source } of env.pendingLinks) {
     const original = link.prepForXml.bind(link);
     link.prepForXml = (context) => {
-      const anchor = env.headingAnchors.anchors.get(fragment);
-      if (!anchor)
-        env.options.onWarning?.({
-          code: "UNRESOLVED_LINK",
-          message: `No heading matches ${source}`,
-          source,
-        });
+      const anchor = headingAnchor(env, fragment, source);
       const xml = original(context);
       if (xml && anchor) {
         setHyperlinkAnchor(xml, anchor);
@@ -154,4 +217,57 @@ function setHyperlinkAnchor(
     _attr?: Record<string, unknown>;
   }[];
   for (const child of children) if (child._attr) child._attr["w:anchor"] = anchor;
+}
+
+/** Replaces each `w:anchor` attribute `retarget` gives a new value for, anywhere in docx's XML. */
+function retargetAnchors(
+  xml: unknown,
+  retarget: (anchor: string) => string | undefined,
+): void {
+  const stack: unknown[] = [xml];
+  while (stack.length > 0) {
+    const value = stack.pop();
+    if (typeof value !== "object" || value === null) continue;
+    const attributes = "_attr" in value ? value._attr : undefined;
+    if (
+      typeof attributes === "object" &&
+      attributes !== null &&
+      "w:anchor" in attributes &&
+      typeof attributes["w:anchor"] === "string"
+    ) {
+      attributes["w:anchor"] = retarget(attributes["w:anchor"]) ?? attributes["w:anchor"];
+    }
+    for (const child of Object.values(value)) stack.push(child);
+  }
+}
+
+/** Anything docx writes as XML, such as a run, a hyperlink, a paragraph or a table. */
+type XmlPart = Pick<InternalHyperlink, "prepForXml">;
+
+/**
+ * Points the links docx/html wrote to `fragments`' placeholder anchors at
+ * the bookmark of the heading each fragment names, when docx packs, as
+ * {@link finalizeLinks} does for Markdown links. A fragment no heading has
+ * stays as the anchor, with a warning, as a Markdown link's does.
+ */
+export function linkHtmlFragments(
+  env: RenderEnv,
+  parts: readonly XmlPart[],
+  fragments: ReadonlyMap<string, string>,
+): void {
+  if (fragments.size === 0) return;
+  const retarget = (anchor: string): string | undefined => {
+    const fragment = fragments.get(anchor);
+    return fragment === undefined
+      ? undefined
+      : (headingAnchor(env, fragment, `#${fragment}`) ?? fragment);
+  };
+  for (const part of parts) {
+    const original = part.prepForXml.bind(part);
+    part.prepForXml = (context) => {
+      const xml = original(context);
+      retargetAnchors(xml, retarget);
+      return xml;
+    };
+  }
 }

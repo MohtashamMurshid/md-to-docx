@@ -103,7 +103,7 @@ const INLINE_RENDERERS: {
   htmlInline: (env, node, overrides) => {
     const prepared = env.inlineHtml.get(node);
     return prepared
-      ? htmlRuns(env, prepared, overrides)
+      ? htmlRuns(env, prepared, node, overrides)
       : node.fallback.flatMap((child) =>
           renderInlineNode(env, child, overrides),
         );

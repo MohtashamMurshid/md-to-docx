@@ -57,11 +57,64 @@ describe("htmlRendering", () => {
     expect(xml).not.toContain("&lt;u");
   });
 
-  it("renders inline <br> as a line break", async () => {
-    const xml = await render("one<br>two", HTML_ON);
+  it.each(["<br>", '<br class="x">', '<br data-x="1"/>', "<BR>"])(
+    "renders inline %s as a line break",
+    async (tag) => {
+      const xml = await render(`one${tag}two`, HTML_ON);
 
-    expect(xml).toMatch(/>one<\/w:t><\/w:r>.*<w:br\/>.*>two<\/w:t>/s);
-    expect(xml).not.toContain("&lt;br");
+      expect(xml).toMatch(/>one<\/w:t><\/w:r>.*<w:br\/>.*>two<\/w:t>/s);
+      expect(xml).not.toMatch(/&lt;br/i);
+    },
+  );
+
+  it.each([
+    { name: "bold", markdown: "**bold <sup>2</sup>**", text: "2", property: "<w:b/>" },
+    { name: "italic", markdown: "*it <sup>2</sup>*", text: "2", property: "<w:i/>" },
+    { name: "strikethrough", markdown: "~~gone <sup>2</sup>~~", text: "2", property: "<w:strike/>" },
+    { name: "bold, around malformed HTML", markdown: "**bold <span/>**", text: "&lt;span/&gt;", property: "<w:b/>" },
+  ])("applies the $name around inline HTML to its runs", async ({ markdown, text, property }) => {
+    const xml = await render(markdown, HTML_ON);
+
+    const run = new RegExp(`<w:r>(?:(?!<w:r>).)*>${text}</w:t>`).exec(xml)?.[0];
+    expect(run).toContain(property);
+  });
+
+  it.each([
+    { name: "inline HTML", markdown: "[x <sup>2</sup>](https://example.com/)", text: "2" },
+    { name: "malformed inline HTML", markdown: "[x <span/>](https://example.com/)", text: "&lt;span/&gt;" },
+  ])("keeps $name in link text inside the hyperlink", async ({ markdown, text }) => {
+    const xml = await render(markdown, HTML_ON);
+
+    expect(xml).toMatch(
+      new RegExp(`<w:hyperlink [^>]*>(?:(?!</w:hyperlink>).)*>${text}</w:t>`),
+    );
+  });
+
+  it.each([
+    {
+      name: "an element in the same HTML",
+      markdown: '<div><a href="#target">Go</a> <span id="target">There</span></div>',
+    },
+    {
+      name: "a Markdown heading, from an HTML block",
+      markdown: '# Some Markdown Heading\n\n<div><a href="#some-markdown-heading">Go</a></div>',
+    },
+    {
+      name: "a Markdown heading, from inline HTML",
+      markdown: '# Some Markdown Heading\n\nSee <a href="#some-markdown-heading">Go</a>',
+    },
+  ])("links an HTML fragment to $name", async ({ markdown }) => {
+    const warnings: ConversionWarning[] = [];
+
+    const xml = await render(markdown, {
+      ...HTML_ON,
+      onWarning: (warning) => warnings.push(warning),
+    });
+
+    const anchor = /<w:hyperlink [^>]*w:anchor="([^"]+)"/.exec(xml)?.[1];
+    expect(anchor).toBeDefined();
+    expect(xml).toContain(`<w:bookmarkStart w:name="${anchor ?? ""}"`);
+    expect(warnings).toEqual([]);
   });
 
   it("renders a block <table> as a Word table", async () => {
@@ -100,9 +153,14 @@ describe("htmlRendering", () => {
   });
 
   it.each([
-    { name: "200,000 nested block <div>s", markdown: `${"<div>".repeat(200_000)}deep` },
-    { name: "100,000 unclosed inline <b>s", markdown: `x${"<b>".repeat(100_000)}deep` },
-  ])("falls back without quadratic parsing for $name", async ({ markdown }) => {
+    { name: "200,000 nested block <div>s", markdown: `${"<div>".repeat(200_000)}deep`, limit: 5_000 },
+    { name: "100,000 unclosed inline <b>s", markdown: `x${"<b>".repeat(100_000)}deep`, limit: 5_000 },
+    // HTML ignores the slash on a non-void start tag, so these nest too.
+    { name: "200,000 block <div/>s", markdown: `${"<div/>".repeat(200_000)}deep`, limit: 5_000 },
+    { name: "200,000 inline <span/>s", markdown: `x${"<span/>".repeat(200_000)}deep`, limit: 5_000 },
+    { name: "20,000 unclosed inline <b>s before math", markdown: `x${"<b>".repeat(20_000)}$x$`, limit: 5_000 },
+    { name: "a 200 KB unclosed tag", markdown: `<div><a${"b".repeat(200_000)}`, limit: 1_000 },
+  ])("falls back without quadratic parsing for $name", async ({ markdown, limit }) => {
     const warnings: ConversionWarning[] = [];
     const started = performance.now();
 
@@ -111,7 +169,7 @@ describe("htmlRendering", () => {
       onWarning: (warning) => warnings.push(warning),
     });
 
-    expect(performance.now() - started).toBeLessThan(5_000);
+    expect(performance.now() - started).toBeLessThan(limit);
     expect(warnings.map((warning) => warning.code)).toContain("HTML_FALLBACK");
   }, 30_000);
 

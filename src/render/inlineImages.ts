@@ -3,7 +3,7 @@ import type { DocxInlineImageNode, DocxInlineNode } from "../docxModel.js";
 import { processImage } from "../renderers/imageRenderer.js";
 import { assertImageAltPolicy, validateImageText } from "../accessibility.js";
 import type { RenderEnv } from "./context.js";
-import { prepareHtml } from "./html.js";
+import { prepareInlineHtml } from "./html.js";
 import {
   countImageAttempt,
   imageBudgetReached,
@@ -75,7 +75,7 @@ export async function prepareInlineImages(
     if (node.type === "inlineImage" && !env.inlineImages.has(node)) {
       await prepareInlineImage(env, node);
     } else if (node.type === "htmlInline" && !env.inlineHtml.has(node)) {
-      env.inlineHtml.set(node, await prepareHtml(env, node.value));
+      env.inlineHtml.set(node, await prepareInlineHtml(env, node));
     }
   }
 }

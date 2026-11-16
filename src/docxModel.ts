@@ -45,7 +45,13 @@ export interface DocxInlineImageNode {
 }
 
 /** Raw inline HTML, rendered as Word runs when `htmlRendering` is on. */
-export interface DocxHtmlInlineNode {
+/** The Markdown formatting and link around a run of text or inline HTML. */
+export type DocxInlineDecoration = Pick<
+  DocxTextNode,
+  "bold" | "italic" | "strikethrough" | "link"
+>;
+
+export interface DocxHtmlInlineNode extends DocxInlineDecoration {
   type: "htmlInline";
   /** The HTML: a tag, or a tag, the Markdown it wraps and its end tag. */
   value: string;
@@ -53,6 +59,8 @@ export interface DocxHtmlInlineNode {
   text: string;
   /** What the span renders as without `htmlRendering`, used when the HTML is malformed. */
   fallback: DocxInlineNode[];
+  /** Nested past the HTML depth limit around Markdown HTML cannot carry, so it always falls back. */
+  nestedTooDeeply?: true;
 }
 
 export type DocxInlineNode =

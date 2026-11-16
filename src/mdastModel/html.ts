@@ -6,7 +6,6 @@ import { MAX_HTML_DEPTH, VOID_ELEMENTS } from "../utils/htmlTags.js";
 const HTML_COMMENT = /^\s*<!--\s*COMMENT:\s*([\s\S]*?)\s*(?:-->\s*|$)/;
 const START_TAG = /^<([a-z][a-z\d-]*)/i;
 const END_TAG = /^<\/[a-z]/i;
-const SELF_CLOSING = /\/\s*>$/;
 
 export function htmlRenderingEnabled(options: Options): boolean {
   return options.htmlRendering?.enabled === true;
@@ -73,22 +72,30 @@ export interface InlineHtmlSpan {
   readonly nodes: readonly PhrasingContent[];
   readonly value: string;
   readonly text: string;
+  /** Set when the span nests past `MAX_HTML_DEPTH` and holds Markdown HTML cannot carry. */
+  readonly nestedTooDeeply?: true;
 }
 
-/** How one inline HTML node, which CommonMark makes a single tag, changes the open-element depth. */
+/**
+ * How one inline HTML node, which CommonMark makes a single tag, changes the
+ * open-element depth. HTML ignores the slash in `<span/>`, so every start
+ * tag of a non-void element opens one.
+ */
 function depthChange(value: string): number {
   if (END_TAG.test(value)) {
     return -1;
   }
   const name = START_TAG.exec(value)?.[1];
-  if (
-    name === undefined ||
-    VOID_ELEMENTS.has(name.toLowerCase()) ||
-    SELF_CLOSING.test(value)
-  ) {
+  if (name === undefined || VOID_ELEMENTS.has(name.toLowerCase())) {
     return 0;
   }
   return 1;
+}
+
+/** Where the span that starts at a tag ends, and whether it nested too deeply to end there. */
+interface SpanEnd {
+  readonly end: number;
+  readonly overflow: boolean;
 }
 
 /**
@@ -97,7 +104,7 @@ function depthChange(value: string): number {
  * span runs to the last node, so the HTML renderer falls back for it once,
  * instead of each unclosed tag rescanning everything after it.
  */
-function spanEnd(nodes: readonly PhrasingContent[], start: number): number {
+function spanEnd(nodes: readonly PhrasingContent[], start: number): SpanEnd {
   let depth = 0;
   for (let index = start; index < nodes.length; index++) {
     const node = nodes[index]!;
@@ -105,13 +112,13 @@ function spanEnd(nodes: readonly PhrasingContent[], start: number): number {
       depth += depthChange(node.value);
     }
     if (depth <= 0) {
-      return index;
+      return { end: index, overflow: false };
     }
     if (depth > MAX_HTML_DEPTH) {
-      return nodes.length - 1;
+      return { end: nodes.length - 1, overflow: true };
     }
   }
-  return start;
+  return { end: start, overflow: false };
 }
 
 function escapeHtml(text: string): string {
@@ -179,19 +186,30 @@ function plainText(nodes: readonly PhrasingContent[]): string {
     .join("");
 }
 
+/** The tags among inline nodes, which stand for HTML that cannot be rendered. */
+function tagsOf(nodes: readonly PhrasingContent[]): string {
+  return nodes.map((node) => (node.type === "html" ? node.value : "")).join("");
+}
+
 /**
  * The inline HTML that starts with the tag at `start`: the tag, the Markdown
  * it wraps and its end tag, when that Markdown has an HTML form. Otherwise,
- * or when the tag is never closed, the tag on its own.
+ * or when the tag is never closed, the tag on its own. HTML nested past
+ * `MAX_HTML_DEPTH` around Markdown with no HTML form is one span that falls
+ * back, so the tags after it are not each scanned again.
  */
 export function inlineHtmlSpan(
   nodes: readonly PhrasingContent[],
   start: number,
   tag: Html,
 ): InlineHtmlSpan {
-  const span = nodes.slice(start, spanEnd(nodes, start) + 1);
+  const { end, overflow } = spanEnd(nodes, start);
+  const span = nodes.slice(start, end + 1);
   const value = serializePhrasing(span);
-  return value === undefined
-    ? { nodes: [tag], value: tag.value, text: "" }
-    : { nodes: span, value, text: plainText(span) };
+  if (value !== undefined) {
+    return { nodes: span, value, text: plainText(span) };
+  }
+  return overflow
+    ? { nodes: span, value: tagsOf(span), text: plainText(span), nestedTooDeeply: true }
+    : { nodes: [tag], value: tag.value, text: "" };
 }

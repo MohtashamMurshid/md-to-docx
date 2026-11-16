@@ -1,9 +1,13 @@
 import type * as DocxHtml from "docx/html";
 import type { HtmlOptions } from "docx/html";
-import { TextRun } from "docx";
+import { InternalHyperlink, TextRun } from "docx";
 import type { ParagraphChild } from "docx";
 import type { Element } from "hast";
-import type { DocxHtmlBlockNode } from "../docxModel.js";
+import type {
+  DocxHtmlBlockNode,
+  DocxHtmlInlineNode,
+  DocxInlineDecoration,
+} from "../docxModel.js";
 import { MarkdownConversionError } from "../errors.js";
 import { throwIfAborted } from "../processingLimits.js";
 import { assertImageAltPolicy, validateImageText } from "../accessibility.js";
@@ -18,10 +22,12 @@ import {
   remoteFailureBudgetReached,
 } from "./imageBudget.js";
 import type * as HtmlSource from "./htmlSource.js";
-import { isSafeLinkUrl } from "./links.js";
+import { isSafeLinkUrl, linkHtmlFragments, linkKind, linkRuns } from "./links.js";
+import type { LinkKind } from "./links.js";
 import { runSize } from "./runs.js";
 
-const LINE_BREAK_TAG = /^<br\s*\/?>$/i;
+/** A `<br>`, with any attributes, with or without a slash. */
+const LINE_BREAK_TAG = /^<br(?:\s[^<>]*)?\/?>$/i;
 
 interface HtmlTools {
   readonly docxHtml: typeof DocxHtml;
@@ -47,6 +53,8 @@ export interface PreparedHtml {
   readonly source: string;
   readonly html: string;
   readonly images: ReadonlyMap<string, Uint8Array>;
+  /** Placeholder anchors of links out of the HTML, and the fragments they stand for. */
+  readonly fragments: ReadonlyMap<string, string>;
   readonly docxHtml: typeof DocxHtml;
 }
 
@@ -127,11 +135,20 @@ function dropUnsafeHref(element: Element): void {
   }
 }
 
+function warnHtmlFallback(env: RenderEnv, source: string): void {
+  env.options.onWarning?.({
+    code: "HTML_FALLBACK",
+    message: "Raw HTML is malformed or nested too deeply; rendered as without htmlRendering",
+    source,
+    sectionIndex: env.renderOptions.pluginSection?.index,
+  });
+}
+
 /**
  * Parses, counts and sanitizes raw HTML and loads its images. Undefined, with
  * an `HTML_FALLBACK` warning, when the HTML is malformed or nested too deeply.
  */
-export async function prepareHtml(
+async function prepareHtml(
   env: RenderEnv,
   source: string,
 ): Promise<PreparedHtml | undefined> {
@@ -139,38 +156,84 @@ export async function prepareHtml(
   const { docxHtml, htmlSource } = await loadHtmlTools();
   const parsed = htmlSource.parseHtml(source);
   if (!parsed) {
-    env.options.onWarning?.({
-      code: "HTML_FALLBACK",
-      message: "Raw HTML is malformed or nested too deeply; rendered as without htmlRendering",
-      source,
-      sectionIndex: env.renderOptions.pluginSection?.index,
-    });
+    warnHtmlFallback(env, source);
     return undefined;
   }
   chargeElements(env, parsed.nodeCount);
   const tree = htmlSource.sanitizeHtml(parsed.tree);
   for (const link of htmlSource.elementsNamed(tree, "a")) dropUnsafeHref(link);
+  const fragments = htmlSource.pointFragmentLinks(tree);
   const images = new Map<string, Uint8Array>();
   for (const element of htmlSource.elementsNamed(tree, "img")) {
     throwIfAborted(env.options.signal);
     await embedHtmlImage(env, element, images);
   }
-  return { source, html: htmlSource.serializeHtml(tree), images, docxHtml };
+  return {
+    source,
+    html: htmlSource.serializeHtml(tree),
+    images,
+    fragments,
+    docxHtml,
+  };
+}
+
+/** Inline HTML, prepared; undefined, with a warning, when it renders as its fallback. */
+export async function prepareInlineHtml(
+  env: RenderEnv,
+  node: DocxHtmlInlineNode,
+): Promise<PreparedHtml | undefined> {
+  if (node.nestedTooDeeply) {
+    warnHtmlFallback(env, node.value);
+    return undefined;
+  }
+  return prepareHtml(env, node.value);
 }
 
 function cssString(value: string): string {
   return `"${value.replace(/["\\]/g, "\\$&").replace(/[\n\r\f]/g, " ")}"`;
 }
 
-/** The body text style docx/html gives the HTML, so it matches the Markdown around it. */
-function bodyStylesheet(env: RenderEnv, overrides: InlineOverrides): string {
+/** The text colour of a run, as a Markdown text run with the same link has. */
+function textColor(
+  kind: LinkKind | undefined,
+  overrides: InlineOverrides,
+): string | undefined {
+  if (kind === "external") return "0000FF";
+  if (kind === "internal") return overrides.color || "0000FF";
+  return overrides.color;
+}
+
+/** The lines a Markdown text run with the same decoration has: an external link's underline, and strikethrough. */
+function decorationLines(
+  kind: LinkKind | undefined,
+  decoration: DocxInlineDecoration,
+): string[] {
+  return [
+    ...(kind === "external" ? ["underline"] : []),
+    ...(decoration.strikethrough ? ["line-through"] : []),
+  ];
+}
+
+/**
+ * The body text style docx/html gives the HTML, so it matches the Markdown
+ * around it, including the formatting and link of Markdown around inline HTML.
+ */
+function bodyStylesheet(
+  env: RenderEnv,
+  overrides: InlineOverrides,
+  decoration: DocxInlineDecoration,
+): string {
   const font = resolveFontFamily(env.style);
+  const kind = decoration.link === undefined ? undefined : linkKind(decoration.link);
+  const color = textColor(kind, overrides);
+  const lines = decorationLines(kind, decoration);
   const declarations = [
     `font-size: ${runSize(env.style, overrides) / 2}pt`,
     ...(font !== undefined ? [`font-family: ${cssString(font)}`] : []),
-    ...(overrides.forceBold ? ["font-weight: bold"] : []),
-    ...(overrides.forceItalic ? ["font-style: italic"] : []),
-    ...(overrides.color ? [`color: #${overrides.color}`] : []),
+    ...(overrides.forceBold || decoration.bold ? ["font-weight: bold"] : []),
+    ...(overrides.forceItalic || decoration.italic ? ["font-style: italic"] : []),
+    ...(color ? [`color: #${color}`] : []),
+    ...(lines.length > 0 ? [`text-decoration-line: ${lines.join(" ")}`] : []),
   ];
   return `body { ${declarations.join("; ")} }`;
 }
@@ -179,9 +242,10 @@ function htmlOptions(
   env: RenderEnv,
   prepared: PreparedHtml,
   overrides: InlineOverrides,
+  decoration: DocxInlineDecoration,
 ): HtmlOptions {
   return {
-    stylesheet: bodyStylesheet(env, overrides),
+    stylesheet: bodyStylesheet(env, overrides, decoration),
     images: (key) => prepared.images.get(key),
     onWarning: (warning) => {
       env.options.onWarning?.({
@@ -193,20 +257,26 @@ function htmlOptions(
   };
 }
 
-/** Runs for prepared inline HTML. */
+/** Runs for prepared inline HTML, with the formatting and link of the Markdown around it. */
 export function htmlRuns(
   env: RenderEnv,
   prepared: PreparedHtml,
+  decoration: DocxInlineDecoration,
   overrides: InlineOverrides,
 ): readonly ParagraphChild[] {
   // docx/html, like a browser, drops a break that ends its HTML, as a lone <br> does.
-  if (LINE_BREAK_TAG.test(prepared.source)) {
-    return [new TextRun({ break: 1 })];
-  }
-  return prepared.docxHtml.htmlToRuns(
-    prepared.html,
-    htmlOptions(env, prepared, overrides),
+  const runs = LINE_BREAK_TAG.test(prepared.source)
+    ? [new TextRun({ break: 1 })]
+    : prepared.docxHtml.htmlToRuns(
+        prepared.html,
+        htmlOptions(env, prepared, overrides, decoration),
+      );
+  linkHtmlFragments(
+    env,
+    runs.filter((run) => run instanceof InternalHyperlink),
+    prepared.fragments,
   );
+  return decoration.link === undefined ? runs : linkRuns(env, decoration.link, runs);
 }
 
 /** Paragraphs and tables for an HTML block; nothing when it is malformed, as without htmlRendering. */
@@ -215,12 +285,13 @@ export async function renderHtmlBlock(
   node: DocxHtmlBlockNode,
 ): Promise<Block[]> {
   const prepared = await prepareHtml(env, node.value);
-  return prepared
-    ? [
-        ...prepared.docxHtml.htmlToContent(
-          prepared.html,
-          htmlOptions(env, prepared, {}),
-        ),
-      ]
-    : [];
+  if (!prepared) {
+    return [];
+  }
+  const content = prepared.docxHtml.htmlToContent(
+    prepared.html,
+    htmlOptions(env, prepared, {}, {}),
+  );
+  linkHtmlFragments(env, content, prepared.fragments);
+  return [...content];
 }

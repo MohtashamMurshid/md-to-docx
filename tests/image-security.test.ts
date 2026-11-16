@@ -1,8 +1,13 @@
+import tls from "node:tls";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { convertMarkdownToDocx } from "../src/index.js";
 import type { ConversionWarning, Options } from "../src/types.js";
 import { at, getDocumentXml, getZip } from "./helpers.js";
 import { isBlockedIpAddress } from "../src/utils/blockedAddresses.js";
+import { Response } from "undici";
+import { remoteFetch, useRealUndiciFetch } from "./undiciFetchMock.js";
+
+vi.mock("undici", async () => (await import("./undiciFetchMock.js")).mockUndiciFetch());
 
 // Every lookup is observed, and real unless a test stubs it, so literal
 // addresses can be shown to skip DNS.
@@ -52,13 +57,12 @@ async function mediaCount(markdown: string, options?: Options): Promise<number> 
 
 afterEach(() => {
   vi.restoreAllMocks();
+  remoteFetch.mockReset();
 });
 
 describe("Image security", () => {
   it("rejects remote images by default", async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockRejectedValue(new Error("unexpected fetch"));
+    const fetchSpy = remoteFetch.mockRejectedValue(new Error("unexpected fetch"));
     const xml = await render("![remote](https://example.com/image.png)");
 
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -67,9 +71,7 @@ describe("Image security", () => {
   });
 
   it("rejects http URLs even when remote image fetching is enabled", async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockRejectedValue(new Error("unexpected fetch"));
+    const fetchSpy = remoteFetch.mockRejectedValue(new Error("unexpected fetch"));
     const xml = await render("![remote](http://93.184.216.34/image.png)", {
       imageHandling: { remote: { enabled: true } },
     });
@@ -78,22 +80,27 @@ describe("Image security", () => {
     expectImageFallback(xml);
   });
 
-  it("rejects loopback and private-network addresses before fetch", async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockRejectedValue(new Error("unexpected fetch"));
-    const xml = await render("![remote](https://127.0.0.1/image.png)", {
-      imageHandling: { remote: { enabled: true } },
-    });
+  it.each([
+    { url: "https://127.0.0.1/image.png", resolved: undefined },
+    { url: "https://images.example.com/image.png", resolved: "10.0.0.5" },
+  ])("rejects $url on a loopback or private-network address before fetch", async ({ url, resolved }) => {
+    const fetchSpy = remoteFetch.mockRejectedValue(new Error("unexpected fetch"));
 
-    expect(fetchSpy).not.toHaveBeenCalled();
-    expectImageFallback(xml);
+    await withDnsStubbed(async () => {
+      if (resolved !== undefined) {
+        dnsLookup.mockResolvedValueOnce([{ address: resolved, family: 4 }]);
+      }
+      const xml = await render(`![remote](${url})`, {
+        imageHandling: { remote: { enabled: true } },
+      });
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expectImageFallback(xml);
+    });
   });
 
   it("rejects IPv4-mapped IPv6 private addresses before fetch", async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockRejectedValue(new Error("unexpected fetch"));
+    const fetchSpy = remoteFetch.mockRejectedValue(new Error("unexpected fetch"));
     const xml = await render("![remote](https://[::ffff:192.168.1.10]/image.png)", {
       imageHandling: { remote: { enabled: true } },
     });
@@ -103,9 +110,7 @@ describe("Image security", () => {
   });
 
   it("rejects hex IPv4-mapped IPv6 hostnames before fetch", async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockRejectedValue(new Error("unexpected fetch"));
+    const fetchSpy = remoteFetch.mockRejectedValue(new Error("unexpected fetch"));
     const xml = await render("![remote](https://[::ffff:c0a8:010a]/image.png)", {
       imageHandling: { remote: { enabled: true } },
     });
@@ -115,9 +120,7 @@ describe("Image security", () => {
   });
 
   it("rejects uncompressed IPv6-mapped private addresses before fetch", async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockRejectedValue(new Error("unexpected fetch"));
+    const fetchSpy = remoteFetch.mockRejectedValue(new Error("unexpected fetch"));
     const xml = await render(
       "![remote](https://[0:0:0:0:0:ffff:c0a8:010a]/image.png)",
       {
@@ -135,9 +138,7 @@ describe("Image security", () => {
     { host: "[::ffff:7f00:1]", fetched: false },
     { host: "[2606:4700:4700::1111]", fetched: true },
   ])("checks the IPv6 literal $host itself, without DNS", async ({ host, fetched }) => {
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockRejectedValue(new Error("stubbed fetch"));
+    const fetchSpy = remoteFetch.mockRejectedValue(new Error("stubbed fetch"));
 
     await withDnsStubbed(async () => {
       const xml = await render(`![remote](https://${host}/a.png)`, {
@@ -169,41 +170,32 @@ describe("Image security", () => {
     ).toBe(0);
   });
 
-  it("rejects remote images with oversized content-length", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response("", {
-        status: 200,
-        headers: {
-          "content-length": "128",
-          "content-type": "image/png",
-        },
-      })
-    );
-
-    const xml = await render("![remote](https://93.184.216.34/image.png)", {
-      imageHandling: {
-        remote: { enabled: true },
-        maxImageBytes: 16,
-      },
-    });
-
-    expectImageFallback(xml);
-  });
-
-  it("rejects remote images that exceed the streamed byte cap", async () => {
+  // The body never ends, so only the byte budget stops the read before the
+  // fetch timeout; a later size check alone would read it for a full second.
+  it.each([
+    { name: "an oversized content-length", headers: { "content-length": "128" }, maxPulls: 1 },
+    { name: "a streamed body past the byte cap", headers: {}, maxPulls: 3 },
+  ])("stops reading a remote image with $name", async ({ headers, maxPulls }) => {
+    let pulls = 0;
+    let cancelled = false;
     const body = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new Uint8Array(12));
-        controller.enqueue(new Uint8Array(12));
-        controller.close();
+      pull(controller) {
+        pulls += 1;
+        return new Promise((resolve) => {
+          setTimeout(() => {
+            if (!cancelled) controller.enqueue(new Uint8Array(12));
+            resolve();
+          }, 0);
+        });
+      },
+      cancel() {
+        cancelled = true;
       },
     });
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    remoteFetch.mockResolvedValue(
       new Response(body, {
         status: 200,
-        headers: {
-          "content-type": "image/png",
-        },
+        headers: { ...headers, "content-type": "image/png" },
       })
     );
 
@@ -211,14 +203,16 @@ describe("Image security", () => {
       imageHandling: {
         remote: { enabled: true },
         maxImageBytes: 16,
+        fetchTimeoutMs: 1_000,
       },
     });
 
     expectImageFallback(xml);
+    expect(pulls).toBeLessThanOrEqual(maxPulls);
   });
 
   it("re-checks redirected remote image targets", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    remoteFetch.mockResolvedValue(
       new Response("", {
         status: 302,
         headers: {
@@ -233,13 +227,13 @@ describe("Image security", () => {
       },
     });
 
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(remoteFetch).toHaveBeenCalledTimes(1);
     expectImageFallback(xml);
   });
 
   it("stops following redirects after maxRedirects", async () => {
     let fetchCalls = 0;
-    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+    remoteFetch.mockImplementation((_input, init) => {
       fetchCalls += 1;
       expect(init?.redirect).toBe("manual");
       return Promise.resolve(
@@ -248,7 +242,7 @@ describe("Image security", () => {
           headers: {
             location: `https://93.184.216.34/step-${fetchCalls}.png`,
           },
-        }) as never
+        })
       );
     });
 
@@ -264,7 +258,7 @@ describe("Image security", () => {
   });
 
   it("aborts slow remote image fetches", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation((_, init) => {
+    remoteFetch.mockImplementation((_, init) => {
       return new Promise<Response>((_resolve, reject) => {
         init?.signal?.addEventListener("abort", () => {
           reject(new DOMException("The operation was aborted", "AbortError"));
@@ -283,7 +277,7 @@ describe("Image security", () => {
   });
 
   it("aborts slow remote image response bodies", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    remoteFetch.mockResolvedValue(
       new Response(
         new ReadableStream<Uint8Array>({
           start() {
@@ -305,9 +299,7 @@ describe("Image security", () => {
   });
 
   it("does not count failed images toward maxImages", async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockRejectedValue(new Error("unexpected fetch"));
+    const fetchSpy = remoteFetch.mockRejectedValue(new Error("unexpected fetch"));
 
     const markdown = `![blocked](https://127.0.0.1/a.png)
 
@@ -326,7 +318,7 @@ describe("Image security", () => {
 
   it("stops attempting remote fetches once the failed-image budget is spent", async () => {
     let fetchCalls = 0;
-    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+    remoteFetch.mockImplementation(() => {
       fetchCalls += 1;
       return Promise.reject(new Error("connection refused"));
     });
@@ -347,9 +339,7 @@ describe("Image security", () => {
   });
 
   it("denies every remote host when an empty allowedHosts list is provided", async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockRejectedValue(new Error("unexpected fetch"));
+    const fetchSpy = remoteFetch.mockRejectedValue(new Error("unexpected fetch"));
 
     const xml = await render("![remote](https://93.184.216.34/image.png)", {
       imageHandling: { remote: { enabled: true, allowedHosts: [] } },
@@ -361,7 +351,7 @@ describe("Image security", () => {
 
   it("still fetches hosts present in the allowedHosts list", async () => {
     const pngBytes = Buffer.from(at(ONE_PX_PNG.split(","), 1), "base64");
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    remoteFetch.mockResolvedValue(
       new Response(new Uint8Array(pngBytes), {
         status: 200,
         headers: { "content-type": "image/png" },
@@ -374,7 +364,7 @@ describe("Image security", () => {
       },
     });
 
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(remoteFetch).toHaveBeenCalledTimes(1);
     expect(xml).toContain("<w:drawing>");
   });
 
@@ -435,9 +425,7 @@ describe("Image security", () => {
     },
     { name: "an allowed data URL", before: "", src: ONE_PX_PNG, options: {}, drawings: 1 },
   ])("applies the image policy to a raw HTML <img> with $name", async ({ before, src, options, drawings }) => {
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockRejectedValue(new Error("unexpected fetch"));
+    const fetchSpy = remoteFetch.mockRejectedValue(new Error("unexpected fetch"));
 
     const xml = await render(`${before}<p><img src="${src}" alt="pixel"></p>`, {
       ...options,
@@ -465,6 +453,36 @@ describe("Image security", () => {
 
     expect(Object.keys(zip.files).filter((name) => name.startsWith("word/media/"))).toEqual([]);
     expect(warnings.map((warning) => warning.code)).toContain("IMAGE_FALLBACK");
+  });
+});
+
+describe("pinned TLS connections for remote images", () => {
+  it.each([
+    { url: "https://images.example.com/a.png", resolved: "93.184.216.34", host: "93.184.216.34", servername: "images.example.com" },
+    { url: "https://1.1.1.1/a.png", resolved: undefined, host: "1.1.1.1", servername: null },
+    { url: "https://[2606:4700:4700::1111]/a.png", resolved: undefined, host: "2606:4700:4700::1111", servername: null },
+  ])("connects $url to $host with TLS server name $servername", async ({ url, resolved, host, servername }) => {
+    await useRealUndiciFetch();
+    const connect = vi.spyOn(tls, "connect").mockImplementation(() => {
+      throw new Error("connection blocked by test");
+    });
+
+    await withDnsStubbed(async () => {
+      if (resolved !== undefined) {
+        dnsLookup.mockResolvedValueOnce([{ address: resolved, family: 4 }]);
+      }
+      const xml = await render(`![remote](${url})`, {
+        imageHandling: { remote: { enabled: true } },
+      });
+
+      expectImageFallback(xml);
+    });
+
+    const connections = connect.mock.calls.map((args) => {
+      const options = args.find((arg): arg is tls.ConnectionOptions => typeof arg === "object");
+      return { host: options?.host, servername: options?.servername ?? null };
+    });
+    expect(connections).toEqual([{ host, servername }]);
   });
 });
 

@@ -1,6 +1,10 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { Agent, buildConnector } from "undici";
+import type { ReadableStream, ReadableStreamDefaultReader } from "node:stream/web";
+// undici's own `fetch`, never the global one: an Agent only works with the
+// fetch from the same undici release, and Node's bundled undici differs
+// across Node versions (Node 26's rejects undici 6's Agent).
+import { Agent, buildConnector, fetch, type Response } from "undici";
 import { throwIfAborted } from "../processingLimits.js";
 import { isBlockedIpAddress } from "./blockedAddresses.js";
 import type { ResolvedImageHandlingOptions } from "./imageHandling.js";
@@ -230,8 +234,8 @@ async function cancelReadableBody(response: Response): Promise<void> {
   }
 }
 
-/** Chunks may be undefined from non-conforming fetch implementations. */
-type BodyReader = ReadableStreamDefaultReader<Uint8Array | undefined>;
+/** undici types body chunks as `any`; each one is narrowed to bytes as it arrives. */
+type BodyReader = ReadableStreamDefaultReader<unknown>;
 
 function assertWithinImageBudget(byteLength: number, maxImageBytes: number): void {
   if (byteLength > maxImageBytes) {
@@ -262,8 +266,8 @@ async function readBodyChunks(
     if (done) {
       return { chunks, total };
     }
-    if (!value) {
-      continue;
+    if (!(value instanceof Uint8Array)) {
+      throw new Error("Remote image body is not binary");
     }
     total += value.byteLength;
     assertWithinImageBudget(total, maxImageBytes);
@@ -290,7 +294,7 @@ async function cancelReader(reader: BodyReader): Promise<void> {
 }
 
 async function readStreamedBody(
-  body: ReadableStream<Uint8Array>,
+  body: ReadableStream<unknown>,
   maxImageBytes: number,
   signal?: AbortSignal
 ): Promise<Uint8Array> {
@@ -348,13 +352,11 @@ async function fetchHop(
 
   try {
     throwIfAborted(signal);
-    const fetchInit: RequestInit & { dispatcher?: Agent } = {
+    const response = await fetch(currentUrl.href, {
       redirect: "manual",
       signal: controller.signal,
       dispatcher,
-    };
-
-    const response = await fetch(currentUrl.href, fetchInit);
+    });
     throwIfAborted(signal);
 
     if (

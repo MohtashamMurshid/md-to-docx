@@ -310,6 +310,11 @@ export interface Options {
    */
   chartRendering?: ChartRenderingOptions;
   /**
+   * Optional rendering of raw HTML in the Markdown as native Word content.
+   * Disabled by default; when disabled, raw HTML is handled as before.
+   */
+  htmlRendering?: HtmlRenderingOptions;
+  /**
    * Labels, placement, styling, and validation behavior for figure/table
    * captions and cross-references.
    */
@@ -527,6 +532,11 @@ export interface PatchMarkdownOptions {
    * default; when disabled, chart fences render as code blocks.
    */
   chartRendering?: ChartRenderingOptions;
+  /**
+   * Optional rendering of raw HTML in patch content as native Word content.
+   * Disabled by default.
+   */
+  htmlRendering?: HtmlRenderingOptions;
   /** Trusted programmatic renderer plugins used for every placeholder patch. */
   plugins?: readonly AnyMarkdownDocxPlugin[];
   pluginOptions?: PluginOptions;
@@ -573,6 +583,7 @@ export interface ConversionWarning {
     | "UNRESOLVED_LINK"
     | "DIAGRAM_FALLBACK"
     | "PLUGIN_FALLBACK"
+    | "HTML_FALLBACK"
     | "UNSUPPORTED_CONTENT";
   message: string;
   source?: string;
@@ -782,6 +793,17 @@ export interface MermaidRenderResult {
   altText?: string;
   /** Optional Word drawing title. */
   title?: string;
+}
+
+export interface HtmlRenderingOptions {
+  /**
+   * Render raw HTML in the Markdown as native Word content: inline tags such
+   * as `<sup>` and `<br>` as runs, and HTML blocks such as `<table>` as
+   * paragraphs and tables. Defaults to false, which leaves raw HTML as it was:
+   * inline tags as literal text and HTML blocks left out, apart from
+   * `<!-- COMMENT: -->` comments and page breaks.
+   */
+  enabled?: boolean;
 }
 
 export interface MermaidRenderingOptions {

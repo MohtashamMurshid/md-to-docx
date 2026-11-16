@@ -44,7 +44,27 @@ export interface DocxInlineImageNode {
   title?: string;
 }
 
+/** Raw inline HTML, rendered as Word runs when `htmlRendering` is on. */
+/** The Markdown formatting and link around a run of text or inline HTML. */
+export type DocxInlineDecoration = Pick<
+  DocxTextNode,
+  "bold" | "italic" | "strikethrough" | "link"
+>;
+
+export interface DocxHtmlInlineNode extends DocxInlineDecoration {
+  type: "htmlInline";
+  /** The HTML: a tag, or a tag, the Markdown it wraps and its end tag. */
+  value: string;
+  /** The span's visible text, for heading bookmarks and the TOC. */
+  text: string;
+  /** What the span renders as without `htmlRendering`, used when the HTML is malformed. */
+  fallback: DocxInlineNode[];
+  /** Nested past the HTML depth limit around Markdown HTML cannot carry, so it always falls back. */
+  nestedTooDeeply?: true;
+}
+
 export type DocxInlineNode =
+  | DocxHtmlInlineNode
   | DocxInlineImageNode
   | DocxTextNode
   | DocxMathInlineNode
@@ -152,6 +172,12 @@ export interface DocxCommentNode {
   value: string;
 }
 
+/** A raw HTML block, rendered as Word paragraphs and tables when `htmlRendering` is on. */
+export interface DocxHtmlBlockNode {
+  type: "htmlBlock";
+  value: string;
+}
+
 export interface DocxPageBreakNode {
   type: "pageBreak";
 }
@@ -193,6 +219,7 @@ export type DocxBlockNode =
   | DocxImageNode
   | DocxTableNode
   | DocxCommentNode
+  | DocxHtmlBlockNode
   | DocxPageBreakNode
   | DocxHorizontalRuleNode
   | DocxTocPlaceholderNode

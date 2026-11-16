@@ -1,8 +1,13 @@
 import { TextRun } from "docx";
-import type { DocxInlineImageNode, DocxInlineNode } from "../docxModel.js";
+import type {
+  DocxHtmlInlineNode,
+  DocxInlineImageNode,
+  DocxInlineNode,
+} from "../docxModel.js";
 import { processImage } from "../renderers/imageRenderer.js";
 import { assertImageAltPolicy, validateImageText } from "../accessibility.js";
 import type { RenderEnv } from "./context.js";
+import { prepareInlineHtml } from "./html.js";
 import {
   countImageAttempt,
   imageBudgetReached,
@@ -60,10 +65,21 @@ async function prepareInlineImage(
   }
 }
 
+/** Prepares the HTML, or, when it renders as its Markdown fallback, that fallback's images. */
+async function prepareHtmlInline(
+  env: RenderEnv,
+  node: DocxHtmlInlineNode,
+): Promise<void> {
+  const prepared = await prepareInlineHtml(env, node);
+  env.inlineHtml.set(node, prepared);
+  if (prepared === undefined) await prepareInlineImages(env, node.fallback);
+}
+
 /**
- * Fetches the images among inline nodes before their paragraph renders, so
- * the synchronous inline renderer can look each one up. Each image is fetched
- * once, however often its paragraph is rendered.
+ * Fetches the images among inline nodes, and prepares their inline HTML with
+ * its images, before their paragraph renders, so the synchronous inline
+ * renderer can look each one up. Each is prepared once, however often its
+ * paragraph is rendered.
  */
 export async function prepareInlineImages(
   env: RenderEnv,
@@ -72,6 +88,8 @@ export async function prepareInlineImages(
   for (const node of nodes) {
     if (node.type === "inlineImage" && !env.inlineImages.has(node)) {
       await prepareInlineImage(env, node);
+    } else if (node.type === "htmlInline" && !env.inlineHtml.has(node)) {
+      await prepareHtmlInline(env, node);
     }
   }
 }

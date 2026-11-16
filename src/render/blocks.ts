@@ -21,6 +21,7 @@ import type {
   RenderEnv,
 } from "./context.js";
 import { withCaption } from "./captions.js";
+import { renderHtmlBlock } from "./html.js";
 import { renderChartNode, renderImageNode } from "./images.js";
 import {
   renderInlineNodes,
@@ -216,6 +217,7 @@ const BLOCK_RENDERERS: BlockRendererTable<DocxBlockNode["type"]> = {
   table: async (env, node) =>
     withCaption(env, node, [await tableFromNode(env, node)]),
   comment: renderComment,
+  htmlBlock: renderHtmlBlock,
   pageBreak: () => [new Paragraph({ children: [new PageBreak()] })],
   horizontalRule: (env, _node, { context }) => [
     processHorizontalRule(

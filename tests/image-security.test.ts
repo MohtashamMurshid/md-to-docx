@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { convertMarkdownToDocx } from "../src/index.js";
-import type { Options } from "../src/types.js";
+import type { ConversionWarning, Options } from "../src/types.js";
 import { at, getDocumentXml, getZip } from "./helpers.js";
 import { isBlockedIpAddress } from "../src/utils/blockedAddresses.js";
 
@@ -415,6 +415,56 @@ describe("Image security", () => {
       })
     ).toBe(1);
     expectImageFallback(xml);
+  });
+
+  it.each([
+    { name: "a remote URL", before: "", src: "https://example.com/pixel.png", options: {}, drawings: 0 },
+    {
+      name: "a data URL with data URLs disabled",
+      before: "",
+      src: ONE_PX_PNG,
+      options: { imageHandling: { dataUrls: { enabled: false } } },
+      drawings: 0,
+    },
+    {
+      name: "a data URL past maxImages",
+      before: `![one](${ONE_PX_PNG})\n\n`,
+      src: ONE_PX_PNG,
+      options: { imageHandling: { maxImages: 1 } },
+      drawings: 1,
+    },
+    { name: "an allowed data URL", before: "", src: ONE_PX_PNG, options: {}, drawings: 1 },
+  ])("applies the image policy to a raw HTML <img> with $name", async ({ before, src, options, drawings }) => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("unexpected fetch"));
+
+    const xml = await render(`${before}<p><img src="${src}" alt="pixel"></p>`, {
+      ...options,
+      htmlRendering: { enabled: true },
+    });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(xml.match(/<w:drawing>/g) ?? []).toHaveLength(drawings);
+  });
+
+  it.each([
+    { name: "a DOCTYPE", prolog: "<!DOCTYPE svg>" },
+    { name: "an ENTITY subset", prolog: '<!DOCTYPE svg [<!ENTITY e "x">]>' },
+    { name: "a 600-byte comment", prolog: `<!--${"x".repeat(600)}-->` },
+  ])("never embeds a raw HTML <img> SVG behind $name", async ({ prolog }) => {
+    const svg = `${prolog}<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><script>alert(1)</script><image xlink:href="https://tracker.example/p.png"/></svg>`;
+    const src = `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
+    const warnings: ConversionWarning[] = [];
+
+    const blob = await convertMarkdownToDocx(`<p><img src="${src}" alt="x"></p>`, {
+      htmlRendering: { enabled: true },
+      onWarning: (warning) => warnings.push(warning),
+    });
+    const zip = await getZip(blob);
+
+    expect(Object.keys(zip.files).filter((name) => name.startsWith("word/media/"))).toEqual([]);
+    expect(warnings.map((warning) => warning.code)).toContain("IMAGE_FALLBACK");
   });
 });
 

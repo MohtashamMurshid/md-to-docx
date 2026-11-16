@@ -15,6 +15,12 @@ Each tool choice, check and lint exception in this repository, and why. When you
 | `npm run fallow` | Fails on dead files, exports and dependencies, any clone group, and any function above cognitive 15, cyclomatic 20 or CRAP 30. CRAP uses real test coverage: Vitest's v8 provider writes Istanbul-shaped JSON to `coverage/coverage-final.json`. | Thresholds match the ones used in our other repositories. Measured coverage keeps CRAP honest: a well-tested complex function scores lower than its static estimate. |
 | `npm run guardrails` | No inline suppressions; exact devDependency pins and ranged runtime dependencies; SHA-pinned workflow actions with a tag comment, explicit `permissions` and `persist-credentials: false` (read from each checkout step's parsed `with:` via the `yaml` devDependency, so comments and other keys can't stand in); `skills/md-to-docx/SKILL.md` documents every CLI flag in `--help`; every relaxed lint rule has a row here. | Rules lint and tsc cannot express. Each one is a correction that would otherwise be repeated in review. |
 
+## Runtime dependencies
+
+| Dependency | Why |
+| --- | --- |
+| `hast-util-from-html`, `hast-util-sanitize`, `hast-util-to-html` | `htmlRendering` hands raw HTML to `docx/html`, which embeds data-URL and inline-SVG images itself and blocks only `javascript:`-like links. The library parses the HTML first, counts its nodes toward `maxElements`, sanitizes it with GitHub's schema (links held to the Markdown allowlist), sends every `<img>` through the image pipeline, and serializes the result for `docx/html`. These are the unified ecosystem's own HTML tools, beside `remark`; they run in Node and browsers. They and `docx/html` load with a dynamic `import()` on the first raw HTML node, so bundles and conversions without HTML do not carry them up front. `docx` moves to `^9.15.4`, the first version this was built and tested against with `docx/html`. |
+
 ## Lint exceptions
 
 | Rule | Where | Why |

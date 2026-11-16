@@ -5,6 +5,7 @@ import {
   HeaderFooterContent,
   HeaderFooterGroup,
   HeaderFooterSlot,
+  HtmlRenderingOptions,
   Options,
   SectionConfig,
   SectionPageNumberDisplay,
@@ -534,6 +535,27 @@ function validateChartRenderingInput(
   checkFields(chartRendering, CHART_RENDERING_RULES);
 }
 
+const HTML_RENDERING_RULES: readonly AnyFieldRule<HtmlRenderingOptions>[] = [
+  booleanRule("enabled", "Invalid htmlRendering.enabled: Must be a boolean"),
+];
+
+/** `htmlRendering` takes data only, so CLI JSON cannot bring in anything executable. */
+function validateHtmlRenderingInput(htmlRendering: unknown): void {
+  if (htmlRendering === undefined) {
+    return;
+  }
+  if (
+    typeof htmlRendering !== "object" ||
+    htmlRendering === null ||
+    Array.isArray(htmlRendering)
+  ) {
+    throw new MarkdownConversionError(
+      "Invalid htmlRendering: Must be an object",
+    );
+  }
+  checkFields<HtmlRenderingOptions>(htmlRendering, HTML_RENDERING_RULES);
+}
+
 function validateMermaidRenderingInput(
   mermaidRendering: Options["mermaidRendering"],
 ): void {
@@ -639,6 +661,7 @@ export function validateInput(markdown: string, options: Options): void {
   validateImageHandlingInput(options.imageHandling);
   validateChartRenderingInput(options.chartRendering);
   validateMermaidRenderingInput(options.mermaidRendering);
+  validateHtmlRenderingInput(options.htmlRendering);
   validateProcessingLimitsInput(options);
   validateTextReplacementInput(options);
   validatePluginConfiguration(options);

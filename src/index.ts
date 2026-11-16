@@ -235,6 +235,7 @@ export {
   DocumentMetadata,
   HeaderFooterContent,
   HeaderFooterGroup,
+  HtmlRenderingOptions,
   ImageHandlingOptions,
   MissingImageAltTextBehavior,
   MarkdownDocxPatch,

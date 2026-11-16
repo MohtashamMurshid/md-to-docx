@@ -1,11 +1,17 @@
 import type { Link, Node, PhrasingContent } from "mdast";
-import type { DocxInlineNode, DocxTextNode } from "../docxModel.js";
+import type {
+  DocxInlineDecoration,
+  DocxInlineNode,
+  DocxTextNode,
+} from "../docxModel.js";
 import {
   resolveCrossReference,
   throwOnUnresolvedCrossReference,
 } from "../crossReferences.js";
 import type { ConversionContext, ProcessOptions } from "./context.js";
 import { footnoteReferenceNode } from "./footnotes.js";
+import { htmlRenderingEnabled, inlineHtmlSpan } from "./html.js";
+import type { InlineHtmlSpan } from "./html.js";
 
 /** One `processInlineNodes` call: its output list and the switches it inherits. */
 interface InlineRun {
@@ -67,14 +73,32 @@ function pushTextAndCrossReferences(run: InlineRun, value: string): void {
   }
 }
 
-/** Converts `children` and applies `decorate` to each resulting text run. */
+/** A text run or inline HTML, and what it falls back to, with `decoration` on top of its own. */
+function decorated(
+  node: DocxInlineNode,
+  decoration: DocxInlineDecoration,
+): DocxInlineNode {
+  if (node.type === "text") {
+    return { ...node, ...decoration };
+  }
+  if (node.type === "htmlInline") {
+    return {
+      ...node,
+      ...decoration,
+      fallback: node.fallback.map((child) => decorated(child, decoration)),
+    };
+  }
+  return node;
+}
+
+/** Converts `children` and applies `decoration` to each resulting text run and inline HTML. */
 function pushDecorated(
   run: InlineRun,
   children: readonly PhrasingContent[],
-  decorate: (text: DocxTextNode) => DocxTextNode,
+  decoration: DocxInlineDecoration,
 ): void {
   for (const child of processInlineNodes(run.context, children, run.options)) {
-    run.result.push(child.type === "text" ? decorate(child) : child);
+    run.result.push(decorated(child, decoration));
   }
 }
 
@@ -103,7 +127,7 @@ function pushLink(run: InlineRun, link: Link): void {
     previous.value += link.url;
     return;
   }
-  pushDecorated(run, link.children, (text) => ({ ...text, link: link.url }));
+  pushDecorated(run, link.children, { link: link.url });
 }
 
 /** Plugin-provided inline nodes may carry a non-string `value`. */
@@ -124,16 +148,13 @@ const INLINE_HANDLERS: InlineHandlers = {
     pushTextAndCrossReferences(run, node.value);
   },
   emphasis: (run, node) => {
-    pushDecorated(run, node.children, (text) => ({ ...text, italic: true }));
+    pushDecorated(run, node.children, { italic: true });
   },
   strong: (run, node) => {
-    pushDecorated(run, node.children, (text) => ({ ...text, bold: true }));
+    pushDecorated(run, node.children, { bold: true });
   },
   delete: (run, node) => {
-    pushDecorated(run, node.children, (text) => ({
-      ...text,
-      strikethrough: true,
-    }));
+    pushDecorated(run, node.children, { strikethrough: true });
   },
   image: (run, node) => {
     const title = node.title ?? undefined;
@@ -181,6 +202,44 @@ function convertInline<K extends keyof PhrasingByType>(
   }
 }
 
+function convertEach(run: InlineRun, nodes: readonly PhrasingContent[]): void {
+  for (const node of nodes) {
+    convertInline(run, node.type, node);
+  }
+}
+
+/** An HTML span, with what it renders as when the HTML turns out malformed. */
+function pushHtmlSpan(run: InlineRun, span: InlineHtmlSpan): void {
+  const fallback: InlineRun = { ...run, result: [] };
+  convertEach(fallback, span.nodes);
+  run.result.push({
+    type: "htmlInline",
+    value: span.value,
+    text: span.text,
+    fallback: fallback.result,
+    ...(span.nestedTooDeeply ? { nestedTooDeeply: true } : {}),
+  });
+}
+
+/** Converts nodes, gathering each inline HTML tag and what it wraps into one HTML span. */
+function convertWithHtml(
+  run: InlineRun,
+  nodes: readonly PhrasingContent[],
+): void {
+  let index = 0;
+  while (index < nodes.length) {
+    const node = nodes[index]!;
+    if (node.type === "html") {
+      const span = inlineHtmlSpan(nodes, index, node);
+      pushHtmlSpan(run, span);
+      index += span.nodes.length;
+    } else {
+      convertInline(run, node.type, node);
+      index++;
+    }
+  }
+}
+
 export function processInlineNodes(
   context: ConversionContext,
   nodes: readonly PhrasingContent[],
@@ -192,8 +251,10 @@ export function processInlineNodes(
     allowFootnoteReferences: options.allowFootnoteReferences ?? true,
     result: [],
   };
-  for (const node of nodes) {
-    convertInline(run, node.type, node);
+  if (htmlRenderingEnabled(context.options)) {
+    convertWithHtml(run, nodes);
+  } else {
+    convertEach(run, nodes);
   }
   return run.result;
 }

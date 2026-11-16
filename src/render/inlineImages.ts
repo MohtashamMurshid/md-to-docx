@@ -1,5 +1,9 @@
 import { TextRun } from "docx";
-import type { DocxInlineImageNode, DocxInlineNode } from "../docxModel.js";
+import type {
+  DocxHtmlInlineNode,
+  DocxInlineImageNode,
+  DocxInlineNode,
+} from "../docxModel.js";
 import { processImage } from "../renderers/imageRenderer.js";
 import { assertImageAltPolicy, validateImageText } from "../accessibility.js";
 import type { RenderEnv } from "./context.js";
@@ -61,6 +65,16 @@ async function prepareInlineImage(
   }
 }
 
+/** Prepares the HTML, or, when it renders as its Markdown fallback, that fallback's images. */
+async function prepareHtmlInline(
+  env: RenderEnv,
+  node: DocxHtmlInlineNode,
+): Promise<void> {
+  const prepared = await prepareInlineHtml(env, node);
+  env.inlineHtml.set(node, prepared);
+  if (prepared === undefined) await prepareInlineImages(env, node.fallback);
+}
+
 /**
  * Fetches the images among inline nodes, and prepares their inline HTML with
  * its images, before their paragraph renders, so the synchronous inline
@@ -75,7 +89,7 @@ export async function prepareInlineImages(
     if (node.type === "inlineImage" && !env.inlineImages.has(node)) {
       await prepareInlineImage(env, node);
     } else if (node.type === "htmlInline" && !env.inlineHtml.has(node)) {
-      env.inlineHtml.set(node, await prepareInlineHtml(env, node));
+      await prepareHtmlInline(env, node);
     }
   }
 }

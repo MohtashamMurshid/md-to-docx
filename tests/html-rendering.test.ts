@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { convertMarkdownToDocx, MarkdownConversionError } from "../src/index.js";
+import JSZip from "jszip";
+import {
+  convertMarkdownToBuffer,
+  convertMarkdownToDocx,
+  MarkdownConversionError,
+} from "../src/index.js";
 import type { ConversionWarning, Options } from "../src/types.js";
 import { getDocumentXml } from "./helpers.js";
 
@@ -177,6 +182,22 @@ describe("htmlRendering", () => {
     expect(performance.now() - started).toBeLessThan(baseline * 3 + 500);
     expect(warnings.map((warning) => warning.code)).toContain("HTML_FALLBACK");
   }, 60_000);
+
+  it("still embeds a Markdown image inside inline HTML that falls back", async () => {
+    const png =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAGgwJ/vk9yBgAAAABJRU5ErkJggg==";
+    const warnings: ConversionWarning[] = [];
+    const zip = await JSZip.loadAsync(
+      await convertMarkdownToBuffer(`x${"<b>".repeat(600)}![pixel](${png})`, {
+        ...HTML_ON,
+        onWarning: (warning) => warnings.push(warning),
+      }),
+    );
+
+    expect(warnings.map((warning) => warning.code)).toContain("HTML_FALLBACK");
+    expect(warnings.map((warning) => warning.code)).not.toContain("IMAGE_FALLBACK");
+    expect(Object.keys(zip.files).some((name) => name.startsWith("word/media/"))).toBe(true);
+  });
 
   it.each([
     { name: "text", html: "<p>the word pagebreak</p>", text: "the word pagebreak" },

@@ -1,3 +1,9 @@
+## [4.7.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.6.0...v4.7.0) (2026-11-16)
+
+### Features
+
+* **watermark:** add a text watermark to every section's headers ([#111](https://github.com/MohtashamMurshid/md-to-docx/issues/111)) ([6f80fdf](https://github.com/MohtashamMurshid/md-to-docx/commit/6f80fdfb5d781862e2a0aef7869acbe67c62d390))
+
 ## [4.6.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.5.0...v4.6.0) (2026-11-16)
 
 ### Features

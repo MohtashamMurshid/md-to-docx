@@ -1,3 +1,9 @@
+## [4.5.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.4.0...v4.5.0) (2026-11-16)
+
+### Features
+
+* **footnotes:** render footnotes as endnotes on request ([#109](https://github.com/MohtashamMurshid/md-to-docx/issues/109)) ([35be376](https://github.com/MohtashamMurshid/md-to-docx/commit/35be376ce5f7db3ae0fb8181c867bc2edd4d429c))
+
 ## [4.4.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.3.0...v4.4.0) (2026-11-16)
 
 ### Features

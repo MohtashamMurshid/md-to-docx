@@ -324,10 +324,23 @@ export interface Options {
    * native footnotes at the bottom of each page.
    */
   footnotes?: FootnoteOptions;
+  /** How GFM task-list boxes (`- [ ]`, `- [x]`) render. */
+  taskLists?: TaskListOptions;
   /** Trusted programmatic renderer plugins. Functions cannot be loaded from CLI JSON. */
   plugins?: readonly AnyMarkdownDocxPlugin[];
   /** Deterministic conflict handling for overlapping plugin handlers. */
   pluginOptions?: PluginOptions;
+}
+
+export type TaskListCheckboxStyle = "text" | "content-control";
+
+export interface TaskListOptions {
+  /**
+   * "text" (the default) writes each box as a ☐ or ☒ character.
+   * "content-control" writes a Word checkbox content control, which readers
+   * click to toggle, starting in the Markdown's checked state.
+   */
+  checkboxes?: TaskListCheckboxStyle;
 }
 
 export type FootnotePlacement = "footnotes" | "endnotes";
@@ -553,6 +566,8 @@ export interface PatchMarkdownOptions {
    * Disabled by default.
    */
   htmlRendering?: HtmlRenderingOptions;
+  /** How GFM task-list boxes render in patch content. Defaults to text. */
+  taskLists?: TaskListOptions;
   /** Trusted programmatic renderer plugins used for every placeholder patch. */
   plugins?: readonly AnyMarkdownDocxPlugin[];
   pluginOptions?: PluginOptions;

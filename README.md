@@ -510,7 +510,7 @@ await patchMarkdownInDocxToBuffer(template, patches, {
 Supported in placeholder patches:
 
 - Node-first `.docx` patching from an existing DOCX buffer.
-- Document-level placeholder replacement with generated paragraphs, headings, tables, blockquotes, code blocks, links, images, ordered and bullet lists, footnotes, captions, cross-references, native TOCs, and page breaks.
+- Document-level placeholder replacement with generated paragraphs, headings, tables, blockquotes, code blocks, links, images, ordered and bullet lists, task lists (including `taskLists.checkboxes: "content-control"`), footnotes, captions, cross-references, native TOCs, and page breaks.
 - Preserving existing package parts that are not replaced by the placeholder patch.
 - Configurable markdown table width through `tableWidthTwips` when the reference template uses non-default margins or page geometry.
 
@@ -1116,7 +1116,7 @@ await convertMarkdownToDocx(markdown, {
 | Mermaid diagrams  | `````mermaid                   | Opt-in image rendering; code fallback                |
 | Chart blocks      | `````chart / chartjs           | Opt-in PNG or native Word charts; Chart.js-like JSON |
 | Lists             | `-`, `*`, `1.`                 | Bullet, numbered, nested, rich formatting inside     |
-| Task lists        | `- [ ]`, `- [x]`, `- [X]`     | GFM; unchecked `☐`, checked `☒`; preserves nesting   |
+| Task lists        | `- [ ]`, `- [x]`, `- [X]`     | GFM; unchecked `☐`, checked `☒`, or clickable Word checkboxes with `taskLists.checkboxes`; preserves nesting |
 | Tables            | `\| a \| b \|`                 | GFM tables                                           |
 | Blockquotes       | `> text`                       |                                                      |
 | Callouts          | `> [!NOTE]`                    | GitHub-style callout blocks                          |
@@ -1136,7 +1136,13 @@ Task-list checkboxes use Unicode ballot-box text (`☐` U+2610 and `☒` U+2612)
 inside the existing Word list paragraph. This deterministic representation has
 no form controls, macros, or font-specific Wingdings encoding, so task items
 retain normal bullet/number markers, nesting, and inline formatting across DOCX
-readers. The checkboxes are display-only, not interactive controls.
+readers. By default the checkboxes are display-only, not interactive controls.
+
+Set `taskLists: { checkboxes: "content-control" }` to render each box as a Word
+checkbox content control instead. Readers click it to toggle it, and it starts
+in the Markdown's state: `- [x]` is checked. The control shows the same `☐` and
+`☒` symbols in MS Gothic, and works in placeholder patches too. The control is
+a Word 2010 (`w14`) extension; readers without it show the symbol as plain text.
 
 Reference-style generation supports the same Markdown surface, including ordered/bullet lists, tables, images, links, footnotes, and generated TOCs. Package-level parts produced from Markdown remain owned by the converter; reference numbering and presentation parts are merged around them with collision-safe IDs.
 
@@ -1231,6 +1237,7 @@ interface Options {
   htmlRendering?: HtmlRenderingOptions;
   captions?: CaptionOptions;
   footnotes?: FootnoteOptions;
+  taskLists?: TaskListOptions;
   plugins?: readonly MarkdownDocxPlugin[];
   pluginOptions?: PluginOptions;
   textReplacements?: TextReplacement[];
@@ -1246,6 +1253,12 @@ Every option below is off by default; omitting one leaves output byte-for-byte u
 | Field       | Type                         | Default       | Description |
 | ----------- | ---------------------------- | ------------- | ----------- |
 | `placement` | `"footnotes" \| "endnotes"` | `"footnotes"` | `"endnotes"` writes Markdown footnotes as Word endnotes at the end of the document, numbered 1, 2, 3. Not supported in placeholder patching. |
+
+#### `TaskListOptions`
+
+| Field        | Type                              | Default  | Description |
+| ------------ | --------------------------------- | -------- | ----------- |
+| `checkboxes` | `"text" \| "content-control"`    | `"text"` | `"content-control"` renders `- [ ]` and `- [x]` as clickable Word checkboxes that keep their checked state. Also accepted by `PatchMarkdownOptions`. |
 
 #### `ImageHandlingOptions`
 
@@ -1346,6 +1359,7 @@ interface PatchMarkdownOptions {
   mermaidRendering?: MermaidRenderingOptions;
   chartRendering?: ChartRenderingOptions;
   htmlRendering?: HtmlRenderingOptions;
+  taskLists?: TaskListOptions;
   plugins?: readonly MarkdownDocxPlugin[];
   pluginOptions?: PluginOptions;
   textReplacements?: TextReplacement[];

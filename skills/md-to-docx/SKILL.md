@@ -196,6 +196,7 @@ Each is off by default and works from a CLI `--options` JSON file. Where patch m
 | `toc.tabLeader` | `dot`, `hyphen`, `underscore`, `middleDot`, `none` | `dot` | supported |
 | `toc.prefillPageNumbers` | `true` estimates TOC page numbers so Word does not ask to update fields on open | `false` | supported |
 | `footnotes.placement` | `footnotes`, `endnotes` (Word endnotes at the end of the document, numbered 1, 2, 3) | `footnotes` | `endnotes` rejected |
+| `taskLists.checkboxes` | `text` (`☐`/`☒` characters), `content-control` (clickable Word checkboxes, checked state kept) | `text` | supported |
 
 ## Troubleshooting
 

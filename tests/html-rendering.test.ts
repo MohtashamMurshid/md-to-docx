@@ -153,25 +153,30 @@ describe("htmlRendering", () => {
   });
 
   it.each([
-    { name: "200,000 nested block <div>s", markdown: `${"<div>".repeat(200_000)}deep`, limit: 5_000 },
-    { name: "100,000 unclosed inline <b>s", markdown: `x${"<b>".repeat(100_000)}deep`, limit: 5_000 },
+    { name: "200,000 nested block <div>s", markdown: `${"<div>".repeat(200_000)}deep` },
+    { name: "100,000 unclosed inline <b>s", markdown: `x${"<b>".repeat(100_000)}deep` },
     // HTML ignores the slash on a non-void start tag, so these nest too.
-    { name: "200,000 block <div/>s", markdown: `${"<div/>".repeat(200_000)}deep`, limit: 5_000 },
-    { name: "200,000 inline <span/>s", markdown: `x${"<span/>".repeat(200_000)}deep`, limit: 5_000 },
-    { name: "20,000 unclosed inline <b>s before math", markdown: `x${"<b>".repeat(20_000)}$x$`, limit: 5_000 },
-    { name: "a 200 KB unclosed tag", markdown: `<div><a${"b".repeat(200_000)}`, limit: 1_000 },
-  ])("falls back without quadratic parsing for $name", async ({ markdown, limit }) => {
+    { name: "200,000 block <div/>s", markdown: `${"<div/>".repeat(200_000)}deep` },
+    { name: "200,000 inline <span/>s", markdown: `x${"<span/>".repeat(200_000)}deep` },
+    { name: "20,000 unclosed inline <b>s before math", markdown: `x${"<b>".repeat(20_000)}$x$` },
+    { name: "a 200 KB unclosed tag", markdown: `<div><a${"b".repeat(200_000)}` },
+  ])("falls back without quadratic parsing for $name", async ({ markdown }) => {
     const warnings: ConversionWarning[] = [];
-    const started = performance.now();
+    // Compared with the same input with HTML rendering off, so the check holds
+    // on any machine; the quadratic cases took 50-200 times longer.
+    const baselineStarted = performance.now();
+    await render(markdown);
+    const baseline = performance.now() - baselineStarted;
 
+    const started = performance.now();
     await render(markdown, {
       ...HTML_ON,
       onWarning: (warning) => warnings.push(warning),
     });
 
-    expect(performance.now() - started).toBeLessThan(limit);
+    expect(performance.now() - started).toBeLessThan(baseline * 3 + 500);
     expect(warnings.map((warning) => warning.code)).toContain("HTML_FALLBACK");
-  }, 30_000);
+  }, 60_000);
 
   it.each([
     { name: "text", html: "<p>the word pagebreak</p>", text: "the word pagebreak" },

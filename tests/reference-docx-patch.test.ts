@@ -189,6 +189,11 @@ Hello **team**.
       option: { footnotes: { placement: "endnotes" } },
       expected: "Patch mode does not support footnotes.placement \"endnotes\"",
     },
+    {
+      label: "a watermark",
+      option: { watermark: { text: "DRAFT" } },
+      expected: "Patch mode does not support watermark",
+    },
   ])("rejects $label, which patch mode cannot merge", async ({ option, expected }) => {
     // CLI JSON and plain-JS callers can pass conversion-only options.
     const untyped: object = option;

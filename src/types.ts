@@ -326,10 +326,31 @@ export interface Options {
   footnotes?: FootnoteOptions;
   /** How GFM task-list boxes (`- [ ]`, `- [x]`) render. */
   taskLists?: TaskListOptions;
+  /**
+   * Text drawn faintly behind the body of every page, such as "DRAFT". It
+   * joins each section's headers rather than replacing them.
+   */
+  watermark?: WatermarkOptions;
   /** Trusted programmatic renderer plugins. Functions cannot be loaded from CLI JSON. */
   plugins?: readonly AnyMarkdownDocxPlugin[];
   /** Deterministic conflict handling for overlapping plugin handlers. */
   pluginOptions?: PluginOptions;
+}
+
+export type WatermarkLayout = "diagonal" | "horizontal";
+
+export interface WatermarkOptions {
+  /**
+   * The watermark text, 1 to 100 characters, in Calibri. It is sized to span
+   * the page.
+   */
+  text: string;
+  /** Text color, as RRGGBB. Defaults to Word's silver, C0C0C0. */
+  color?: string;
+  /** From 0 (invisible) to 1 (solid). Defaults to 0.5, Word's semitransparent. */
+  opacity?: number;
+  /** Corner to corner, or level across the page. Defaults to "diagonal". */
+  layout?: WatermarkLayout;
 }
 
 export type TaskListCheckboxStyle = "text" | "content-control";

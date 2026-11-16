@@ -5,7 +5,35 @@ import {
   parseToDocxOptions,
 } from "../src/index.js";
 import type { DocumentSection, Options } from "../src/types.js";
-import { at } from "./helpers.js";
+import { at, getZip } from "./helpers.js";
+
+/** Each section's header parts, by channel, as `[channel, part XML]` pairs. */
+async function sectionHeaders(blob: Blob): Promise<[string, string][][]> {
+  const zip = await getZip(blob);
+  const read = async (name: string) => zip.file(name)!.async("string");
+  const rels = await read("word/_rels/document.xml.rels");
+  const target = (id: string) =>
+    new RegExp(`Id="${id}"[^>]*Target="([^"]+)"`).exec(rels)?.[1] ??
+    new RegExp(`Target="([^"]+)"[^>]*Id="${id}"`).exec(rels)?.[1];
+  const sections = (await read("word/document.xml")).match(
+    /<w:sectPr\b[\s\S]*?<\/w:sectPr>/g,
+  ) ?? [];
+  return Promise.all(
+    sections.map((section) =>
+      Promise.all(
+        Array.from(
+          section.matchAll(
+            /<w:headerReference w:type="(\w+)" r:id="(\w+)"\/>/g,
+          ),
+          async ([, channel, id]): Promise<[string, string]> => [
+            channel!,
+            await read(`word/${target(id!)!}`),
+          ],
+        ),
+      ),
+    ),
+  );
+}
 
 /**
  * Structural guard that lets tests pass deliberately invalid field values
@@ -186,6 +214,73 @@ describe("sections API", () => {
 
     expect(blob).toBeInstanceOf(Blob);
     expect(blob.size).toBeGreaterThan(0);
+  });
+
+  it("adds the watermark to every header, alongside default, first-page and even headers", async () => {
+    const options: Options = {
+      watermark: {
+        text: "DRAFT",
+        color: "FF0000",
+        opacity: 0.3,
+        layout: "horizontal",
+      },
+      template: { headers: { default: { text: "Template header" } } },
+      sections: [
+        {
+          markdown: "# One",
+          titlePage: true,
+          headers: {
+            first: { text: "First page" },
+            even: { markdown: "**Even** page" },
+          },
+        },
+        { markdown: "# Two", titlePage: true },
+        { markdown: "# Three", headers: { default: null } },
+      ],
+    };
+    const headers = await sectionHeaders(await convertMarkdownToDocx("", options));
+    const content = (xml: string) =>
+      Array.from(xml.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g), (m) => m[1]).join("");
+
+    expect(
+      headers.map((section) =>
+        section.map(([channel, xml]) => [channel, content(xml)]),
+      ),
+    ).toEqual([
+      [
+        ["default", "Template header"],
+        ["first", "First page"],
+        ["even", "Even page"],
+      ],
+      [
+        ["default", "Template header"],
+        ["first", ""],
+      ],
+      [["default", ""]],
+    ]);
+    const shapes = headers
+      .flat()
+      .map(([, xml]) => /<v:shape id="([^"]+)"[^>]*>[\s\S]*?<\/v:shape>/.exec(xml));
+    expect(shapes.map((shape) => shape?.[1])).toEqual(
+      [1, 2, 3, 4, 5, 6].map((n) => `PowerPlusWaterMarkObject${n}`),
+    );
+    for (const shape of shapes) {
+      expect(shape?.[0]).toContain('fillcolor="#FF0000"');
+      expect(shape?.[0]).toContain('<v:fill opacity="0.3"/>');
+      expect(shape?.[0]).not.toContain("rotation:");
+      expect(shape?.[0]).toContain('string="DRAFT"');
+    }
+
+    const { watermark: _watermark, ...withoutWatermark } = options;
+    const plain = await sectionHeaders(
+      await convertMarkdownToDocx("", withoutWatermark),
+    );
+    expect(plain.map((section) => section.map(([channel]) => channel))).toEqual([
+      ["default", "first", "even"],
+      ["default"],
+      [],
+    ]);
+    expect(plain.flat().join("")).not.toContain("<w:pict>");
   });
 
   it.each([

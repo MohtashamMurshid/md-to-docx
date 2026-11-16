@@ -23,7 +23,11 @@ import {
 import type { DocxBlockNode, DocxDocumentModel } from "./docxModel.js";
 import type { Root } from "mdast";
 import { MarkdownConversionError } from "./errors.js";
-import { validateInput, validatePatchModeOptions } from "./validation.js";
+import {
+  validateInput,
+  validatePatchModeOptions,
+  validateReferenceModeOptions,
+} from "./validation.js";
 import {
   buildFooters,
   buildHeaders,
@@ -278,6 +282,8 @@ export {
   TextReplacementMode,
   TocOptions,
   TocTabLeader,
+  WatermarkLayout,
+  WatermarkOptions,
 } from "./types.js";
 
 export {
@@ -409,6 +415,7 @@ async function convertMarkdownWithReferenceDocxBytes(
   let reference: Awaited<ReturnType<typeof loadReferenceDocx>>;
   let generated: ArrayBuffer;
   try {
+    validateReferenceModeOptions(options);
     reference = await loadReferenceDocx(
       referenceDocx,
       options.reference,
@@ -764,9 +771,10 @@ function buildDocSections(
     tocInserted = replacedTocChildren.tocInserted;
 
     const headers = buildHeaders(
-      section.config.headers,
+      section.config,
       section.style,
       section.rich,
+      options.watermark,
     );
     const footers = buildFooters(section.config, section.style, section.rich);
 

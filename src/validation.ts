@@ -12,12 +12,17 @@ import {
   SectionPageNumberDisplay,
   SectionPageNumbering,
   SectionPageSize,
+  ReferenceDocxGenerationOptions,
   TaskListOptions,
   TocOptions,
   TocTabLeader,
+  WatermarkOptions,
 } from "./types.js";
 import { MarkdownConversionError } from "./errors.js";
-import { validateAccessibilityOptions } from "./accessibility.js";
+import {
+  validateAccessibilityOptions,
+  validateOoxmlText,
+} from "./accessibility.js";
 import { validateDocumentMetadata } from "./metadata.js";
 import {
   normalizeSectionConfig,
@@ -31,6 +36,7 @@ import {
   checkFields,
   isBlankOrNotString,
   isNotBoolean,
+  isNotHexColor,
   isNotOneOf,
   isNotString,
   scopedContext,
@@ -237,6 +243,41 @@ const TASK_LIST_RULES: readonly AnyFieldRule<TaskListOptions>[] = [
   },
 ];
 
+/** Watermark text longer than this shrinks to fit the page and stops reading as one. */
+const MAX_WATERMARK_TEXT_LENGTH = 100;
+
+const WATERMARK_RULES: readonly AnyFieldRule<WatermarkOptions>[] = [
+  {
+    key: "color",
+    message: "Invalid watermark.color: Must be a 6-character hex color",
+    invalid: isNotHexColor,
+    context: valueContext("color"),
+  },
+  {
+    key: "opacity",
+    message: "Invalid watermark.opacity: Must be a number from 0 to 1",
+    invalid: (opacity) =>
+      typeof opacity !== "number" || !(opacity >= 0 && opacity <= 1),
+    context: valueContext("opacity"),
+  },
+  {
+    key: "layout",
+    message: "Invalid watermark.layout: Must be diagonal or horizontal",
+    invalid: isNotOneOf(["diagonal", "horizontal"]),
+    context: valueContext("layout"),
+  },
+];
+
+function validateWatermarkInput(watermark: WatermarkOptions | undefined): void {
+  checkOptionObject(watermark, "watermark", WATERMARK_RULES);
+  if (watermark === undefined) return;
+  const text: unknown = watermark.text;
+  validateOoxmlText(text, "watermark.text", MAX_WATERMARK_TEXT_LENGTH);
+  if (text.trim().length === 0) {
+    throw new MarkdownConversionError("watermark.text must not be blank");
+  }
+}
+
 /** Options that change only new documents, and would break or be lost in a patch. */
 const PATCH_UNSUPPORTED_OPTIONS: readonly {
   readonly active: (options: Options) => boolean;
@@ -247,7 +288,30 @@ const PATCH_UNSUPPORTED_OPTIONS: readonly {
     message:
       'Patch mode does not support footnotes.placement "endnotes": endnotes cannot be merged into a template. Omit the option to keep footnotes.',
   },
+  {
+    active: (options) => options.watermark !== undefined,
+    message:
+      "Patch mode does not support watermark: the template's headers are kept as they are.",
+  },
 ];
+
+/**
+ * Rejects options that reference-style generation would silently undo: the
+ * reference's headers replace the generated ones, watermark and all, unless
+ * `reference.preserveHeadersAndFooters` is false.
+ */
+export function validateReferenceModeOptions(
+  options: ReferenceDocxGenerationOptions,
+): void {
+  if (
+    options.watermark !== undefined &&
+    options.reference?.preserveHeadersAndFooters !== false
+  ) {
+    throw new MarkdownConversionError(
+      "watermark needs reference.preserveHeadersAndFooters: false, because the reference's headers replace the generated headers that carry it",
+    );
+  }
+}
 
 /**
  * Rejects conversion-only options in patch mode. CLI JSON and plain-JS
@@ -723,6 +787,7 @@ export function validateInput(markdown: string, options: Options): void {
   validateCaptionOptionsInput(options.captions);
   checkOptionObject(options.footnotes, "footnotes", FOOTNOTE_RULES);
   checkOptionObject(options.taskLists, "taskLists", TASK_LIST_RULES);
+  validateWatermarkInput(options.watermark);
   validateImageHandlingInput(options.imageHandling);
   validateChartRenderingInput(options.chartRendering);
   validateMermaidRenderingInput(options.mermaidRendering);

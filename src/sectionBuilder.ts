@@ -12,6 +12,7 @@ import {
   Footer,
   ISectionOptions,
 } from "docx";
+import { TextWatermark } from "docx/watermarks";
 import {
   AlignmentOption,
   DocumentSection,
@@ -23,6 +24,7 @@ import {
   SectionPageNumberDisplay,
   SectionTemplate,
   Style,
+  WatermarkOptions,
 } from "./types.js";
 import type { IPageMarginAttributes } from "docx";
 import { resolveFontFamily } from "./utils/styleUtils.js";
@@ -390,15 +392,32 @@ function createHeaderFooterParagraph(
   });
 }
 
+/**
+ * A paragraph holding only the watermark. Its shape is positioned on the
+ * page, so the paragraph takes no spacing of its own in the header.
+ */
+function watermarkParagraph(watermark: WatermarkOptions): Paragraph {
+  return new Paragraph({
+    spacing: { before: 0, after: 0 },
+    children: [
+      new TextWatermark({
+        text: watermark.text,
+        ...(watermark.color !== undefined ? { color: watermark.color } : {}),
+        ...(watermark.opacity !== undefined
+          ? { opacity: watermark.opacity }
+          : {}),
+        ...(watermark.layout !== undefined ? { layout: watermark.layout } : {}),
+      }),
+    ],
+  });
+}
+
 function createHeaderFromSlot(
-  slot: HeaderFooterSlot | undefined,
+  slot: NonNullable<HeaderFooterSlot>,
   style: Style,
   rich: (Paragraph | Table)[] = [],
-): Header | undefined {
-  if (slot === undefined || slot === null) {
-    return undefined;
-  }
-
+  watermark?: WatermarkOptions,
+): Header {
   return new Header({
     children: [
       ...rich,
@@ -407,6 +426,7 @@ function createHeaderFromSlot(
       (slot.pageNumberDisplay && slot.pageNumberDisplay !== "none")
         ? [createHeaderFooterParagraph(slot, style, "none", "LEFT")]
         : []),
+      ...(watermark ? [watermarkParagraph(watermark)] : []),
     ],
   });
 }
@@ -441,24 +461,43 @@ function createFooterFromSlot(
   });
 }
 
+/**
+ * Whether a watermarked section needs a header on `channel` even with no
+ * header content there: the default header covers every page, and a
+ * first-page or even-page header the section names, or a title page, would
+ * otherwise show those pages without the watermark.
+ */
+function watermarkNeedsHeader(
+  config: SectionConfig,
+  channel: HeaderFooterChannel,
+): boolean {
+  return (
+    channel === "default" ||
+    config.headers?.[channel] !== undefined ||
+    (channel === "first" && config.titlePage === true)
+  );
+}
+
 export function buildHeaders(
-  group: HeaderFooterGroup | undefined,
+  config: SectionConfig,
   style: Style,
   rich = new Map<HeaderFooterSlot, (Paragraph | Table)[]>(),
+  watermark?: WatermarkOptions,
 ): ISectionOptions["headers"] | undefined {
-  if (!group) {
-    return undefined;
-  }
-
   const headers: { default?: Header; first?: Header; even?: Header } = {};
   for (const channel of HEADER_FOOTER_CHANNELS) {
-    const header = createHeaderFromSlot(
-      group[channel],
-      style,
-      rich.get(group[channel] ?? null),
-    );
-    if (header) {
-      headers[channel] = header;
+    const slot = config.headers?.[channel];
+    if (slot) {
+      headers[channel] = createHeaderFromSlot(
+        slot,
+        style,
+        rich.get(slot),
+        watermark,
+      );
+    } else if (watermark && watermarkNeedsHeader(config, channel)) {
+      headers[channel] = new Header({
+        children: [watermarkParagraph(watermark)],
+      });
     }
   }
 

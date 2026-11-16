@@ -1474,6 +1474,42 @@ describe("Rendering: error cases", () => {
       options: { taskLists: ["content-control"] },
       expected: "Invalid taskLists: Must be an object",
     },
+    {
+      label: "a watermark that is not an object",
+      options: { watermark: "DRAFT" },
+      expected: "Invalid watermark: Must be an object",
+    },
+    {
+      label: "a watermark without text",
+      options: { watermark: { color: "FF0000" } },
+      expected: "watermark.text must be a string",
+    },
+    {
+      label: "blank watermark text",
+      options: { watermark: { text: "  " } },
+      expected: "watermark.text must not be blank",
+    },
+    {
+      label: "watermark text over 100 characters",
+      options: { watermark: { text: "x".repeat(101) } },
+      expected: "watermark.text exceeds the maximum length of 100 characters",
+    },
+    {
+      label: "a named watermark colour",
+      options: { watermark: { text: "DRAFT", color: "red" } },
+      expected: "Invalid watermark.color: Must be a 6-character hex color",
+    },
+    {
+      label: "a watermark opacity above 1",
+      options: { watermark: { text: "DRAFT", opacity: 2 } },
+      expected: "Invalid watermark.opacity: Must be a number from 0 to 1",
+    },
+    {
+      label: "an unknown watermark layout",
+      options: { watermark: { text: "DRAFT", layout: "vertical" } },
+      expected: "Invalid watermark.layout: Must be diagonal or horizontal",
+    },
+
   ])("rejects $label", async ({ options, expected }) => {
     // Plain-JS and JSON callers can pass any shape.
     const untyped: object = options;

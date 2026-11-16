@@ -1,6 +1,7 @@
 import { packDocumentWithRepairs } from "./packageRepairs.js";
 import { loadPatchPackage, mergePatchPackage } from "./patchPackage.js";
 import {
+  DocumentProtectionType,
   NumberFormat,
   Paragraph,
   Table,
@@ -258,6 +259,7 @@ export {
   MermaidRenderingOptions,
   Options,
   PatchMarkdownOptions,
+  ProtectionOptions,
   ReferenceDocxErrorCode,
   ReferenceDocxErrorContext,
   ReferenceDocxBytes,
@@ -572,6 +574,11 @@ async function buildDocxOptions(
       ? { features: { updateFields: true } }
       : {}),
     ...(await tocPageNumberOptions(tocInserted, options)),
+    // No password: docx hashes one with a random salt, which would make
+    // output differ on every run, and a password adds no real security.
+    ...(options.protection?.readOnly === true
+      ? { protection: { type: DocumentProtectionType.READ_ONLY } }
+      : {}),
     ...metadataProperties(normalizedMetadata),
   };
 }

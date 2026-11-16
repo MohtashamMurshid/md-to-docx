@@ -1,3 +1,9 @@
+## [4.8.1](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.8.0...v4.8.1) (2026-11-16)
+
+### Bug Fixes
+
+* **images:** fetch remote images on every supported Node version ([#113](https://github.com/MohtashamMurshid/md-to-docx/issues/113)) ([c9f6727](https://github.com/MohtashamMurshid/md-to-docx/commit/c9f6727941767a00b5812f52826c44f1027d0577))
+
 ## [4.8.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.7.0...v4.8.0) (2026-11-16)
 
 ### Features

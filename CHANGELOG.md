@@ -1,3 +1,9 @@
+## [4.6.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.5.0...v4.6.0) (2026-11-16)
+
+### Features
+
+* **lists:** render task boxes as clickable Word checkboxes on request ([#110](https://github.com/MohtashamMurshid/md-to-docx/issues/110)) ([2c0d5cd](https://github.com/MohtashamMurshid/md-to-docx/commit/2c0d5cd9f308aa501d79484e5ab1bdc6595a349b))
+
 ## [4.5.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.4.0...v4.5.0) (2026-11-16)
 
 ### Features

@@ -1,3 +1,9 @@
+## [4.4.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.3.0...v4.4.0) (2026-11-16)
+
+### Features
+
+* **html:** render raw HTML as native Word content, sanitized ([#108](https://github.com/MohtashamMurshid/md-to-docx/issues/108)) ([170cec2](https://github.com/MohtashamMurshid/md-to-docx/commit/170cec2de38c603670096421b8d8f27f52067b96))
+
 ## [4.3.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.2.0...v4.3.0) (2026-11-15)
 
 ### Features

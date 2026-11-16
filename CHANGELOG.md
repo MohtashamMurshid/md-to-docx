@@ -1,3 +1,9 @@
+## [4.8.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.7.0...v4.8.0) (2026-11-16)
+
+### Features
+
+* **protection:** open documents read-only in Word on request ([#112](https://github.com/MohtashamMurshid/md-to-docx/issues/112)) ([dd14b1d](https://github.com/MohtashamMurshid/md-to-docx/commit/dd14b1d0bdd46a3a6048f31164e9e55128b0cc1b))
+
 ## [4.7.0](https://github.com/MohtashamMurshid/md-to-docx/compare/v4.6.0...v4.7.0) (2026-11-16)
 
 ### Features

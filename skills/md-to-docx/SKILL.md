@@ -185,6 +185,18 @@ Support includes:
 | `tableLayout` | `autofit`, `fixed` | `autofit` |
 | `tocFontSize` | number | library default |
 
+## Document Options Quick Reference
+
+Each is off by default and works from a CLI `--options` JSON file. Where patch mode (`--patches`) cannot apply one, it fails with an error instead of ignoring it.
+
+| Option | Values | Default | Patch mode |
+|---|---|---|---|
+| `htmlRendering.enabled` | `true` renders raw HTML as native Word content, sanitized: no scripts, links limited to http(s)/mailto/tel, images follow `imageHandling` | `false` | supported |
+| `chartRendering.output` | `image` (PNG), `native` (editable Word chart; needs `chartRendering.enabled: true`) | `image` | `native` falls back to the PNG with a warning |
+| `toc.tabLeader` | `dot`, `hyphen`, `underscore`, `middleDot`, `none` | `dot` | supported |
+| `toc.prefillPageNumbers` | `true` estimates TOC page numbers so Word does not ask to update fields on open | `false` | supported |
+| `footnotes.placement` | `footnotes`, `endnotes` (Word endnotes at the end of the document, numbered 1, 2, 3) | `footnotes` | `endnotes` rejected |
+
 ## Troubleshooting
 
 - If CLI fails with argument errors, re-check that exactly two positional paths are provided.

@@ -1,7 +1,14 @@
 import { packDocumentWithRepairs } from "./packageRepairs.js";
 import { loadPatchPackage, mergePatchPackage } from "./patchPackage.js";
-import { Paragraph, Table, IPropertiesOptions, ISectionOptions } from "docx";
 import {
+  NumberFormat,
+  Paragraph,
+  Table,
+  IPropertiesOptions,
+  ISectionOptions,
+} from "docx";
+import {
+  FootnotePlacement,
   MarkdownDocxPatch,
   Options,
   PatchMarkdownOptions,
@@ -16,7 +23,7 @@ import {
 import type { DocxBlockNode, DocxDocumentModel } from "./docxModel.js";
 import type { Root } from "mdast";
 import { MarkdownConversionError } from "./errors.js";
-import { validateInput } from "./validation.js";
+import { validateInput, validatePatchModeOptions } from "./validation.js";
 import {
   buildFooters,
   buildHeaders,
@@ -233,6 +240,8 @@ export {
   DataUrlImageHandlingOptions,
   DocumentSection,
   DocumentMetadata,
+  FootnoteOptions,
+  FootnotePlacement,
   HeaderFooterContent,
   HeaderFooterGroup,
   HtmlRenderingOptions,
@@ -546,7 +555,7 @@ async function buildDocxOptions(
       config: numberingConfigs,
     },
     sections,
-    ...(Object.keys(footnotes).length > 0 ? { footnotes } : {}),
+    ...documentNotes(options, footnotes),
     styles: {
       default: buildDefaultStyles(style),
     },
@@ -566,6 +575,22 @@ async function tocPageNumberOptions(
   return tocInserted && prefillsTocPageNumbers(options.toc)
     ? { pageNumbers: await loadTocPageNumberEstimator() }
     : {};
+}
+
+/** The document key Markdown footnotes are written under: footnotes or endnotes. */
+function notePlacement(options: Options): FootnotePlacement {
+  return options.footnotes?.placement ?? "footnotes";
+}
+
+/** The rendered Markdown footnotes, under the document key the placement names. */
+function documentNotes(
+  options: Options,
+  notes: RenderSession["totals"]["footnotes"],
+): Pick<IPropertiesOptions, "footnotes" | "endnotes"> {
+  if (Object.keys(notes).length === 0) return {};
+  return notePlacement(options) === "endnotes"
+    ? { endnotes: notes }
+    : { footnotes: notes };
 }
 
 /** Caption references and a native TOC need Word to refresh fields on open. */
@@ -744,7 +769,14 @@ function buildDocSections(
     const footers = buildFooters(section.config, section.style, section.rich);
 
     return {
-      properties: buildSectionProperties(section.config),
+      properties: {
+        ...buildSectionProperties(section.config),
+        // Word numbers endnotes i, ii, iii unless told otherwise; NOTEREF
+        // fields and the Markdown source both count 1, 2, 3.
+        ...(notePlacement(options) === "endnotes"
+          ? { endnoteProperties: { numberFormat: { type: NumberFormat.DECIMAL } } }
+          : {}),
+      },
       ...(headers ? { headers } : {}),
       ...(footers ? { footers } : {}),
       children: replacedTocChildren.children,
@@ -1025,6 +1057,7 @@ function validatePatchInputs(
 ): void {
   validateDocumentMetadata(options.metadata);
   validateAccessibilityOptions(options.accessibility);
+  validatePatchModeOptions(options);
   // Read as unknown: patches may come from untyped JS or CLI JSON.
   const patchesInput: unknown = patches;
   if (

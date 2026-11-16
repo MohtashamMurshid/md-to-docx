@@ -1,4 +1,10 @@
-import { Bookmark, FootnoteReferenceRun, SimpleField, TextRun } from "docx";
+import {
+  Bookmark,
+  EndnoteReferenceRun,
+  FootnoteReferenceRun,
+  SimpleField,
+  TextRun,
+} from "docx";
 import type { ParagraphChild } from "docx";
 import type {
   DocxCaption,
@@ -68,7 +74,10 @@ function crossReferenceField(
   );
 }
 
-/** A native footnote reference; repeats point back at the first with a NOTEREF field. */
+/**
+ * A native footnote or endnote reference, as `footnotes.placement` says;
+ * repeats point back at the first with a NOTEREF field, which cites either.
+ */
 function footnoteReference(
   env: RenderEnv,
   node: DocxFootnoteReferenceNode,
@@ -83,7 +92,11 @@ function footnoteReference(
   }
   return new Bookmark({
     id: bookmarkId,
-    children: [new FootnoteReferenceRun(adjustedId)],
+    children: [
+      env.options.footnotes?.placement === "endnotes"
+        ? new EndnoteReferenceRun(adjustedId)
+        : new FootnoteReferenceRun(adjustedId),
+    ],
   });
 }
 

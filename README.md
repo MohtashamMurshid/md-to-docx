@@ -520,6 +520,7 @@ Current limitations:
 - This does not append to the end of a document unless the template contains a placeholder at that location.
 - Markdown table width is not inferred from the reference DOCX. Set `tableWidthTwips` to match the placeholder section's content width when the template differs from the default A4 portrait width.
 - New Word comments remain unsupported in patch Markdown. Existing template comments are preserved.
+- Conversion-only document options are rejected with a `MarkdownConversionError` rather than ignored: `footnotes.placement: "endnotes"`.
 - Browser use accepts in-memory DOCX bytes; Node remains the primary tested environment.
 
 A placeholder replaces its containing paragraph, including when its text spans multiple Word runs. Repeated placeholders are all replaced by default; `recursive: false` replaces only the first occurrence of each name. Inserted text is never reinterpreted as another placeholder. Repeated copies receive distinct bookmark and footnote IDs. The merger preserves existing named styles and applies explicit Markdown formatting. `keepOriginalStyles` remains accepted for API compatibility; it does not override explicit patch formatting.
@@ -1124,7 +1125,7 @@ await convertMarkdownToDocx(markdown, {
 | Figure captions   | `: Caption {#fig:id}`          | Place after a standalone image; automatic numbering      |
 | Table captions    | `: Caption {#tbl:id}`          | Place after a GFM table; automatic numbering             |
 | Cross-references  | `[@fig:id]`, `[@tbl:id]`       | Native clickable Word references; forward refs supported |
-| Footnotes         | `Text[^1]` + `[^1]: Note text` | Native Word footnotes                                |
+| Footnotes         | `Text[^1]` + `[^1]: Note text` | Native Word footnotes, or endnotes with `footnotes.placement` |
 | Horizontal rule   | `---`, `***`, `___`            | Native Word paragraph border                         |
 | Table of Contents | `[TOC]`                        | Clickable, auto-populated                            |
 | Page break        | `\pagebreak`                   | Place on its own line                                |
@@ -1148,6 +1149,16 @@ Text with a note[^1].
 ```
 
 Referenced definitions are emitted to `word/footnotes.xml` as native Word footnotes. Inline formatting, safe links, inline code, lists, blockquotes, images, and code blocks in footnote bodies are rendered where the DOCX footnote model supports them. Tables inside footnote definitions are flattened to plain ` | `-separated text rows, and nested footnote references inside footnote bodies are kept as literal `[^id]` text. Unresolved references are also kept as literal text so they remain visible in the output.
+
+Set `footnotes: { placement: "endnotes" }` to collect the same notes at the end of the document as native Word endnotes in `word/endnotes.xml`:
+
+```typescript
+await convertMarkdownToDocx(markdown, {
+  footnotes: { placement: "endnotes" },
+});
+```
+
+Endnotes keep everything footnotes support: formatting, links, images, lists, and NOTEREF fields for repeated references. They are numbered 1, 2, 3, like the Markdown, rather than Word's default i, ii, iii. The default, `"footnotes"`, leaves output unchanged. Placeholder patching rejects `"endnotes"` with a `MarkdownConversionError`, because endnotes cannot be merged into a template.
 
 ## API reference
 
@@ -1219,6 +1230,7 @@ interface Options {
   chartRendering?: ChartRenderingOptions;
   htmlRendering?: HtmlRenderingOptions;
   captions?: CaptionOptions;
+  footnotes?: FootnoteOptions;
   plugins?: readonly MarkdownDocxPlugin[];
   pluginOptions?: PluginOptions;
   textReplacements?: TextReplacement[];
@@ -1226,6 +1238,14 @@ interface Options {
   imageHandling?: ImageHandlingOptions;
 }
 ```
+
+Every option below is off by default; omitting one leaves output byte-for-byte unchanged. They work the same from a CLI `--options` JSON file.
+
+#### `FootnoteOptions`
+
+| Field       | Type                         | Default       | Description |
+| ----------- | ---------------------------- | ------------- | ----------- |
+| `placement` | `"footnotes" \| "endnotes"` | `"footnotes"` | `"endnotes"` writes Markdown footnotes as Word endnotes at the end of the document, numbered 1, 2, 3. Not supported in placeholder patching. |
 
 #### `ImageHandlingOptions`
 

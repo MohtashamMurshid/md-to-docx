@@ -5,21 +5,32 @@ import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
 
 const W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 
+/** Note parts whose lists docx numbers before their numbering is registered. */
+const NOTE_PARTS = [
+  ["footnotes", "word/footnotes.xml"],
+  ["endnotes", "word/endnotes.xml"],
+] as const;
+
 /**
  * Pack after registering lists that docx otherwise discovers too late in
- * footnotes, then renumber the IDs docx draws from process-wide counters.
+ * footnotes and endnotes, then renumber the IDs docx draws from process-wide
+ * counters.
  */
 export async function packDocumentWithRepairs(
   options: IPropertiesOptions,
 ): Promise<Blob> {
   const document = new Document(options);
-  const hasFootnotes = Object.keys(options.footnotes ?? {}).length > 0;
-  if (hasFootnotes)
+  const noteParts = NOTE_PARTS.filter(
+    ([key]) => Object.keys(options[key] ?? {}).length > 0,
+  ).map(([, part]) => part);
+  if (noteParts.length > 0)
     for (const { reference } of options.numbering?.config ?? [])
       document.Numbering.createConcreteNumberingInstance(reference, 0);
   const blob = await Packer.toBlob(document);
   const zip = await JSZip.loadAsync(await blob.arrayBuffer());
-  let changed = hasFootnotes && (await repairFootnoteNumbering(zip, document));
+  let changed = false;
+  for (const part of noteParts)
+    changed = (await repairNoteNumbering(zip, document, part)) || changed;
   changed = (await renumberProcessWideIds(zip)) || changed;
   changed = (await renumberHyperlinkRelationships(zip)) || changed;
   changed = (await normalizeChartParts(zip)) || changed;
@@ -30,13 +41,14 @@ export async function packDocumentWithRepairs(
   );
 }
 
-async function repairFootnoteNumbering(
+async function repairNoteNumbering(
   zip: JSZip,
   document: Document,
+  part: string,
 ): Promise<boolean> {
   let changed = false;
-  const footnotes = new DOMParser().parseFromString(
-    await zip.file("word/footnotes.xml")!.async("string"),
+  const notes = new DOMParser().parseFromString(
+    await zip.file(part)!.async("string"),
     "application/xml",
   );
   const numberingIds = new Map(
@@ -48,7 +60,7 @@ async function repairFootnoteNumbering(
     ),
   );
   for (const reference of Array.from(
-    footnotes.getElementsByTagNameNS(W, "numId"),
+    notes.getElementsByTagNameNS(W, "numId"),
   )) {
     const id = numberingIds.get(reference.getAttributeNS(W, "val")!);
     if (id !== undefined) {
@@ -56,11 +68,7 @@ async function repairFootnoteNumbering(
       changed = true;
     }
   }
-  if (changed)
-    zip.file(
-      "word/footnotes.xml",
-      new XMLSerializer().serializeToString(footnotes),
-    );
+  if (changed) zip.file(part, new XMLSerializer().serializeToString(notes));
   return changed;
 }
 

@@ -183,6 +183,24 @@ Hello **team**.
     ).rejects.toThrow("Markdown element count exceeds maxElements");
   });
 
+  it.each([
+    {
+      label: "endnote placement",
+      option: { footnotes: { placement: "endnotes" } },
+      expected: "Patch mode does not support footnotes.placement \"endnotes\"",
+    },
+  ])("rejects $label, which patch mode cannot merge", async ({ option, expected }) => {
+    // CLI JSON and plain-JS callers can pass conversion-only options.
+    const untyped: object = option;
+    await expect(
+      patchMarkdownInDocxToBuffer(
+        await createTemplateWithPlaceholders(["body"]),
+        { body: "Note[^n].\n\n[^n]: Body." },
+        untyped,
+      ),
+    ).rejects.toThrow(expected);
+  });
+
   it("merges numbering for ordered lists", async () => {
     const output = await patchMarkdownInDocxToBuffer(
       fs.readFileSync(fixturePath),
